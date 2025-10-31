@@ -59,6 +59,14 @@ offset_right = 940.0
 offset_bottom = 36.0
 text = "Comprar Torre"
 
+[node name="BtnBuyBlock" type="Button" parent="CanvasLayer/HUD/TopBar"]
+layout_mode = 0
+offset_left = 950.0
+offset_top = 8.0
+offset_right = 1080.0
+offset_bottom = 36.0
+text = "Comprar Bloco"
+
 [node name="UpgradeOverlay" type="Control" parent="CanvasLayer"]
 visible = false
 layout_mode = 3
