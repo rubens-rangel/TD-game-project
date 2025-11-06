@@ -66,6 +66,8 @@ var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_tent: Texture2D
 var tex_grass: Texture2D
+var tex_path: Texture2D  # Textura para o caminho (chão onde inimigos andam)
+var tex_wall: Texture2D  # Textura para barreira/cerca (paredes do labirinto)
 
 # Wave management agora em wave_manager
 func _wave_factor() -> float:
@@ -88,6 +90,11 @@ var hero := {
 }
 
 func _try_load(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		return load(path)
+	return null
+
+func _try_load_music(path: String) -> AudioStream:
 	if ResourceLoader.exists(path):
 		return load(path)
 	return null
@@ -128,6 +135,8 @@ func _ready() -> void:
 	tex_enemy_robot = _try_load("res://assets/images/enemy_robot.png")
 	tex_tent = _try_load("res://assets/images/tent.png")
 	tex_grass = _try_load("res://assets/images/grass.png")
+	tex_path = _try_load("res://assets/images/path.png")  # Textura do caminho
+	tex_wall = _try_load("res://assets/images/wall.png")  # Textura da barreira/cerca
 
 	# wire UI
 	var tb = $CanvasLayer/HUD/TopBar
@@ -227,6 +236,30 @@ func _ready() -> void:
 		go.get_node("Panel/BtnRestart").pressed.connect(_on_game_over_restart)
 		go.visible = false
 
+	# Carregar e tocar música de fundo do jogo
+	var music_player = get_node_or_null("MusicPlayer")
+	if music_player:
+		var music = _try_load_music("res://assets/music/game_music.ogg")
+		if music == null:
+			# Tentar formato alternativo
+			music = _try_load_music("res://assets/music/game_music.mp3")
+		if music == null:
+			# Se não houver música específica do jogo, tentar música do menu
+			music = _try_load_music("res://assets/music/menu_music.ogg")
+			if music == null:
+				music = _try_load_music("res://assets/music/menu_music.mp3")
+		if music != null:
+			# Configurar loop se for AudioStreamOggVorbis ou AudioStreamMP3
+			if music is AudioStreamOggVorbis:
+				music.loop = true
+			elif music is AudioStreamMP3:
+				music.loop = true
+			music_player.stream = music
+			music_player.play()
+			print("Game: Música de fundo iniciada")
+		else:
+			print("Game: Música de fundo não encontrada")
+	
 	set_process(true)
 	set_physics_process(true)
 
@@ -455,11 +488,25 @@ func _draw() -> void:
 		for c in range(GameConstants.GRID_COLS):
 			var tile_x := float(c * GameConstants.TILE_SIZE)
 			var tile_y := float(r * GameConstants.TILE_SIZE)
-			if grid_manager.grid[r][c] == 0 and tex_grass != null:
-				draw_texture_rect(tex_grass, Rect2(tile_x, tile_y, GameConstants.TILE_SIZE, GameConstants.TILE_SIZE), true)
-			else:
-				var col = Color(0.18,0.19,0.23) if grid_manager.grid[r][c] == 0 else Color(0.29,0.32,0.40)
-				draw_rect(Rect2(tile_x, tile_y, GameConstants.TILE_SIZE, GameConstants.TILE_SIZE), col)
+			var tile_rect := Rect2(tile_x, tile_y, GameConstants.TILE_SIZE, GameConstants.TILE_SIZE)
+			
+			if grid_manager.grid[r][c] == 0:  # Caminho (chão)
+				if tex_path != null:
+					# Usar textura do caminho
+					draw_texture_rect(tex_path, tile_rect, false)
+				elif tex_grass != null:
+					# Fallback para grama antiga
+					draw_texture_rect(tex_grass, tile_rect, true)
+				else:
+					# Cor padrão do chão
+					draw_rect(tile_rect, Color(0.18,0.19,0.23))
+			else:  # Barreira/cerca (parede)
+				if tex_wall != null:
+					# Usar textura da barreira
+					draw_texture_rect(tex_wall, tile_rect, false)
+				else:
+					# Cor padrão da parede
+					draw_rect(tile_rect, Color(0.29,0.32,0.40))
 	# base com transparência moderada - usar coordenadas exatas do grid
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)  # 3
 	var base_start_col = grid_manager.center.x - base_half_size  # 14

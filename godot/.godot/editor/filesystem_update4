@@ -1,5 +1,2 @@
+res://scripts/Menu.gd
 res://scripts/Game.gd
-res://scripts/GridManager.gd
-res://scripts/Pathfinder.gd
-res://scripts/WaveManager.gd
-res://scripts/Constants.gd
