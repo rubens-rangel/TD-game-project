@@ -15,3 +15,7 @@ Observações:
 - Se um arquivo não existir, o jogo usa formas/cores como fallback.
 - Você pode usar outros tamanhos; o jogo fará ajuste simples de escala.
 
+
+
+
+
