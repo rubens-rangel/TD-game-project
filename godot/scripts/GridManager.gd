@@ -151,7 +151,8 @@ func world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
 	
 	# Usar floor para obter a célula do grid que contém essa posição
-	# Ajustar para garantir que torres adjacentes compartilhem bordas sem espaçamento
+	# IMPORTANTE: Estruturas adjacentes são permitidas - cada estrutura ocupa apenas suas próprias células
+	# Não há verificação de espaçamento mínimo entre estruturas
 	var gx = int(floor(relative_col / grid_size_tiles))
 	var gy = int(floor(relative_row / grid_size_tiles))
 	
@@ -193,6 +194,7 @@ func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int) -> b
 		return false
 	
 	# Verificar se todas as células necessárias estão livres
+	# IMPORTANTE: Permitir estruturas adjacentes - só verificar células que serão ocupadas
 	for dy in range(size):
 		for dx in range(size):
 			var gx = grid_x + dx
@@ -203,6 +205,8 @@ func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int) -> b
 			if base_grid.size() <= gy or base_grid[gy].size() <= gx:
 				return false
 			var cell_value = base_grid[gy][gx]
+			# Permitir apenas se a célula estiver livre (valor 0)
+			# Estruturas adjacentes são permitidas porque não verificamos células fora da área ocupada
 			if cell_value != 0:
 				return false
 	return true

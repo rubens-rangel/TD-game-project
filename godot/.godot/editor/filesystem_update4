@@ -10,3 +10,5 @@ res://scripts/managers/ResourceManager.gd
 res://scripts/managers/StructureManager.gd
 res://scripts/managers/TowerManager.gd
 res://scripts/managers/UIManager.gd
+res://scripts/GridManager.gd
+res://scripts/Menu.gd

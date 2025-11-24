@@ -18,6 +18,7 @@ const SLOW_TOWER_COST := 25
 const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
 const BOOST_TOWER_COST := 35
+const SHOCK_TOWER_COST := 40
 const WALL_COST := 10
 const HEALING_STATION_COST := 50
 
@@ -29,6 +30,7 @@ const SLOW_TOWER_SIZE_GRID := 3
 const AOE_TOWER_SIZE_GRID := 3
 const SNIPER_TOWER_SIZE_GRID := 3
 const BOOST_TOWER_SIZE_GRID := 3
+const SHOCK_TOWER_SIZE_GRID := 3
 const WALL_SIZE_GRID := 1
 const HEALING_STATION_SIZE_GRID := 3
 
@@ -40,6 +42,7 @@ const MAX_SLOW_TOWERS := 6
 const MAX_AOE_TOWERS := 5
 const MAX_SNIPER_TOWERS := 2
 const MAX_BOOST_TOWERS := 4
+const MAX_SHOCK_TOWERS := 4
 const MAX_WALLS := 15
 const MAX_HEALING_STATIONS := 2
 
@@ -65,6 +68,11 @@ const SNIPER_RATE_COST := 12
 const AOE_DMG_COST := 15
 const AOE_RATE_COST := 12
 const AOE_AREA_COST := 20
+
+# Shock tower upgrades
+const SHOCK_DMG_COST := 15
+const SHOCK_RATE_COST := 12
+const SHOCK_CHAIN_COST := 20
 
 # Waves
 const WAVE_SCALE := 1.1

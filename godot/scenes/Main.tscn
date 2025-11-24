@@ -9,6 +9,10 @@ script = ExtResource("1_rc3e6")
 volume_db = -5.0
 autoplay = false
 
+[node name="SoundEffectsPlayer" type="AudioStreamPlayer" parent="."]
+volume_db = 0.0
+autoplay = false
+
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="HUD" type="Control" parent="CanvasLayer"]

@@ -23,6 +23,9 @@ var sniper_effects: Array = []  # efeitos visuais de tiro sniper: {start: Vector
 var aoe_cannon_projectiles: Array = []  # projéteis de canhão AOE: {pos: Vector2, target: Vector2, speed: float, radius: float}
 var dropped_coins: Array = []  # moedas dropadas: {pos: Vector2, value: int, lifetime: float, max_lifetime: float, collected: bool}
 var coin_collect_effects: Array = []  # efeitos visuais de coleta de moedas: {pos: Vector2, time: float, max_time: float, particles: Array}
+var damage_numbers: Array = []  # indicadores de dano flutuantes: {pos: Vector2, value: float, time: float, max_time: float, is_crit: bool}
+var enemy_death_animations: Array = []  # animações de morte: {pos: Vector2, time: float, max_time: float, scale: float, alpha: float}
+var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Vector2, end: Vector2, time: float, max_time: float}
 
 var base_hp := 100
 var paused := false
@@ -34,6 +37,7 @@ var placing_slow_tower := false
 var placing_aoe_tower := false
 var placing_sniper_tower := false
 var placing_boost_tower := false
+var placing_shock_tower := false
 var placing_wall := false
 var placing_healing_station := false
 
@@ -44,6 +48,7 @@ var slow_towers: Array = []  # slow towers: {grid_x: int, grid_y: int, pos: Vect
 var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, aoe_radius: float, cooldown: float, fire_rate: float}
 var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
 var boost_towers: Array = []  # boost towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage_boost: float, rate_boost: float}
+var shock_towers: Array = []  # shock towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, chain_count: int, cooldown: float, fire_rate: float}
 var walls: Array = []  # walls: {grid_x: int, grid_y: int, pos: Vector2, hp: float, max_hp: float}
 var healing_stations: Array = []  # healing stations: {grid_x: int, grid_y: int, pos: Vector2, heal_rate: float, range: float}
 # base_grid agora está em grid_manager
@@ -59,11 +64,21 @@ var placing_tower_dir := Vector2(1, 0)  # direção inicial ao colocar torre
 var barracks_menu: PopupMenu
 var barracks_selected_index := -1
 
-# Menus de upgrade para sniper e AOE
+# Menus de upgrade para sniper, AOE e Shock
 var sniper_menu: PopupMenu
 var sniper_selected_index := -1
 var aoe_menu: PopupMenu
 var aoe_selected_index := -1
+var shock_menu: PopupMenu
+var shock_selected_index := -1
+
+# Drag and drop state
+var dragging_tower := false
+var dragged_tower_type := ""  # "tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower"
+var dragged_tower_index := -1
+var drag_start_pos: Vector2 = Vector2.ZERO
+var drag_offset: Vector2 = Vector2.ZERO
+var drag_current_pos: Vector2 = Vector2.ZERO
 
 # enemy status effects
 var enemy_effects: Dictionary = {}  # enemy_idx -> {freeze_time: float, fire_time: float, fire_damage: float}
@@ -82,6 +97,7 @@ var tex_slow_tower: Texture2D  # Slow Tower
 var tex_aoe_tower: Texture2D  # AOE Tower
 var tex_sniper_tower: Texture2D  # Sniper Tower
 var tex_boost_tower: Texture2D  # Boost Tower
+var tex_shock_tower: Texture2D  # Shock Tower
 var tex_barracks: Texture2D  # Quartel
 var tex_mine: Texture2D  # Mina
 var tex_wall_structure: Texture2D  # Muralha/barreira
@@ -263,6 +279,8 @@ func _ready() -> void:
 	tex_sniper_tower = _load_and_process_texture("res://assets/images/sniper_tower.png")
 	_update_loading_progress(0.85)
 	tex_boost_tower = _load_and_process_texture("res://assets/images/boost_tower.png")
+	_update_loading_progress(0.87)
+	tex_shock_tower = _load_and_process_texture("res://assets/shock_tower.jpg")
 	_update_loading_progress(0.90)
 	tex_barracks = _load_and_process_texture("res://assets/images/barracks.png")
 	tex_mine = _load_and_process_texture("res://assets/images/mine.png")
@@ -310,8 +328,9 @@ func _ready() -> void:
 		buy_menu.add_item("AOE Tower (%d)" % GameConstants.AOE_TOWER_COST, 5)
 		buy_menu.add_item("Sniper Tower (%d)" % GameConstants.SNIPER_TOWER_COST, 6)
 		buy_menu.add_item("Boost Tower (%d)" % GameConstants.BOOST_TOWER_COST, 7)
-		buy_menu.add_item("Muralha (%d)" % GameConstants.WALL_COST, 8)
-		buy_menu.add_item("Cura (%d)" % GameConstants.HEALING_STATION_COST, 9)
+		buy_menu.add_item("Shock Tower (%d)" % GameConstants.SHOCK_TOWER_COST, 8)
+		buy_menu.add_item("Muralha (%d)" % GameConstants.WALL_COST, 9)
+		buy_menu.add_item("Cura (%d)" % GameConstants.HEALING_STATION_COST, 10)
 		buy_menu.id_pressed.connect(_on_buy_menu_pressed)
 	else:
 		var menu_btn = tb.get_node("BuyMenuButton")
@@ -389,6 +408,21 @@ func _ready() -> void:
 	aoe_menu.id_pressed.connect(Callable(self, "_on_aoe_menu_pressed"))
 	aoe_menu_container.add_child(aoe_menu)
 	$CanvasLayer.add_child(aoe_menu_container)
+	
+	# criar PopupMenu para Shock towers
+	var shock_menu_container = Control.new()
+	shock_menu_container.name = "ShockMenuContainer"
+	shock_menu_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shock_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shock_menu = PopupMenu.new()
+	shock_menu.name = "ShockMenu"
+	shock_menu.hide_on_checkable_item_selection = true
+	shock_menu.add_item("Dano +0.5", 1)
+	shock_menu.add_item("Taxa de Tiro +", 2)
+	shock_menu.add_item("Corrente +1", 3)
+	shock_menu.id_pressed.connect(Callable(self, "_on_shock_menu_pressed"))
+	shock_menu_container.add_child(shock_menu)
+	$CanvasLayer.add_child(shock_menu_container)
 
 	var ov = $CanvasLayer/UpgradeOverlay
 	ov.get_node("Panel/Btn1").pressed.connect(func(): _apply_benefit(0))
@@ -485,6 +519,35 @@ func _process(delta: float) -> void:
 			new_coin_effects.append(effect)
 	coin_collect_effects = new_coin_effects
 	
+	# atualizar indicadores de dano flutuantes
+	var new_damage_numbers: Array = []
+	for dmg in damage_numbers:
+		dmg.time += delta
+		dmg.pos += dmg.velocity * delta
+		dmg.velocity.y += 50.0 * delta  # gravidade leve
+		if dmg.time < dmg.max_time:
+			new_damage_numbers.append(dmg)
+	damage_numbers = new_damage_numbers
+	
+	# atualizar animações de morte
+	var new_death_animations: Array = []
+	for anim in enemy_death_animations:
+		anim.time += delta
+		var progress = anim.time / anim.max_time
+		anim.scale = 1.0 - progress  # encolhe
+		anim.alpha = 1.0 - progress  # fade out
+		if anim.time < anim.max_time:
+			new_death_animations.append(anim)
+	enemy_death_animations = new_death_animations
+	
+	# atualizar efeitos visuais de choque
+	var new_shock_effects: Array = []
+	for effect in shock_effects:
+		effect.time += delta
+		if effect.time < effect.max_time:
+			new_shock_effects.append(effect)
+	shock_effects = new_shock_effects
+	
 	# atualizar moedas dropadas
 	var new_dropped_coins: Array = []
 	for coin in dropped_coins:
@@ -501,7 +564,19 @@ func _process(delta: float) -> void:
 	
 	for i in range(enemies.size()):
 		var e = enemies[i]
-		if e["hp"] > 0 and not e["reached"]:
+		var is_dying = e.get("dying", false)
+		if is_dying:
+			# Inimigo está morrendo, atualizar tempo
+			e["dying_time"] = e.get("dying_time", 0.0) + delta
+			if e["dying_time"] < 0.5:  # manter durante animação
+				alive.append(e)  # manter visível durante animação
+				var new_idx = alive.size() - 1
+				e["idx"] = new_idx
+				enemy_idx_map[i] = new_idx
+			# remover efeitos quando animação terminar
+			if enemy_effects.has(i):
+				enemy_effects.erase(i)
+		elif e["hp"] > 0 and not e["reached"]:
 			var new_idx = alive.size()
 			alive.append(e)
 			# atualizar índice do inimigo
@@ -591,8 +666,9 @@ func _process(delta: float) -> void:
 		buy_menu_popup.set_item_text(4, "AOE Tower (%d) [%d/%d]" % [GameConstants.AOE_TOWER_COST, aoe_towers.size(), GameConstants.MAX_AOE_TOWERS])
 		buy_menu_popup.set_item_text(5, "Sniper Tower (%d) [%d/%d]" % [GameConstants.SNIPER_TOWER_COST, sniper_towers.size(), GameConstants.MAX_SNIPER_TOWERS])
 		buy_menu_popup.set_item_text(6, "Boost Tower (%d) [%d/%d]" % [GameConstants.BOOST_TOWER_COST, boost_towers.size(), GameConstants.MAX_BOOST_TOWERS])
-		buy_menu_popup.set_item_text(7, "Muralha (%d) [%d/%d]" % [GameConstants.WALL_COST, walls.size(), GameConstants.MAX_WALLS])
-		buy_menu_popup.set_item_text(8, "Cura (%d) [%d/%d]" % [GameConstants.HEALING_STATION_COST, healing_stations.size(), GameConstants.MAX_HEALING_STATIONS])
+		buy_menu_popup.set_item_text(7, "Shock Tower (%d) [%d/%d]" % [GameConstants.SHOCK_TOWER_COST, shock_towers.size(), GameConstants.MAX_SHOCK_TOWERS])
+		buy_menu_popup.set_item_text(8, "Muralha (%d) [%d/%d]" % [GameConstants.WALL_COST, walls.size(), GameConstants.MAX_WALLS])
+		buy_menu_popup.set_item_text(9, "Cura (%d) [%d/%d]" % [GameConstants.HEALING_STATION_COST, healing_stations.size(), GameConstants.MAX_HEALING_STATIONS])
 		
 		buy_menu_popup.set_item_disabled(0, hero["coins"] < GameConstants.TOWER_COST or towers.size() >= GameConstants.MAX_TOWERS)
 		buy_menu_popup.set_item_disabled(1, hero["coins"] < GameConstants.BARRACKS_COST or barracks.size() >= GameConstants.MAX_BARRACKS)
@@ -601,6 +677,7 @@ func _process(delta: float) -> void:
 		buy_menu_popup.set_item_disabled(4, hero["coins"] < GameConstants.AOE_TOWER_COST or aoe_towers.size() >= GameConstants.MAX_AOE_TOWERS)
 		buy_menu_popup.set_item_disabled(5, hero["coins"] < GameConstants.SNIPER_TOWER_COST or sniper_towers.size() >= GameConstants.MAX_SNIPER_TOWERS)
 		buy_menu_popup.set_item_disabled(6, hero["coins"] < GameConstants.BOOST_TOWER_COST or boost_towers.size() >= GameConstants.MAX_BOOST_TOWERS)
+		buy_menu_popup.set_item_disabled(7, hero["coins"] < GameConstants.SHOCK_TOWER_COST or shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS)
 		buy_menu_popup.set_item_disabled(7, hero["coins"] < GameConstants.WALL_COST or walls.size() >= GameConstants.MAX_WALLS)
 		buy_menu_popup.set_item_disabled(8, hero["coins"] < GameConstants.HEALING_STATION_COST or healing_stations.size() >= GameConstants.MAX_HEALING_STATIONS)
 
@@ -610,10 +687,53 @@ func _input(event: InputEvent) -> void:
 	# atualizar posição do mouse para preview
 	if event is InputEventMouseMotion:
 		preview_mouse_pos = to_local(event.position)
-		queue_redraw()
+		# Se estiver arrastando uma torre, atualizar posição
+		if dragging_tower:
+			drag_current_pos = preview_mouse_pos
+			queue_redraw()
+		else:
+			queue_redraw()
 	
+	# Detectar início de drag (botão esquerdo pressionado)
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not choosing_upgrade:
+		# Não iniciar drag se estiver colocando algo ou escolhendo upgrade
+		if choosing_upgrade or placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
+			pass  # Continuar com lógica normal de colocação
+		else:
+			# Verificar se clicou em uma torre para arrastar
+			var world_pos = to_local(event.position)
+			var tower_idx := _find_tower_at(world_pos, 20.0)
+			if tower_idx != -1:
+				_start_drag_tower("tower", tower_idx, world_pos)
+				return
+			
+			var slow_idx := _find_slow_tower_at(world_pos, 20.0)
+			if slow_idx != -1:
+				_start_drag_tower("slow_tower", slow_idx, world_pos)
+				return
+			
+			var aoe_idx := _find_aoe_tower_at(world_pos, 20.0)
+			if aoe_idx != -1:
+				_start_drag_tower("aoe_tower", aoe_idx, world_pos)
+				return
+			
+			var sniper_idx := _find_sniper_tower_at(world_pos, 20.0)
+			if sniper_idx != -1:
+				_start_drag_tower("sniper_tower", sniper_idx, world_pos)
+				return
+			
+			var boost_idx := _find_boost_tower_at(world_pos, 20.0)
+			if boost_idx != -1:
+				_start_drag_tower("boost_tower", boost_idx, world_pos)
+				return
+			
+			var shock_idx := _find_shock_tower_at(world_pos, 20.0)
+			if shock_idx != -1:
+				_start_drag_tower("shock_tower", shock_idx, world_pos)
+				return
+		
+		# Continuar com lógica normal se não iniciou drag
+		if not dragging_tower and not choosing_upgrade:
 			# converter posição do mouse de tela para coordenadas do mundo do Node2D
 			var screen_pos = event.position
 			var world_pos = to_local(screen_pos)
@@ -632,6 +752,8 @@ func _input(event: InputEvent) -> void:
 					coin_collected = true
 					# Criar efeito visual de coleta
 					_create_coin_collect_effect(collected_coin_pos)
+					# Tocar som de coleta de moeda
+					_play_coin_sound()
 					break
 			
 			if coin_collected:
@@ -652,15 +774,36 @@ func _input(event: InputEvent) -> void:
 				_try_place_sniper_tower(world_pos)
 			elif placing_boost_tower:
 				_try_place_boost_tower(world_pos)
+			elif placing_shock_tower:
+				_try_place_shock_tower(world_pos)
 			elif placing_wall:
 				_try_place_wall(world_pos)
 			elif placing_healing_station:
 				_try_place_healing_station(world_pos)
 			# tiro automático - removido tiro manual por clique
+	
+	# Detectar fim de drag (botão esquerdo solto)
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if dragging_tower:
+			var world_pos = to_local(event.position)
+			_end_drag_tower(world_pos)
+			return
+	
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		if not choosing_upgrade and not game_over:
+			# Cancelar drag se estiver arrastando
+			if dragging_tower:
+				# Restaurar posição original (grid já foi restaurado)
+				dragging_tower = false
+				dragged_tower_type = ""
+				dragged_tower_index = -1
+				drag_start_pos = Vector2.ZERO
+				drag_offset = Vector2.ZERO
+				drag_current_pos = Vector2.ZERO
+				queue_redraw()
+				return
 			# cancelar colocação com botão direito
-			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_wall or placing_healing_station:
+			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
 				placing_tower = false
 				placing_barracks = false
 				placing_mine = false
@@ -668,6 +811,7 @@ func _input(event: InputEvent) -> void:
 				placing_aoe_tower = false
 				placing_sniper_tower = false
 				placing_boost_tower = false
+				placing_shock_tower = false
 				placing_wall = false
 				placing_healing_station = false
 				queue_redraw()
@@ -694,6 +838,11 @@ func _input(event: InputEvent) -> void:
 			var aoe_idx := _find_aoe_tower_at(mouse_world_pos, 20.0)
 			if aoe_idx != -1:
 				_open_aoe_menu(aoe_idx, mouse_screen_pos)
+				return
+			# verificar Shock towers
+			var shock_idx := _find_shock_tower_at(mouse_world_pos, 20.0)
+			if shock_idx != -1:
+				_open_shock_menu(shock_idx, mouse_screen_pos)
 				return
 
 func _draw() -> void:
@@ -805,16 +954,37 @@ func _draw() -> void:
 		draw_rect(Rect2(bc.x - tent_half, bc.y - tent_half, 3.0 * 0.7 * GameConstants.TILE_SIZE, 3.0 * 0.7 * GameConstants.TILE_SIZE), Color(0.9,0.7,0.2))
 	# enemies
 	for e in enemies:
-		# barra de vida
-		var max_hp: int = int(e.get("max_hp", 2))
-		var hp_ratio: float = clamp(float(e["hp"]) / float(max_hp), 0.0, 1.0)
+		# barra de vida melhorada (não mostrar se está morrendo)
+		var is_dying = e.get("dying", false)
 		var is_boss: bool = e.get("is_boss", false)
-		var bar_width: int = 24 if is_boss else 16  # barra maior para chefe
-		var bx: int = int(e["pos"].x) - int(bar_width / 2)
-		var by: int = int(e["pos"].y) - 12
-		draw_rect(Rect2(bx, by, bar_width, 3), Color(0.14,0.15,0.18))
-		var hp_color = Color(0.9,0.2,0.9) if is_boss else Color(0.78,0.32,0.32)  # roxo para chefe
-		draw_rect(Rect2(bx, by, int(bar_width*hp_ratio), 3), hp_color)
+		if not is_dying:
+			var max_hp: int = int(e.get("max_hp", 2))
+			var hp_ratio: float = clamp(float(e["hp"]) / float(max_hp), 0.0, 1.0)
+			var bar_width: int = 28 if is_boss else 20  # barra maior
+			var bar_height: int = 4 if is_boss else 3
+			var bx: int = int(e["pos"].x) - int(bar_width / 2)
+			var by: int = int(e["pos"].y) - 16  # mais acima
+			
+			# Fundo da barra
+			draw_rect(Rect2(bx - 1, by - 1, bar_width + 2, bar_height + 2), Color(0.0, 0.0, 0.0, 0.5))  # sombra
+			draw_rect(Rect2(bx, by, bar_width, bar_height), Color(0.2, 0.2, 0.2))  # fundo escuro
+			
+			# Barra de HP (mudança de cor baseada no HP)
+			var hp_color: Color
+			if hp_ratio > 0.6:
+				hp_color = Color(0.2, 0.8, 0.2)  # verde quando saudável
+			elif hp_ratio > 0.3:
+				hp_color = Color(0.9, 0.7, 0.2)  # amarelo quando médio
+			else:
+				hp_color = Color(0.9, 0.2, 0.2)  # vermelho quando baixo
+			
+			if is_boss:
+				hp_color = Color(0.9, 0.2, 0.9)  # roxo para chefe
+			
+			draw_rect(Rect2(bx, by, int(bar_width * hp_ratio), bar_height), hp_color)
+			
+			# Borda da barra
+			draw_rect(Rect2(bx, by, bar_width, bar_height), Color(1.0, 1.0, 1.0, 0.3), false, 1.0)
 		# corpo - desenhar sprite do monstro
 		var enemy_idx = e.get("idx", -1)
 		var enemy_tex: Texture2D = tex_enemy_zombie
@@ -834,7 +1004,14 @@ func _draw() -> void:
 			
 			# Aplicar efeitos visuais através de modulate
 			var modulate_color = Color.WHITE
-			if enemy_idx >= 0 and enemy_effects.has(enemy_idx):
+			
+			if is_dying:
+				# Aplicar animação de morte (fade e shrink)
+				var dying_progress = e.get("dying_time", 0.0) / 0.5
+				modulate_color.a = 1.0 - dying_progress
+				size *= (1.0 - dying_progress * 0.5)  # encolhe até 50%
+				pos = e["pos"] - size/2  # recentralizar após mudança de tamanho
+			elif enemy_idx >= 0 and enemy_effects.has(enemy_idx):
 				var effects = enemy_effects[enemy_idx]
 				if effects.freeze_time > 0.0:
 					modulate_color = Color(0.7, 0.9, 1.2, 1.0)  # azul claro quando congelado
@@ -886,8 +1063,93 @@ func _draw() -> void:
 	for effect in sniper_effects:
 		var alpha = 1.0 - (effect.time / effect.max_time)
 		draw_line(effect.start, effect.end, Color(1.0, 1.0, 0.0, alpha), 3.0)
+	# efeitos visuais de choque elétrico (raios/trovões)
+	for effect in shock_effects:
+		var alpha = 1.0 - (effect.time / effect.max_time)
+		var progress = effect.time / effect.max_time
+		# Desenhar linha principal (azul brilhante)
+		draw_line(effect.start, effect.end, Color(0.5, 0.8, 1.0, alpha), 4.0)
+		# Desenhar linha interna mais brilhante (branco/azul claro)
+		draw_line(effect.start, effect.end, Color(1.0, 1.0, 1.0, alpha * 0.8), 2.0)
+		# Adicionar "zigzag" para parecer um raio
+		var segments = 8
+		var dir = (effect.end - effect.start).normalized()
+		var perp = Vector2(-dir.y, dir.x)
+		for i in range(segments):
+			var t1 = float(i) / float(segments)
+			var t2 = float(i + 1) / float(segments)
+			var p1 = effect.start.lerp(effect.end, t1)
+			var p2 = effect.start.lerp(effect.end, t2)
+			# Adicionar pequeno desvio aleatório para parecer um raio
+			var offset1 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
+			var offset2 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
+			draw_line(p1 + offset1, p2 + offset2, Color(0.7, 0.9, 1.0, alpha * 0.6), 2.0)
+	# Desenhar torre sendo arrastada (preview durante drag)
+	if dragging_tower:
+		var preview_pos = drag_current_pos - drag_offset
+		var preview_size: float
+		var preview_tex: Texture2D
+		
+		match dragged_tower_type:
+			"tower":
+				preview_size = grid_size_px * GameConstants.TOWER_SIZE_GRID
+				preview_tex = tex_tower
+			"slow_tower":
+				preview_size = grid_size_px * GameConstants.SLOW_TOWER_SIZE_GRID
+				preview_tex = tex_slow_tower
+			"aoe_tower":
+				preview_size = grid_size_px * GameConstants.AOE_TOWER_SIZE_GRID
+				preview_tex = tex_aoe_tower
+			"sniper_tower":
+				preview_size = grid_size_px * GameConstants.SNIPER_TOWER_SIZE_GRID
+				preview_tex = tex_sniper_tower
+			"boost_tower":
+				preview_size = grid_size_px * GameConstants.BOOST_TOWER_SIZE_GRID
+				preview_tex = tex_boost_tower
+			"shock_tower":
+				preview_size = grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
+				preview_tex = tex_shock_tower
+		
+		# Verificar se a posição é válida
+		var grid_coord = grid_manager.world_to_base_grid(preview_pos)
+		var can_place = false
+		if grid_manager.is_inside_base_point(preview_pos):
+			match dragged_tower_type:
+				"tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
+				"slow_tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+				"aoe_tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+				"sniper_tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+				"boost_tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+				"shock_tower":
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+		
+		var preview_rect = Rect2(preview_pos.x - preview_size/2, preview_pos.y - preview_size/2, preview_size, preview_size)
+		if can_place:
+			# Posição válida - verde semi-transparente
+			if preview_tex != null:
+				draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+			else:
+				draw_rect(preview_rect, Color(0.7, 0.9, 0.7, 0.7))
+			draw_rect(preview_rect, Color(0.5, 0.8, 0.5), false, 2.0)
+		else:
+			# Posição inválida - vermelho semi-transparente
+			if preview_tex != null:
+				draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
+			else:
+				draw_rect(preview_rect, Color(0.9, 0.3, 0.3, 0.7))
+			draw_rect(preview_rect, Color(0.8, 0.2, 0.2), false, 2.0)
+	
 	# towers (3x3 no grid)
-	for t in towers:
+	for i in range(towers.size()):
+		# Não desenhar a torre que está sendo arrastada
+		if dragging_tower and dragged_tower_type == "tower" and i == dragged_tower_index:
+			continue
+		var t = towers[i]
 		var tower_size := grid_size_px * GameConstants.TOWER_SIZE_GRID
 		var r := Rect2(t.pos.x - tower_size/2, t.pos.y - tower_size/2, tower_size, tower_size)
 		if tex_tower != null:
@@ -915,7 +1177,10 @@ func _draw() -> void:
 				draw_circle(m.pos, 8, Color(0.8,0.2,0.2))
 				draw_circle(m.pos, 8, Color(0.5,0.1,0.1), false, 2.0)
 	# slow towers
-	for st in slow_towers:
+	for i in range(slow_towers.size()):
+		if dragging_tower and dragged_tower_type == "slow_tower" and i == dragged_tower_index:
+			continue
+		var st = slow_towers[i]
 		var st_size := grid_size_px * GameConstants.SLOW_TOWER_SIZE_GRID
 		var st_rect := Rect2(st.pos.x - st_size/2, st.pos.y - st_size/2, st_size, st_size)
 		if tex_slow_tower != null:
@@ -924,7 +1189,10 @@ func _draw() -> void:
 			draw_rect(st_rect, Color(0.5,0.7,0.9))
 			draw_rect(st_rect, Color(0.3,0.5,0.7), false, 2.0)
 	# AOE towers
-	for aoe in aoe_towers:
+	for i in range(aoe_towers.size()):
+		if dragging_tower and dragged_tower_type == "aoe_tower" and i == dragged_tower_index:
+			continue
+		var aoe = aoe_towers[i]
 		var aoe_size := grid_size_px * GameConstants.AOE_TOWER_SIZE_GRID
 		var aoe_rect := Rect2(aoe.pos.x - aoe_size/2, aoe.pos.y - aoe_size/2, aoe_size, aoe_size)
 		if tex_aoe_tower != null:
@@ -933,7 +1201,10 @@ func _draw() -> void:
 			draw_rect(aoe_rect, Color(0.9,0.5,0.2))
 			draw_rect(aoe_rect, Color(0.7,0.3,0.1), false, 2.0)
 	# sniper towers
-	for sniper in sniper_towers:
+	for i in range(sniper_towers.size()):
+		if dragging_tower and dragged_tower_type == "sniper_tower" and i == dragged_tower_index:
+			continue
+		var sniper = sniper_towers[i]
 		var sniper_size := grid_size_px * GameConstants.SNIPER_TOWER_SIZE_GRID
 		var sniper_rect := Rect2(sniper.pos.x - sniper_size/2, sniper.pos.y - sniper_size/2, sniper_size, sniper_size)
 		if tex_sniper_tower != null:
@@ -942,7 +1213,10 @@ func _draw() -> void:
 			draw_rect(sniper_rect, Color(0.3,0.3,0.3))
 			draw_rect(sniper_rect, Color(0.1,0.1,0.1), false, 2.0)
 	# boost towers
-	for boost in boost_towers:
+	for i in range(boost_towers.size()):
+		if dragging_tower and dragged_tower_type == "boost_tower" and i == dragged_tower_index:
+			continue
+		var boost = boost_towers[i]
 		var boost_size := grid_size_px * GameConstants.BOOST_TOWER_SIZE_GRID
 		var boost_rect := Rect2(boost.pos.x - boost_size/2, boost.pos.y - boost_size/2, boost_size, boost_size)
 		if tex_boost_tower != null:
@@ -950,6 +1224,18 @@ func _draw() -> void:
 		else:
 			draw_rect(boost_rect, Color(0.8,0.8,0.2))
 			draw_rect(boost_rect, Color(0.6,0.6,0.1), false, 2.0)
+	# shock towers
+	for i in range(shock_towers.size()):
+		if dragging_tower and dragged_tower_type == "shock_tower" and i == dragged_tower_index:
+			continue
+		var shock = shock_towers[i]
+		var shock_size := grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
+		var shock_rect := Rect2(shock.pos.x - shock_size/2, shock.pos.y - shock_size/2, shock_size, shock_size)
+		if tex_shock_tower != null:
+			draw_texture_rect(tex_shock_tower, shock_rect, false)
+		else:
+			draw_rect(shock_rect, Color(0.5,0.3,0.9))  # roxo para torre de choque
+			draw_rect(shock_rect, Color(0.4,0.2,0.8), false, 2.0)
 	# walls
 	for w in walls:
 		if w.hp > 0:
@@ -1026,8 +1312,46 @@ func _draw() -> void:
 			draw_circle(particle.pos, particle_size, Color(1.0, 0.95, 0.3, particle_alpha))
 			draw_circle(particle.pos, particle_size * 0.5, Color(1.0, 1.0, 0.8, particle_alpha))
 	
+	# indicadores de dano flutuantes
+	for dmg in damage_numbers:
+		var progress = dmg.time / dmg.max_time
+		var alpha = 1.0 - progress
+		var y_offset = progress * 30.0  # move para cima
+		var pos = dmg.pos + Vector2(0, -y_offset)
+		var scale = 1.0 + (progress * 0.5) if dmg.is_crit else 1.0
+		var color = dmg.color
+		color.a = alpha
+		
+		# Desenhar número de dano (simulado com círculo e texto visual)
+		var size = 12.0 * scale
+		if dmg.is_crit:
+			# Efeito especial para crítico
+			draw_circle(pos, size * 1.5, Color(1.0, 0.9, 0.0, alpha * 0.3))
+			draw_circle(pos, size, Color(1.0, 0.8, 0.2, alpha))
+		else:
+			draw_circle(pos, size * 0.8, color)
+		
+		# Desenhar valor aproximado (usando círculos para simular números)
+		# Para valores maiores, desenhar círculos maiores
+		var value_size = clamp(dmg.value / 5.0, 0.5, 2.0)
+		draw_circle(pos, size * value_size * 0.6, Color(1.0, 1.0, 1.0, alpha))
+	
+	# animações de morte
+	for anim in enemy_death_animations:
+		var alpha = anim.alpha
+		var scale = anim.scale
+		# Desenhar efeito de morte (círculo que encolhe e desaparece)
+		draw_circle(anim.pos, 15.0 * scale, Color(0.8, 0.2, 0.2, alpha))
+		draw_circle(anim.pos, 10.0 * scale, Color(1.0, 0.5, 0.0, alpha * 0.7))
+		# Partículas de morte
+		for i in range(8):
+			var angle = (TAU / 8.0) * i
+			var dist = 20.0 * (1.0 - scale)
+			var particle_pos = anim.pos + Vector2(cos(angle), sin(angle)) * dist
+			draw_circle(particle_pos, 3.0 * scale, Color(1.0, 0.7, 0.0, alpha))
+	
 	# preview de colocação
-	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_wall or placing_healing_station:
+	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
 		if grid_manager.is_inside_base_point(preview_mouse_pos):
 			var preview_grid_coord = grid_manager.world_to_base_grid(preview_mouse_pos)
 			var preview_world_pos = grid_manager.base_grid_to_world(preview_grid_coord.x, preview_grid_coord.y)
@@ -1150,6 +1474,23 @@ func _draw() -> void:
 					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
 					if tex_boost_tower != null:
 						draw_texture_rect(tex_boost_tower, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
+					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			elif placing_shock_tower:
+				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9):
+					var preview_size := grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_shock_tower != null:
+						draw_texture_rect(tex_shock_tower, preview_rect, false, Color(1, 1, 1, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.5,0.3,0.9,0.5))  # roxo para torre de choque
+					draw_rect(preview_rect, Color(0.4,0.2,0.8), false, 2.0)
+				else:
+					var preview_size := grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_shock_tower != null:
+						draw_texture_rect(tex_shock_tower, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
@@ -1412,9 +1753,20 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 		# aplicar dano de fogo
 		if effects.fire_time > 0.0:
 			effects.fire_time -= dt
-			e["hp"] -= effects.fire_damage * dt
+			var fire_damage = effects.fire_damage * dt
+			e["hp"] -= fire_damage
+			# Criar indicador de dano ocasionalmente para não poluir a tela (a cada 0.5s)
+			if not e.has("last_fire_damage_time"):
+				e["last_fire_damage_time"] = 0.0
+			e["last_fire_damage_time"] += dt
+			if e["last_fire_damage_time"] >= 0.5:
+				_create_damage_number(e["pos"], fire_damage * 10.0, false, Color(1.0, 0.5, 0.0))  # laranja para fogo
+				e["last_fire_damage_time"] = 0.0
 			if e["hp"] <= 0:
 				e["hp"] = 0
+				e["dying"] = true
+				e["dying_time"] = 0.0
+				_create_death_animation(e["pos"])
 				return
 	
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
@@ -1602,8 +1954,16 @@ func _handle_collisions() -> void:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
 			if a["pos"].distance_to(e["pos"]) < (a["radius"] + e["radius"]):
+				var old_hp = e["hp"]
 				e["hp"] -= a["damage"]
+				# Criar indicador de dano
+				_create_damage_number(e["pos"], a["damage"], false)
 				if e["hp"] <= 0:
+					e["hp"] = 0
+					e["dying"] = true
+					e["dying_time"] = 0.0
+					# Criar animação de morte
+					_create_death_animation(e["pos"])
 					var is_boss = e.get("is_boss", false)
 					# chefe dá 20x mais moedas (40 vs 2)
 					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
@@ -1621,8 +1981,16 @@ func _handle_collisions() -> void:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
 			if b["pos"].distance_to(e["pos"]) < (b["radius"] + e["radius"]):
+				var old_hp = e["hp"]
 				e["hp"] -= b["damage"]
+				# Criar indicador de dano
+				_create_damage_number(e["pos"], b["damage"], false)
 				if e["hp"] <= 0:
+					e["hp"] = 0
+					e["dying"] = true
+					e["dying_time"] = 0.0
+					# Criar animação de morte
+					_create_death_animation(e["pos"])
 					var is_boss = e.get("is_boss", false)
 					# chefe dá 20x mais moedas (40 vs 2)
 					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
@@ -1664,6 +2032,86 @@ func _find_aoe_tower_at(p: Vector2, r: float) -> int:
 		if aoe_towers[i].pos.distance_to(p) <= r:
 			return i
 	return -1
+
+func _find_shock_tower_at(p: Vector2, r: float) -> int:
+	for i in range(shock_towers.size()):
+		if shock_towers[i].pos.distance_to(p) <= r:
+			return i
+	return -1
+
+func _find_slow_tower_at(p: Vector2, r: float) -> int:
+	for i in range(slow_towers.size()):
+		if slow_towers[i].pos.distance_to(p) <= r:
+			return i
+	return -1
+
+func _find_boost_tower_at(p: Vector2, r: float) -> int:
+	for i in range(boost_towers.size()):
+		if boost_towers[i].pos.distance_to(p) <= r:
+			return i
+	return -1
+
+func _start_drag_tower(tower_type: String, tower_idx: int, mouse_pos: Vector2) -> void:
+	dragging_tower = true
+	dragged_tower_type = tower_type
+	dragged_tower_index = tower_idx
+	
+	# Obter posição atual da torre
+	var tower_pos: Vector2
+	match tower_type:
+		"tower":
+			tower_pos = towers[tower_idx].pos
+		"slow_tower":
+			tower_pos = slow_towers[tower_idx].pos
+		"aoe_tower":
+			tower_pos = aoe_towers[tower_idx].pos
+		"sniper_tower":
+			tower_pos = sniper_towers[tower_idx].pos
+		"boost_tower":
+			tower_pos = boost_towers[tower_idx].pos
+		"shock_tower":
+			tower_pos = shock_towers[tower_idx].pos
+	
+	drag_start_pos = tower_pos
+	drag_offset = mouse_pos - tower_pos
+	drag_current_pos = mouse_pos
+	queue_redraw()
+
+func _end_drag_tower(mouse_pos: Vector2) -> void:
+	if not dragging_tower:
+		return
+	
+	var new_pos = mouse_pos - drag_offset
+	
+	# Tentar mover a torre
+	var moved = false
+	match dragged_tower_type:
+		"tower":
+			moved = _try_move_tower(dragged_tower_index, new_pos)
+		"slow_tower":
+			moved = _try_move_slow_tower(dragged_tower_index, new_pos)
+		"aoe_tower":
+			moved = _try_move_aoe_tower(dragged_tower_index, new_pos)
+		"sniper_tower":
+			moved = _try_move_sniper_tower(dragged_tower_index, new_pos)
+		"boost_tower":
+			moved = _try_move_boost_tower(dragged_tower_index, new_pos)
+		"shock_tower":
+			moved = _try_move_shock_tower(dragged_tower_index, new_pos)
+	
+	# Se não conseguiu mover, restaurar grid na posição original
+	if not moved:
+		# Restaurar grid na posição original (já foi restaurado nas funções _try_move_*)
+		pass
+	
+	# Limpar estado de drag
+	dragging_tower = false
+	dragged_tower_type = ""
+	dragged_tower_index = -1
+	drag_start_pos = Vector2.ZERO
+	drag_offset = Vector2.ZERO
+	drag_current_pos = Vector2.ZERO
+	queue_redraw()
 
 func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	if tower_menu == null:
@@ -1798,9 +2246,11 @@ func _on_buy_menu_pressed(id: int) -> void:
 			_on_buy_sniper_tower()
 		7:  # Boost Tower
 			_on_buy_boost_tower()
-		8:  # Muralha
+		8:  # Shock Tower
+			_on_buy_shock_tower()
+		9:  # Muralha
 			_on_buy_wall()
-		9:  # Healing Station
+		10:  # Healing Station
 			_on_buy_healing_station()
 
 func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
@@ -1925,6 +2375,47 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				hero["coins"] -= GameConstants.AOE_AREA_COST
 	aoe_towers[aoe_selected_index] = a
 	aoe_selected_index = -1
+
+func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
+	if shock_menu == null:
+		return
+	shock_selected_index = idx
+	var s = shock_towers[idx]
+	var can_dmg: bool = hero["coins"] >= GameConstants.SHOCK_DMG_COST
+	var can_rate: bool = hero["coins"] >= GameConstants.SHOCK_RATE_COST and s.fire_rate > 0.5
+	var can_chain: bool = hero["coins"] >= GameConstants.SHOCK_CHAIN_COST
+	
+	shock_menu.set_item_text(0, "Dano +0.5 (%d)" % GameConstants.SHOCK_DMG_COST)
+	shock_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [GameConstants.SHOCK_RATE_COST, s.fire_rate])
+	shock_menu.set_item_text(2, "Corrente +1 (%d) [%d]" % [GameConstants.SHOCK_CHAIN_COST, s.chain_count])
+	shock_menu.set_item_disabled(0, not can_dmg)
+	shock_menu.set_item_disabled(1, not can_rate)
+	shock_menu.set_item_disabled(2, not can_chain)
+	shock_menu.position = screen_pos
+	shock_menu.popup()
+
+func _on_shock_menu_pressed(id: int) -> void:
+	if shock_selected_index < 0 or shock_selected_index >= shock_towers.size():
+		return
+	var s = shock_towers[shock_selected_index]
+	match id:
+		1:  # Dano
+			if hero["coins"] >= GameConstants.SHOCK_DMG_COST:
+				s.damage += 0.5
+				s.levels["DMG"] += 1
+				hero["coins"] -= GameConstants.SHOCK_DMG_COST
+		2:  # Taxa de Tiro
+			if hero["coins"] >= GameConstants.SHOCK_RATE_COST and s.fire_rate > 0.5:
+				s.fire_rate = max(0.5, s.fire_rate - 0.2)
+				s.levels["RATE"] += 1
+				hero["coins"] -= GameConstants.SHOCK_RATE_COST
+		3:  # Corrente
+			if hero["coins"] >= GameConstants.SHOCK_CHAIN_COST:
+				s.chain_count += 1
+				s.levels["CHAIN"] += 1
+				hero["coins"] -= GameConstants.SHOCK_CHAIN_COST
+	shock_towers[shock_selected_index] = s
+	shock_selected_index = -1
 
 func _is_inside_base_point(p: Vector2) -> bool:
 	return grid_manager.is_inside_base_point(p)
@@ -2292,6 +2783,55 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 	hero["coins"] -= GameConstants.BOOST_TOWER_COST
 	placing_boost_tower = false
 
+func _on_buy_shock_tower() -> void:
+	if placing_shock_tower:
+		return
+	if hero["coins"] < GameConstants.SHOCK_TOWER_COST:
+		return
+	if shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS:
+		return
+	placing_shock_tower = true
+	placing_tower = false
+	placing_barracks = false
+	placing_mine = false
+	placing_slow_tower = false
+	placing_aoe_tower = false
+	placing_sniper_tower = false
+	placing_boost_tower = false
+	placing_wall = false
+	placing_healing_station = false
+
+func _try_place_shock_tower(pos: Vector2) -> void:
+	if hero["coins"] < GameConstants.SHOCK_TOWER_COST:
+		placing_shock_tower = false
+		return
+	if shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS:
+		placing_shock_tower = false
+		return
+	if not grid_manager.is_inside_base_point(pos):
+		placing_shock_tower = false
+		return
+	var grid_coord = grid_manager.world_to_base_grid(pos)
+	if not grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9):
+		placing_shock_tower = false
+		return
+	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+	pathfinder.invalidate_cache()
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	shock_towers.append({
+		"pos": tower_world_pos,
+		"grid_x": grid_coord.x,
+		"grid_y": grid_coord.y,
+		"range": 200.0,
+		"damage": 1.5,
+		"chain_count": 3,  # número de inimigos que o choque pode atingir
+		"cooldown": 0.0,
+		"fire_rate": 1.5,
+		"levels": { "DMG": 0, "RATE": 0, "CHAIN": 0 }
+	})
+	hero["coins"] -= GameConstants.SHOCK_TOWER_COST
+	placing_shock_tower = false
+
 func _on_buy_wall() -> void:
 	if placing_wall:
 		return
@@ -2346,6 +2886,175 @@ func _try_place_wall(pos: Vector2) -> void:
 	})
 	hero["coins"] -= GameConstants.WALL_COST
 	placing_wall = false
+
+func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= towers.size():
+		return false
+	
+	var tower = towers[tower_idx]
+	
+	# Limpar grid na posição antiga
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID)
+	
+	# Verificar nova posição
+	if not grid_manager.is_inside_base_point(new_pos):
+		# Restaurar grid antigo
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID, 1)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1):
+		# Restaurar grid antigo
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID, 1)
+		return false
+	
+	# Atualizar grid na nova posição
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
+	pathfinder.invalidate_cache()
+	
+	# Atualizar posição da torre
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	towers[tower_idx] = tower
+	return true
+
+func _try_move_slow_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= slow_towers.size():
+		return false
+	
+	var tower = slow_towers[tower_idx]
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	slow_towers[tower_idx] = tower
+	return true
+
+func _try_move_aoe_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= aoe_towers.size():
+		return false
+	
+	var tower = aoe_towers[tower_idx]
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	aoe_towers[tower_idx] = tower
+	return true
+
+func _try_move_sniper_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= sniper_towers.size():
+		return false
+	
+	var tower = sniper_towers[tower_idx]
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	sniper_towers[tower_idx] = tower
+	return true
+
+func _try_move_boost_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= boost_towers.size():
+		return false
+	
+	var tower = boost_towers[tower_idx]
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	boost_towers[tower_idx] = tower
+	return true
+
+func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= shock_towers.size():
+		return false
+	
+	var tower = shock_towers[tower_idx]
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9):
+		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	shock_towers[tower_idx] = tower
+	return true
 
 func _on_buy_healing_station() -> void:
 	if placing_healing_station:
@@ -2431,6 +3140,7 @@ func _physics_process(delta: float) -> void:
 		_update_slow_towers(delta)
 		_update_aoe_towers(delta)
 		_update_sniper_towers(delta)
+		_update_shock_towers(delta)
 		_update_boost_towers(delta)
 		_update_walls(delta)
 		_update_healing_stations(delta)
@@ -2527,7 +3237,12 @@ func _update_mines(delta: float) -> void:
 			if dist < 15.0:  # raio de ativação
 				# ativar mina
 				e["hp"] -= m.damage
+				_create_damage_number(e["pos"], m.damage, false)
 				if e["hp"] <= 0:
+					e["hp"] = 0
+					e["dying"] = true
+					e["dying_time"] = 0.0
+					_create_death_animation(e["pos"])
 					hero["coins"] += GameConstants.NORMAL_REWARD
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
@@ -2614,7 +3329,12 @@ func _update_aoe_towers(delta: float) -> void:
 				var dist = proj.target.distance_to(e["pos"])
 				if dist <= proj.radius:
 					e["hp"] -= proj.damage
+					_create_damage_number(e["pos"], proj.damage, false)
 					if e["hp"] <= 0:
+						e["hp"] = 0
+						e["dying"] = true
+						e["dying_time"] = 0.0
+						_create_death_animation(e["pos"])
 						hero["coins"] += GameConstants.NORMAL_REWARD
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
@@ -2667,7 +3387,12 @@ func _update_sniper_towers(delta: float) -> void:
 				for i in range(min(pierce_count, enemies_in_line.size())):
 					var e = enemies_in_line[i].enemy
 					e["hp"] -= sniper.damage
+					_create_damage_number(e["pos"], sniper.damage, true)  # crítico para sniper
 					if e["hp"] <= 0:
+						e["hp"] = 0
+						e["dying"] = true
+						e["dying_time"] = 0.0
+						_create_death_animation(e["pos"])
 						hero["coins"] += GameConstants.NORMAL_REWARD
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
@@ -2680,6 +3405,85 @@ func _update_sniper_towers(delta: float) -> void:
 func _update_boost_towers(delta: float) -> void:
 	# boost towers não precisam de atualização - o efeito é aplicado quando torres atiram
 	pass
+
+func _update_shock_towers(delta: float) -> void:
+	for shock in shock_towers:
+		shock.cooldown = max(0.0, shock.cooldown - delta)
+		if shock.cooldown <= 0.0:
+			# Encontrar inimigo mais próximo
+			var closest_enemy = null
+			var closest_dist = shock.range
+			for e in enemies:
+				if e["hp"] <= 0 or e["reached"] or e.get("dying", false):
+					continue
+				var dist = shock.pos.distance_to(e["pos"])
+				if dist < closest_dist:
+					closest_dist = dist
+					closest_enemy = e
+			
+			if closest_enemy != null:
+				# Aplicar choque em cadeia
+				var chain_targets = [closest_enemy]
+				var chain_count = shock.chain_count
+				var last_target = closest_enemy
+				
+				# Encontrar próximos alvos para a cadeia
+				for i in range(chain_count - 1):
+					var next_target = null
+					var next_dist = 100.0  # distância máxima entre alvos na cadeia
+					for e in enemies:
+						if e["hp"] <= 0 or e["reached"] or e.get("dying", false):
+							continue
+						if e in chain_targets:
+							continue
+						var dist = last_target["pos"].distance_to(e["pos"])
+						if dist < next_dist:
+							next_dist = dist
+							next_target = e
+					
+					if next_target != null:
+						chain_targets.append(next_target)
+						last_target = next_target
+					else:
+						break
+				
+				# Aplicar dano a todos os alvos da cadeia
+				for target in chain_targets:
+					target["hp"] -= shock.damage
+					_create_damage_number(target["pos"], shock.damage, false, Color(0.5, 0.8, 1.0))  # azul para choque
+					if target["hp"] <= 0:
+						target["hp"] = 0
+						target["dying"] = true
+						target["dying_time"] = 0.0
+						_create_death_animation(target["pos"])
+						var is_boss = target.get("is_boss", false)
+						hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
+						_try_drop_coin(target["pos"])
+				
+				# Criar efeito visual de choque (linhas entre alvos)
+				if chain_targets.size() > 1:
+					# Criar linha da torre até o primeiro inimigo
+					_create_shock_effect(shock.pos, chain_targets[0]["pos"])
+					# Criar linhas entre os inimigos
+					for i in range(chain_targets.size() - 1):
+						var start_pos = chain_targets[i]["pos"]
+						var end_pos = chain_targets[i + 1]["pos"]
+						_create_shock_effect(start_pos, end_pos)
+				else:
+					# Apenas um alvo, criar linha da torre até ele
+					_create_shock_effect(shock.pos, chain_targets[0]["pos"])
+				
+				shock.cooldown = shock.fire_rate
+
+func _create_shock_effect(start_pos: Vector2, end_pos: Vector2) -> void:
+	# Criar efeito visual de choque elétrico (raio/trovão)
+	var shock_effect = {
+		"start": start_pos,
+		"end": end_pos,
+		"time": 0.0,
+		"max_time": 0.15  # efeito rápido como um raio
+	}
+	shock_effects.append(shock_effect)
 
 func _update_walls(delta: float) -> void:
 	# walls podem ser danificadas por inimigos que passam por perto
@@ -2768,8 +3572,17 @@ func _update_soldiers(delta: float) -> void:
 			
 			s.hold_time += delta
 			# aplicar dano ao inimigo enquanto segura
-			target_enemy["hp"] -= s.damage * delta
+			var soldier_damage = s.damage * delta
+			target_enemy["hp"] -= soldier_damage
+			# Criar indicador de dano ocasionalmente (a cada 0.3s)
+			if not s.has("last_damage_time"):
+				s["last_damage_time"] = 0.0
+			s["last_damage_time"] += delta
+			if s["last_damage_time"] >= 0.3:
+				_create_damage_number(target_enemy["pos"], soldier_damage * 3.0, false)
+				s["last_damage_time"] = 0.0
 			if target_enemy["hp"] <= 0:
+				_create_death_animation(target_enemy["pos"])
 				var is_boss = target_enemy.get("is_boss", false)
 				# chefe dá 20x mais moedas (40 vs 2)
 				hero["coins"] += 40 if is_boss else 2
@@ -2934,3 +3747,43 @@ func _create_coin_collect_effect(pos: Vector2) -> void:
 		effect.particles.append(particle)
 	
 	coin_collect_effects.append(effect)
+
+func _play_coin_sound() -> void:
+	# Tocar som de coleta de moeda
+	var sound_player = get_node_or_null("SoundEffectsPlayer")
+	if sound_player:
+		# Tentar carregar som da moeda (suporta múltiplos formatos)
+		var coin_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
+		if coin_sound == null:
+			coin_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
+		if coin_sound == null:
+			coin_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
+		
+		if coin_sound != null:
+			sound_player.stream = coin_sound
+			sound_player.play()
+		# Se o som não existir, não faz nada (não mostra erro para não poluir o console)
+
+func _create_damage_number(pos: Vector2, damage: float, is_crit: bool = false, color: Color = Color.WHITE) -> void:
+	# Criar indicador de dano flutuante
+	var damage_num = {
+		"pos": pos + Vector2(randf_range(-10, 10), randf_range(-5, 5)),  # pequeno offset aleatório
+		"value": damage,
+		"time": 0.0,
+		"max_time": 1.0,  # 1 segundo de duração
+		"is_crit": is_crit,
+		"color": color if color != Color.WHITE else (Color(1.0, 0.8, 0.2) if is_crit else Color(1.0, 0.3, 0.3)),
+		"velocity": Vector2(randf_range(-30, 30), -50.0)  # movimento para cima com pequeno desvio horizontal
+	}
+	damage_numbers.append(damage_num)
+
+func _create_death_animation(pos: Vector2) -> void:
+	# Criar animação de morte (fade out e shrink)
+	var death_anim = {
+		"pos": pos,
+		"time": 0.0,
+		"max_time": 0.5,  # meio segundo de animação
+		"scale": 1.0,
+		"alpha": 1.0
+	}
+	enemy_death_animations.append(death_anim)
