@@ -109,6 +109,13 @@ var loading_screen: Control
 var loading_progress: float = 0.0
 var is_loading: bool = true
 
+# UI melhorada
+var tower_shop_panel: Panel
+var tower_buttons: Array = []
+var tooltip_label: Label
+var hovered_tower_button: Control = null
+var music_muted: bool = false
+
 # Wave management agora em wave_manager
 func _wave_factor() -> float:
 	return wave_manager.wave_factor()
@@ -295,7 +302,53 @@ func _ready() -> void:
 
 	# wire UI
 	var tb = $CanvasLayer/HUD/TopBar
-	tb.get_node("BtnKillAll").pressed.connect(func(): enemies.clear())
+	
+	# Melhorar design da top bar
+	var top_bar_style = StyleBoxFlat.new()
+	top_bar_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	top_bar_style.border_color = Color(0.3, 0.3, 0.4)
+	top_bar_style.border_width_left = 0
+	top_bar_style.border_width_top = 0
+	top_bar_style.border_width_right = 0
+	top_bar_style.border_width_bottom = 2
+	tb.add_theme_stylebox_override("panel", top_bar_style)
+	
+	# Melhorar labels
+	var lbl_left = tb.get_node("LblLeft")
+	lbl_left.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	lbl_left.add_theme_font_size_override("font_size", 16)
+	
+	var lbl_center = tb.get_node("LblCenter")
+	lbl_center.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	lbl_center.add_theme_font_size_override("font_size", 18)
+	
+	var lbl_right = tb.get_node("LblRight")
+	lbl_right.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+	lbl_right.add_theme_font_size_override("font_size", 16)
+	
+	# Melhorar botão Kill All
+	var btn_kill_all = tb.get_node("BtnKillAll")
+	btn_kill_all.pressed.connect(func(): enemies.clear())
+	var kill_btn_style_normal = StyleBoxFlat.new()
+	kill_btn_style_normal.bg_color = Color(0.6, 0.2, 0.2)
+	kill_btn_style_normal.border_color = Color(0.8, 0.3, 0.3)
+	kill_btn_style_normal.border_width_left = 1
+	kill_btn_style_normal.border_width_top = 1
+	kill_btn_style_normal.border_width_right = 1
+	kill_btn_style_normal.border_width_bottom = 1
+	btn_kill_all.add_theme_stylebox_override("normal", kill_btn_style_normal)
+	
+	var kill_btn_style_hover = StyleBoxFlat.new()
+	kill_btn_style_hover.bg_color = Color(0.7, 0.3, 0.3)
+	kill_btn_style_hover.border_color = Color(0.9, 0.4, 0.4)
+	kill_btn_style_hover.border_width_left = 1
+	kill_btn_style_hover.border_width_top = 1
+	kill_btn_style_hover.border_width_right = 1
+	kill_btn_style_hover.border_width_bottom = 1
+	btn_kill_all.add_theme_stylebox_override("hover", kill_btn_style_hover)
+	
+	btn_kill_all.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	btn_kill_all.add_theme_font_size_override("font_size", 12)
 	
 	# botão para pular 10 waves (debug)
 	if not tb.has_node("BtnJumpWave10"):
@@ -311,32 +364,40 @@ func _ready() -> void:
 	tb.position = Vector2(0.0, 0.0)
 	tb.size = Vector2(grid_px_w, bar_height)
 	
-	# criar menu dropdown para compras
-	var buy_menu: PopupMenu
-	if not tb.has_node("BuyMenuButton"):
-		var menu_btn = MenuButton.new()
-		menu_btn.name = "BuyMenuButton"
-		tb.add_child(menu_btn)
-		menu_btn.position = Vector2(810, 8)
-		menu_btn.size = Vector2(180, 28)
-		menu_btn.text = "Comprar"
-		buy_menu = menu_btn.get_popup()
-		buy_menu.add_item("Torre (%d)" % GameConstants.TOWER_COST, 1)
-		buy_menu.add_item("Quartel (%d)" % GameConstants.BARRACKS_COST, 2)
-		buy_menu.add_item("Mina (%d)" % GameConstants.MINE_COST, 3)
-		buy_menu.add_item("Slow Tower (%d)" % GameConstants.SLOW_TOWER_COST, 4)
-		buy_menu.add_item("AOE Tower (%d)" % GameConstants.AOE_TOWER_COST, 5)
-		buy_menu.add_item("Sniper Tower (%d)" % GameConstants.SNIPER_TOWER_COST, 6)
-		buy_menu.add_item("Boost Tower (%d)" % GameConstants.BOOST_TOWER_COST, 7)
-		buy_menu.add_item("Shock Tower (%d)" % GameConstants.SHOCK_TOWER_COST, 8)
-		buy_menu.add_item("Muralha (%d)" % GameConstants.WALL_COST, 9)
-		buy_menu.add_item("Cura (%d)" % GameConstants.HEALING_STATION_COST, 10)
-		buy_menu.id_pressed.connect(_on_buy_menu_pressed)
-	else:
-		var menu_btn = tb.get_node("BuyMenuButton")
-		buy_menu = menu_btn.get_popup()
-		if not buy_menu.id_pressed.is_connected(_on_buy_menu_pressed):
-			buy_menu.id_pressed.connect(_on_buy_menu_pressed)
+	# Remover botão de comprar antigo (não é mais necessário com o menu lateral)
+	if tb.has_node("BuyMenuButton"):
+		tb.get_node("BuyMenuButton").queue_free()
+	
+	# Adicionar botão para mutar música
+	if not tb.has_node("BtnMuteMusic"):
+		var btn_mute = Button.new()
+		btn_mute.name = "BtnMuteMusic"
+		btn_mute.text = "🔊"
+		btn_mute.position = Vector2(810, 8)
+		btn_mute.size = Vector2(40, 28)
+		tb.add_child(btn_mute)
+		
+		# Estilizar botão de mute
+		var mute_btn_style_normal = StyleBoxFlat.new()
+		mute_btn_style_normal.bg_color = Color(0.2, 0.2, 0.3)
+		mute_btn_style_normal.border_color = Color(0.4, 0.4, 0.5)
+		mute_btn_style_normal.border_width_left = 1
+		mute_btn_style_normal.border_width_top = 1
+		mute_btn_style_normal.border_width_right = 1
+		mute_btn_style_normal.border_width_bottom = 1
+		btn_mute.add_theme_stylebox_override("normal", mute_btn_style_normal)
+		
+		var mute_btn_style_hover = StyleBoxFlat.new()
+		mute_btn_style_hover.bg_color = Color(0.3, 0.3, 0.4)
+		mute_btn_style_hover.border_color = Color(0.5, 0.5, 0.6)
+		mute_btn_style_hover.border_width_left = 1
+		mute_btn_style_hover.border_width_top = 1
+		mute_btn_style_hover.border_width_right = 1
+		mute_btn_style_hover.border_width_bottom = 1
+		btn_mute.add_theme_stylebox_override("hover", mute_btn_style_hover)
+		
+		btn_mute.add_theme_font_size_override("font_size", 16)
+		btn_mute.pressed.connect(_toggle_music)
 	
 	# remover botões antigos se existirem
 	if tb.has_node("BtnBuyTower"):
@@ -345,6 +406,9 @@ func _ready() -> void:
 		tb.get_node("BtnBuyBlock").queue_free()
 	if tb.has_node("BtnBuyBarracks"):
 		tb.get_node("BtnBuyBarracks").queue_free()
+	
+	# Criar UI melhorada - Menu lateral de torres
+	_create_tower_shop_ui()
 
 	# criar PopupMenu para torres (deve estar em um Control)
 	var menu_container = Control.new()
@@ -655,31 +719,48 @@ func _process(delta: float) -> void:
 	tb.get_node("LblCenter").text = "Moedas %d" % [int(hero["coins"])]
 	tb.get_node("LblRight").text = "Vida %d" % [base_hp]
 	
-	# atualizar menu dropdown de compras
-	if tb.has_node("BuyMenuButton"):
-		var menu_btn = tb.get_node("BuyMenuButton")
-		var buy_menu_popup = menu_btn.get_popup()
-		buy_menu_popup.set_item_text(0, "Torre (%d) [%d/%d]" % [GameConstants.TOWER_COST, towers.size(), GameConstants.MAX_TOWERS])
-		buy_menu_popup.set_item_text(1, "Quartel (%d) [%d/%d]" % [GameConstants.BARRACKS_COST, barracks.size(), GameConstants.MAX_BARRACKS])
-		buy_menu_popup.set_item_text(2, "Mina (%d) [%d/%d]" % [GameConstants.MINE_COST, mines.size(), GameConstants.MAX_MINES])
-		buy_menu_popup.set_item_text(3, "Slow Tower (%d) [%d/%d]" % [GameConstants.SLOW_TOWER_COST, slow_towers.size(), GameConstants.MAX_SLOW_TOWERS])
-		buy_menu_popup.set_item_text(4, "AOE Tower (%d) [%d/%d]" % [GameConstants.AOE_TOWER_COST, aoe_towers.size(), GameConstants.MAX_AOE_TOWERS])
-		buy_menu_popup.set_item_text(5, "Sniper Tower (%d) [%d/%d]" % [GameConstants.SNIPER_TOWER_COST, sniper_towers.size(), GameConstants.MAX_SNIPER_TOWERS])
-		buy_menu_popup.set_item_text(6, "Boost Tower (%d) [%d/%d]" % [GameConstants.BOOST_TOWER_COST, boost_towers.size(), GameConstants.MAX_BOOST_TOWERS])
-		buy_menu_popup.set_item_text(7, "Shock Tower (%d) [%d/%d]" % [GameConstants.SHOCK_TOWER_COST, shock_towers.size(), GameConstants.MAX_SHOCK_TOWERS])
-		buy_menu_popup.set_item_text(8, "Muralha (%d) [%d/%d]" % [GameConstants.WALL_COST, walls.size(), GameConstants.MAX_WALLS])
-		buy_menu_popup.set_item_text(9, "Cura (%d) [%d/%d]" % [GameConstants.HEALING_STATION_COST, healing_stations.size(), GameConstants.MAX_HEALING_STATIONS])
+	# Atualizar UI melhorada - Menu lateral de torres
+	_update_tower_shop_ui()
+
+func _update_tower_shop_ui() -> void:
+	if tower_shop_panel == null or tower_buttons.is_empty():
+		return
+	
+	for tower_button_data in tower_buttons:
+		var tower_info = tower_button_data.tower_info
+		var current_count = tower_button_data.tower_info.array.size()
+		var can_afford = hero["coins"] >= tower_info.cost
+		var can_buy = can_afford and current_count < tower_info.max
 		
-		buy_menu_popup.set_item_disabled(0, hero["coins"] < GameConstants.TOWER_COST or towers.size() >= GameConstants.MAX_TOWERS)
-		buy_menu_popup.set_item_disabled(1, hero["coins"] < GameConstants.BARRACKS_COST or barracks.size() >= GameConstants.MAX_BARRACKS)
-		buy_menu_popup.set_item_disabled(2, hero["coins"] < GameConstants.MINE_COST or mines.size() >= GameConstants.MAX_MINES)
-		buy_menu_popup.set_item_disabled(3, hero["coins"] < GameConstants.SLOW_TOWER_COST or slow_towers.size() >= GameConstants.MAX_SLOW_TOWERS)
-		buy_menu_popup.set_item_disabled(4, hero["coins"] < GameConstants.AOE_TOWER_COST or aoe_towers.size() >= GameConstants.MAX_AOE_TOWERS)
-		buy_menu_popup.set_item_disabled(5, hero["coins"] < GameConstants.SNIPER_TOWER_COST or sniper_towers.size() >= GameConstants.MAX_SNIPER_TOWERS)
-		buy_menu_popup.set_item_disabled(6, hero["coins"] < GameConstants.BOOST_TOWER_COST or boost_towers.size() >= GameConstants.MAX_BOOST_TOWERS)
-		buy_menu_popup.set_item_disabled(7, hero["coins"] < GameConstants.SHOCK_TOWER_COST or shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS)
-		buy_menu_popup.set_item_disabled(7, hero["coins"] < GameConstants.WALL_COST or walls.size() >= GameConstants.MAX_WALLS)
-		buy_menu_popup.set_item_disabled(8, hero["coins"] < GameConstants.HEALING_STATION_COST or healing_stations.size() >= GameConstants.MAX_HEALING_STATIONS)
+		# Atualizar label de limite
+		tower_button_data.limit_label.text = "%d/%d" % [current_count, tower_info.max]
+		if current_count >= tower_info.max:
+			tower_button_data.limit_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		else:
+			tower_button_data.limit_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		
+		# Atualizar cor do custo
+		if can_afford:
+			tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+		else:
+			tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		
+		# Atualizar estado do botão
+		tower_button_data.buy_button.disabled = not can_buy
+		
+		# Atualizar estilo do botão
+		var btn_style = StyleBoxFlat.new()
+		if can_buy:
+			btn_style.bg_color = Color(0.2, 0.6, 0.2)
+			btn_style.border_color = Color(0.3, 0.7, 0.3)
+		else:
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.4, 0.4, 0.4)
+		btn_style.border_width_left = 1
+		btn_style.border_width_top = 1
+		btn_style.border_width_right = 1
+		btn_style.border_width_bottom = 1
+		tower_button_data.buy_button.add_theme_stylebox_override("normal", btn_style)
 
 	queue_redraw()
 
@@ -3776,6 +3857,217 @@ func _create_damage_number(pos: Vector2, damage: float, is_crit: bool = false, c
 		"velocity": Vector2(randf_range(-30, 30), -50.0)  # movimento para cima com pequeno desvio horizontal
 	}
 	damage_numbers.append(damage_num)
+
+func _create_tower_shop_ui() -> void:
+	# Criar painel lateral para loja de torres
+	var canvas = $CanvasLayer
+	var hud = canvas.get_node("HUD")
+	
+	# Remover menu antigo se existir
+	if hud.has_node("TowerShopPanel"):
+		hud.get_node("TowerShopPanel").queue_free()
+	
+	# Criar painel lateral
+	tower_shop_panel = Panel.new()
+	tower_shop_panel.name = "TowerShopPanel"
+	hud.add_child(tower_shop_panel)
+	
+	# Configurar posição e tamanho do painel (lado direito da tela)
+	var screen_width = get_viewport().get_visible_rect().size.x
+	var screen_height = get_viewport().get_visible_rect().size.y
+	var panel_width = 280.0  # Aumentado para garantir espaço para o botão completo
+	# Calcular altura necessária: 10 torres * 80px + título 45px + espaçamento 20px = 865px mínimo
+	var total_items_height = 10 * 80 + 20  # 10 itens de 80px + espaçamento
+	var required_height = total_items_height + 45  # +45 para o título
+	var panel_height = max(screen_height - 44.0, required_height)  # altura mínima para caber tudo
+	tower_shop_panel.position = Vector2(screen_width - panel_width, 44.0)
+	tower_shop_panel.size = Vector2(panel_width, panel_height)
+	
+	# Estilizar o painel
+	var style_box = StyleBoxFlat.new()
+	style_box.bg_color = Color(0.15, 0.15, 0.2, 0.95)
+	style_box.border_color = Color(0.3, 0.3, 0.4)
+	style_box.border_width_left = 2
+	style_box.border_width_top = 0
+	style_box.border_width_right = 0
+	style_box.border_width_bottom = 0
+	tower_shop_panel.add_theme_stylebox_override("panel", style_box)
+	
+	# Título do painel
+	var title_label = Label.new()
+	title_label.name = "TitleLabel"
+	title_label.text = "LOJA DE TORRES"
+	title_label.position = Vector2(10, 10)
+	title_label.size = Vector2(panel_width - 20, 30)
+	title_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	title_label.add_theme_font_size_override("font_size", 18)
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tower_shop_panel.add_child(title_label)
+	
+	# Container para botões de torres (sem scroll - tamanho fixo para mostrar tudo)
+	var vbox = VBoxContainer.new()
+	vbox.name = "TowerButtonsContainer"
+	vbox.position = Vector2(10, 45)
+	vbox.size = Vector2(panel_width - 20, panel_height - 45)
+	vbox.add_theme_constant_override("separation", 5)
+	tower_shop_panel.add_child(vbox)
+	
+	# Lista de torres com informações
+	var tower_data = [
+		{"name": "Torre Básica", "cost": GameConstants.TOWER_COST, "icon": tex_tower, "func": "_on_buy_tower", "max": GameConstants.MAX_TOWERS, "array": towers},
+		{"name": "Quartel", "cost": GameConstants.BARRACKS_COST, "icon": tex_barracks, "func": "_on_buy_barracks", "max": GameConstants.MAX_BARRACKS, "array": barracks},
+		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array": mines},
+		{"name": "Slow Tower", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array": slow_towers},
+		{"name": "AOE Tower", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array": aoe_towers},
+		{"name": "Sniper Tower", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array": sniper_towers},
+		{"name": "Boost Tower", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array": boost_towers},
+		{"name": "Shock Tower", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array": shock_towers},
+		{"name": "Muralha", "cost": GameConstants.WALL_COST, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array": walls},
+		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array": healing_stations},
+	]
+	
+	# Criar botões para cada torre
+	for tower_info in tower_data:
+		var btn_container = PanelContainer.new()
+		btn_container.custom_minimum_size = Vector2(panel_width - 20, 80)
+		
+		var btn_style = StyleBoxFlat.new()
+		btn_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+		btn_style.border_color = Color(0.4, 0.4, 0.5)
+		btn_style.border_width_left = 1
+		btn_style.border_width_top = 1
+		btn_style.border_width_right = 1
+		btn_style.border_width_bottom = 1
+		btn_container.add_theme_stylebox_override("panel", btn_style)
+		
+		var hbox = HBoxContainer.new()
+		hbox.add_theme_constant_override("separation", 5)
+		btn_container.add_child(hbox)
+		
+		# Ícone da torre
+		var icon_texture = TextureRect.new()
+		icon_texture.custom_minimum_size = Vector2(45, 45)
+		icon_texture.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_texture.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		if tower_info.icon != null:
+			icon_texture.texture = tower_info.icon
+		hbox.add_child(icon_texture)
+		
+		# Container para texto
+		var text_container = VBoxContainer.new()
+		text_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hbox.add_child(text_container)
+		
+		# Nome da torre
+		var name_label = Label.new()
+		name_label.text = tower_info.name
+		name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+		name_label.add_theme_font_size_override("font_size", 14)
+		text_container.add_child(name_label)
+		
+		# Custo e limite
+		var cost_label = Label.new()
+		cost_label.name = "CostLabel"
+		cost_label.text = "%d moedas" % tower_info.cost
+		cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+		cost_label.add_theme_font_size_override("font_size", 12)
+		text_container.add_child(cost_label)
+		
+		var limit_label = Label.new()
+		limit_label.name = "LimitLabel"
+		limit_label.text = "0/%d" % tower_info.max
+		limit_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		limit_label.add_theme_font_size_override("font_size", 11)
+		text_container.add_child(limit_label)
+		
+		# Botão de compra
+		var buy_btn = Button.new()
+		buy_btn.name = "BuyButton"
+		buy_btn.text = "Comprar"
+		buy_btn.custom_minimum_size = Vector2(75, 35)
+		buy_btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+		buy_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		buy_btn.pressed.connect(Callable(self, tower_info.func))
+		
+		# Estilizar botão
+		var btn_style_normal = StyleBoxFlat.new()
+		btn_style_normal.bg_color = Color(0.2, 0.6, 0.2)
+		btn_style_normal.border_color = Color(0.3, 0.7, 0.3)
+		btn_style_normal.border_width_left = 1
+		btn_style_normal.border_width_top = 1
+		btn_style_normal.border_width_right = 1
+		btn_style_normal.border_width_bottom = 1
+		buy_btn.add_theme_stylebox_override("normal", btn_style_normal)
+		
+		var btn_style_hover = StyleBoxFlat.new()
+		btn_style_hover.bg_color = Color(0.3, 0.7, 0.3)
+		btn_style_hover.border_color = Color(0.4, 0.8, 0.4)
+		btn_style_hover.border_width_left = 1
+		btn_style_hover.border_width_top = 1
+		btn_style_hover.border_width_right = 1
+		btn_style_hover.border_width_bottom = 1
+		buy_btn.add_theme_stylebox_override("hover", btn_style_hover)
+		
+		var btn_style_pressed = StyleBoxFlat.new()
+		btn_style_pressed.bg_color = Color(0.1, 0.5, 0.1)
+		btn_style_pressed.border_color = Color(0.2, 0.6, 0.2)
+		btn_style_pressed.border_width_left = 1
+		btn_style_pressed.border_width_top = 1
+		btn_style_pressed.border_width_right = 1
+		btn_style_pressed.border_width_bottom = 1
+		buy_btn.add_theme_stylebox_override("pressed", btn_style_pressed)
+		
+		buy_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+		buy_btn.add_theme_font_size_override("font_size", 12)
+		
+		hbox.add_child(buy_btn)
+		
+		# Armazenar referências para atualização
+		var tower_button_data = {
+			"container": btn_container,
+			"cost_label": cost_label,
+			"limit_label": limit_label,
+			"buy_button": buy_btn,
+			"tower_info": tower_info
+		}
+		tower_buttons.append(tower_button_data)
+		
+		vbox.add_child(btn_container)
+	
+	# Criar tooltip
+	tooltip_label = Label.new()
+	tooltip_label.name = "TooltipLabel"
+	tooltip_label.visible = false
+	tooltip_label.position = Vector2(10, 10)
+	tooltip_label.size = Vector2(180, 100)
+	tooltip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var tooltip_style = StyleBoxFlat.new()
+	tooltip_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	tooltip_style.border_color = Color(0.5, 0.5, 0.7)
+	tooltip_style.border_width_left = 2
+	tooltip_style.border_width_top = 2
+	tooltip_style.border_width_right = 2
+	tooltip_style.border_width_bottom = 2
+	tooltip_label.add_theme_stylebox_override("normal", tooltip_style)
+	tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	tower_shop_panel.add_child(tooltip_label)
+
+func _toggle_music() -> void:
+	music_muted = not music_muted
+	var music_player = get_node_or_null("MusicPlayer")
+	if music_player:
+		if music_muted:
+			music_player.volume_db = -80.0  # Muito baixo = mutado
+		else:
+			music_player.volume_db = -5.0  # Volume normal
+	
+	# Atualizar texto do botão
+	var tb = $CanvasLayer/HUD/TopBar
+	if tb.has_node("BtnMuteMusic"):
+		var btn_mute = tb.get_node("BtnMuteMusic")
+		btn_mute.text = "🔇" if music_muted else "🔊"
 
 func _create_death_animation(pos: Vector2) -> void:
 	# Criar animação de morte (fade out e shrink)
