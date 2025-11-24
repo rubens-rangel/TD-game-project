@@ -137,8 +137,6 @@ func world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)
 	var base_start_col = center.x - base_half_size
 	var base_start_row = center.y - base_half_size
-	var base_end_col = center.x + base_half_size
-	var base_end_row = center.y + base_half_size
 	
 	# Converter posição do mundo para coordenadas de tile do grid principal
 	var tile_col = int(floor(world_pos.x / GameConstants.TILE_SIZE))
@@ -152,11 +150,12 @@ func world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	# grid_size_tiles = BASE_SIZE_TILES / BASE_GRID_SIZE = 7 / 15 = 0.466...
 	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
 	
-	# Usar round ao invés de floor para melhor precisão, especialmente nas bordas
-	var gx = int(round(relative_col / grid_size_tiles))
-	var gy = int(round(relative_row / grid_size_tiles))
+	# Usar floor para obter a célula do grid que contém essa posição
+	# Ajustar para garantir que torres adjacentes compartilhem bordas sem espaçamento
+	var gx = int(floor(relative_col / grid_size_tiles))
+	var gy = int(floor(relative_row / grid_size_tiles))
 	
-	# Clampar para os limites do grid (0 a 14)
+	# Clampar para os limites válidos do grid (0 a BASE_GRID_SIZE - 1)
 	gx = clamp(gx, 0, GameConstants.BASE_GRID_SIZE - 1)
 	gy = clamp(gy, 0, GameConstants.BASE_GRID_SIZE - 1)
 	return Vector2i(gx, gy)
@@ -169,22 +168,36 @@ func base_grid_to_world(grid_x: int, grid_y: int) -> Vector2:
 	# Converter coordenadas do grid interno para posição relativa na base
 	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
 	
-	# Calcular posição central da célula do grid
-	var relative_col = (float(grid_x) + 0.5) * grid_size_tiles
-	var relative_row = (float(grid_y) + 0.5) * grid_size_tiles
+	# Calcular posição central da área ocupada no grid
+	# Para torres de tamanho 3x3, calcular o centro da área ocupada (grid_x + 1.5, grid_y + 1.5)
+	var relative_col = (float(grid_x) + 1.5) * grid_size_tiles
+	var relative_row = (float(grid_y) + 1.5) * grid_size_tiles
 	
-	# Converter para coordenadas absolutas de tile
-	var world_col = base_start_col + relative_col
-	var world_row = base_start_row + relative_row
+	# Converter para coordenadas absolutas de tile e depois para pixels
+	var world_col_tiles = base_start_col + relative_col
+	var world_row_tiles = base_start_row + relative_row
 	
-	# Retornar centro do tile correspondente
-	return tile_center(int(round(world_col)), int(round(world_row)))
+	# Retornar posição em pixels (centro da área ocupada)
+	return Vector2(
+		world_col_tiles * GameConstants.TILE_SIZE,
+		world_row_tiles * GameConstants.TILE_SIZE
+	)
 
 func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int) -> bool:
+	# Verificar se a posição inicial está dentro dos limites válidos
+	# Para uma torre de tamanho 'size', ela precisa caber completamente no grid
+	# Então grid_x + size <= BASE_GRID_SIZE e grid_y + size <= BASE_GRID_SIZE
+	if grid_x < 0 or grid_y < 0:
+		return false
+	if grid_x + size > GameConstants.BASE_GRID_SIZE or grid_y + size > GameConstants.BASE_GRID_SIZE:
+		return false
+	
+	# Verificar se todas as células necessárias estão livres
 	for dy in range(size):
 		for dx in range(size):
 			var gx = grid_x + dx
 			var gy = grid_y + dy
+			# Verificações de limites já foram feitas acima, mas vamos garantir
 			if gx < 0 or gx >= GameConstants.BASE_GRID_SIZE or gy < 0 or gy >= GameConstants.BASE_GRID_SIZE:
 				return false
 			if base_grid.size() <= gy or base_grid[gy].size() <= gx:

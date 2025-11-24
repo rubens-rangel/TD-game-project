@@ -52,11 +52,21 @@ func _world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	return Vector2i(gx, gy)
 
 func find_path(from_c: int, from_r: int, base_grid: Array) -> Array:
+	# Limitar tamanho do cache para evitar problemas de memória em waves altas
+	if path_cache.size() > 1000:
+		path_cache.clear()
+	
 	# Otimização: verificar cache primeiro (mais rápido)
 	# O cache é invalidado quando blocos são colocados, então podemos confiar nele
 	var cache_key = "%d,%d" % [from_c, from_r]
 	if path_cache.has(cache_key):
-		return path_cache[cache_key]
+		var cached_path = path_cache[cache_key]
+		# Validar que o caminho em cache ainda é válido (não vazio)
+		if not cached_path.is_empty():
+			return cached_path
+		else:
+			# Remover caminho inválido do cache
+			path_cache.erase(cache_key)
 	
 	var start = Vector2i(from_c, from_r)
 	var goal = center
