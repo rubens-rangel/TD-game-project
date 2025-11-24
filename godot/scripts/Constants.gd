@@ -61,7 +61,7 @@ const BARRACKS_SPAWN_RATE_COST := 20
 const BARRACKS_PROJECTILE_SPEED_COST := 18
 
 # Sniper tower upgrades
-const SNIPER_DMG_COST := 30
+const SNIPER_DMG_COST := 45
 const SNIPER_RATE_COST := 12
 
 # AOE tower upgrades
@@ -73,6 +73,17 @@ const AOE_AREA_COST := 20
 const SHOCK_DMG_COST := 15
 const SHOCK_RATE_COST := 12
 const SHOCK_CHAIN_COST := 20
+
+# Slow tower upgrades
+const SLOW_RANGE_COST := 15
+const SLOW_AMOUNT_COST := 20
+const SLOW_DURATION_COST := 18
+const SLOW_RATE_COST := 12
+
+# Boost tower upgrades
+const BOOST_RANGE_COST := 15
+const BOOST_DMG_COST := 20
+const BOOST_RATE_COST := 18
 
 # Waves
 const WAVE_SCALE := 1.1
@@ -92,8 +103,24 @@ const HERO_BASE_FIRE_RATE := 0.35
 const HERO_BASE_DAMAGE := 1
 
 # Coin drops
-const COIN_DROP_CHANCE := 0.3  # 30% de chance de dropar moeda
+const COIN_DROP_CHANCE := 0.25  # 25% de chance de dropar moeda (reduzido de 30%)
 const COIN_MIN_VALUE := 5
 const COIN_MAX_VALUE := 20
 const COIN_LIFETIME := 10.0  # tempo que a moeda fica no chão antes de desaparecer
+
+# Skills
+const SKILL_COLLECT_COINS_COST := 0  # Gratuita
+const SKILL_DAMAGE_BOOST_COST := 0  # Gratuita (cooldown apenas)
+const SKILL_SPEED_BOOST_COST := 0  # Gratuita (cooldown apenas)
+const SKILL_SLOW_ALL_COST := 0  # Gratuita (cooldown apenas)
+const SKILL_DAMAGE_BOOST_DURATION := 10.0  # segundos
+const SKILL_SPEED_BOOST_DURATION := 8.0  # segundos
+const SKILL_SLOW_ALL_DURATION := 5.0  # segundos
+const SKILL_SLOW_ALL_AMOUNT := 0.5  # 50% de slow (velocidade reduzida pela metade)
+const SKILL_DAMAGE_BOOST_MULTIPLIER := 1.5  # +50% de dano
+const SKILL_SPEED_BOOST_MULTIPLIER := 1.3  # +30% de velocidade
+const SKILL_COLLECT_COINS_COOLDOWN := 60.0  # segundos de cooldown
+const SKILL_DAMAGE_BOOST_COOLDOWN := 60.0  # segundos de cooldown
+const SKILL_SPEED_BOOST_COOLDOWN := 60.0  # segundos de cooldown
+const SKILL_SLOW_ALL_COOLDOWN := 60.0  # segundos de cooldown
 

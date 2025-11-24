@@ -1,14 +1,2 @@
 res://scripts/Game.gd
-res://scripts/Constants.gd
-res://scripts/Pathfinder.gd
-res://scripts/managers/CoinManager.gd
-res://scripts/managers/CombatManager.gd
-res://scripts/managers/EffectsManager.gd
-res://scripts/managers/EnemyManager.gd
-res://scripts/managers/PlacementManager.gd
-res://scripts/managers/ResourceManager.gd
-res://scripts/managers/StructureManager.gd
-res://scripts/managers/TowerManager.gd
-res://scripts/managers/UIManager.gd
-res://scripts/GridManager.gd
 res://scripts/Menu.gd

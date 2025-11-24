@@ -47,7 +47,7 @@ var mines: Array = []  # minas: {grid_x: int, grid_y: int, pos: Vector2, damage:
 var slow_towers: Array = []  # slow towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, slow_amount: float, cooldown: float, fire_rate: float}
 var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, aoe_radius: float, cooldown: float, fire_rate: float}
 var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
-var boost_towers: Array = []  # boost towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage_boost: float, rate_boost: float}
+var boost_towers: Array = []  # boost towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage_boost: float, rate_boost: float, levels: Dictionary}
 var shock_towers: Array = []  # shock towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, chain_count: int, cooldown: float, fire_rate: float}
 var walls: Array = []  # walls: {grid_x: int, grid_y: int, pos: Vector2, hp: float, max_hp: float}
 var healing_stations: Array = []  # healing stations: {grid_x: int, grid_y: int, pos: Vector2, heal_rate: float, range: float}
@@ -64,13 +64,17 @@ var placing_tower_dir := Vector2(1, 0)  # direção inicial ao colocar torre
 var barracks_menu: PopupMenu
 var barracks_selected_index := -1
 
-# Menus de upgrade para sniper, AOE e Shock
+# Menus de upgrade para sniper, AOE, Shock, Slow e Boost
 var sniper_menu: PopupMenu
 var sniper_selected_index := -1
 var aoe_menu: PopupMenu
 var aoe_selected_index := -1
 var shock_menu: PopupMenu
 var shock_selected_index := -1
+var slow_menu: PopupMenu
+var slow_selected_index := -1
+var boost_menu: PopupMenu
+var boost_selected_index := -1
 
 # Drag and drop state
 var dragging_tower := false
@@ -115,6 +119,20 @@ var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
+
+# Skills system
+var skills_panel: Panel
+var skill_damage_boost_active: bool = false
+var skill_damage_boost_time: float = 0.0
+var skill_speed_boost_active: bool = false
+var skill_speed_boost_time: float = 0.0
+var skill_collect_coins_cooldown: float = 0.0
+var skill_damage_boost_cooldown: float = 0.0
+var skill_speed_boost_cooldown: float = 0.0
+var skill_slow_all_cooldown: float = 0.0
+var skill_slow_all_active: bool = false
+var skill_slow_all_time: float = 0.0
+var skill_buttons: Dictionary = {}  # Armazenar referências aos botões para atualizar cooldown
 
 # Wave management agora em wave_manager
 func _wave_factor() -> float:
@@ -287,7 +305,7 @@ func _ready() -> void:
 	_update_loading_progress(0.85)
 	tex_boost_tower = _load_and_process_texture("res://assets/images/boost_tower.png")
 	_update_loading_progress(0.87)
-	tex_shock_tower = _load_and_process_texture("res://assets/shock_tower.jpg")
+	tex_shock_tower = _load_and_process_texture("res://assets/images/shock_tower.jpg")
 	_update_loading_progress(0.90)
 	tex_barracks = _load_and_process_texture("res://assets/images/barracks.png")
 	tex_mine = _load_and_process_texture("res://assets/images/mine.png")
@@ -409,6 +427,9 @@ func _ready() -> void:
 	
 	# Criar UI melhorada - Menu lateral de torres
 	_create_tower_shop_ui()
+	
+	# Criar menu de skills
+	_create_skills_ui()
 
 	# criar PopupMenu para torres (deve estar em um Control)
 	var menu_container = Control.new()
@@ -487,6 +508,37 @@ func _ready() -> void:
 	shock_menu.id_pressed.connect(Callable(self, "_on_shock_menu_pressed"))
 	shock_menu_container.add_child(shock_menu)
 	$CanvasLayer.add_child(shock_menu_container)
+	
+	# criar PopupMenu para Slow towers
+	var slow_menu_container = Control.new()
+	slow_menu_container.name = "SlowMenuContainer"
+	slow_menu_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	slow_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slow_menu = PopupMenu.new()
+	slow_menu.name = "SlowMenu"
+	slow_menu.hide_on_checkable_item_selection = true
+	slow_menu.add_item("Alcance +30", 1)
+	slow_menu.add_item("Slow +10%", 2)
+	slow_menu.add_item("Duração +0.5s", 3)
+	slow_menu.add_item("Taxa de Aplicação +", 4)
+	slow_menu.id_pressed.connect(Callable(self, "_on_slow_menu_pressed"))
+	slow_menu_container.add_child(slow_menu)
+	$CanvasLayer.add_child(slow_menu_container)
+	
+	# criar PopupMenu para Boost towers
+	var boost_menu_container = Control.new()
+	boost_menu_container.name = "BoostMenuContainer"
+	boost_menu_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boost_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boost_menu = PopupMenu.new()
+	boost_menu.name = "BoostMenu"
+	boost_menu.hide_on_checkable_item_selection = true
+	boost_menu.add_item("Alcance +30", 1)
+	boost_menu.add_item("Boost Dano +10%", 2)
+	boost_menu.add_item("Boost Cadência +5%", 3)
+	boost_menu.id_pressed.connect(Callable(self, "_on_boost_menu_pressed"))
+	boost_menu_container.add_child(boost_menu)
+	$CanvasLayer.add_child(boost_menu_container)
 
 	var ov = $CanvasLayer/UpgradeOverlay
 	ov.get_node("Panel/Btn1").pressed.connect(func(): _apply_benefit(0))
@@ -531,6 +583,49 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if paused or game_over:
 		return
+
+	# Atualizar timers das skills
+	if skill_damage_boost_active:
+		skill_damage_boost_time -= delta
+		if skill_damage_boost_time <= 0.0:
+			skill_damage_boost_active = false
+			skill_damage_boost_time = 0.0
+			print("Boost de Dano expirou!")
+	
+	if skill_speed_boost_active:
+		skill_speed_boost_time -= delta
+		if skill_speed_boost_time <= 0.0:
+			skill_speed_boost_active = false
+			skill_speed_boost_time = 0.0
+			print("Boost de Velocidade expirou!")
+	
+	# Atualizar cooldowns das skills
+	if skill_collect_coins_cooldown > 0.0:
+		skill_collect_coins_cooldown -= delta
+		skill_collect_coins_cooldown = max(0.0, skill_collect_coins_cooldown)
+	
+	if skill_damage_boost_cooldown > 0.0:
+		skill_damage_boost_cooldown -= delta
+		skill_damage_boost_cooldown = max(0.0, skill_damage_boost_cooldown)
+	
+	if skill_speed_boost_cooldown > 0.0:
+		skill_speed_boost_cooldown -= delta
+		skill_speed_boost_cooldown = max(0.0, skill_speed_boost_cooldown)
+	
+	if skill_slow_all_cooldown > 0.0:
+		skill_slow_all_cooldown -= delta
+		skill_slow_all_cooldown = max(0.0, skill_slow_all_cooldown)
+	
+	# Atualizar timer da skill de slow global
+	if skill_slow_all_active:
+		skill_slow_all_time -= delta
+		if skill_slow_all_time <= 0.0:
+			skill_slow_all_active = false
+			skill_slow_all_time = 0.0
+			print("Slow Global expirou!")
+	
+	# Atualizar UI das skills (cooldown visual)
+	_update_skills_ui()
 
 	# update
 	for e in enemies:
@@ -924,6 +1019,16 @@ func _input(event: InputEvent) -> void:
 			var shock_idx := _find_shock_tower_at(mouse_world_pos, 20.0)
 			if shock_idx != -1:
 				_open_shock_menu(shock_idx, mouse_screen_pos)
+				return
+			# verificar Slow towers
+			var slow_idx := _find_slow_tower_at(mouse_world_pos, 20.0)
+			if slow_idx != -1:
+				_open_slow_menu(slow_idx, mouse_screen_pos)
+				return
+			# verificar Boost towers
+			var boost_idx := _find_boost_tower_at(mouse_world_pos, 20.0)
+			if boost_idx != -1:
+				_open_boost_menu(boost_idx, mouse_screen_pos)
 				return
 
 func _draw() -> void:
@@ -1782,7 +1887,7 @@ func _enemy_new(col: int, row: int) -> Dictionary:
 	if base_speed > max_speed:
 		base_speed = max_speed
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 9, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = false }
-	enemy_effects[enemy_idx] = {freeze_time = 0.0, fire_time = 0.0, fire_damage = 0.0}
+	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
 
 func _enemy_new_boss(col: int, row: int) -> Dictionary:
@@ -1814,7 +1919,7 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 	if base_speed > max_speed:
 		base_speed = max_speed
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 12, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = true }
-	enemy_effects[enemy_idx] = {freeze_time = 0.0, fire_time = 0.0, fire_damage = 0.0}
+	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
 
 func _enemy_update(e: Dictionary, dt: float) -> void:
@@ -1822,12 +1927,31 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 		return
 	
 	var enemy_idx = e.get("idx", -1)
-	if enemy_idx >= 0 and enemy_effects.has(enemy_idx):
+	if enemy_idx >= 0:
+		# Garantir que o Dictionary de efeitos existe e tem todas as propriedades necessárias
+		if not enemy_effects.has(enemy_idx):
+			enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0 }
+		
 		var effects = enemy_effects[enemy_idx]
+		
+		# Garantir que todas as propriedades existem
+		if not effects.has("slow_time"):
+			effects["slow_time"] = 0.0
+		if not effects.has("slow_amount"):
+			effects["slow_amount"] = 0.0
+		if not effects.has("freeze_time"):
+			effects["freeze_time"] = 0.0
+		
 		# aplicar congelamento (reduz velocidade)
-		if effects.freeze_time > 0.0:
-			effects.freeze_time -= dt
+		if effects.get("freeze_time", 0.0) > 0.0:
+			effects["freeze_time"] = effects.get("freeze_time", 0.0) - dt
 			e["speed"] = e["base_speed"] * 0.3  # reduz velocidade em 70%
+		# aplicar slow (reduz velocidade)
+		elif effects.get("slow_time", 0.0) > 0.0:
+			effects["slow_time"] = effects.get("slow_time", 0.0) - dt
+			var slow_amount = effects.get("slow_amount", 0.0)
+			var slow_mult = 1.0 - slow_amount  # slow_amount é a porcentagem de redução (0.5 = 50%)
+			e["speed"] = e["base_speed"] * slow_mult
 		else:
 			e["speed"] = e["base_speed"]
 		
@@ -2020,7 +2144,12 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
 	var dir = (target - Vector2(x,y))
 	var d = max(dir.length(), 0.0001)
-	var a = { "pos": Vector2(x,y), "vel": dir/d * 260.0, "life": 2.0, "radius": 2, "damage": hero["damage"], "pierce": hero["pierce"] }
+	# aplicar skill de boost de dano no herói
+	var hero_damage = hero["damage"]
+	if skill_damage_boost_active:
+		hero_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	
+	var a = { "pos": Vector2(x,y), "vel": dir/d * 260.0, "life": 2.0, "radius": 2, "damage": hero_damage, "pierce": hero["pierce"] }
 	return a
 
 func _arrow_update(a: Dictionary, dt: float) -> void:
@@ -2498,6 +2627,96 @@ func _on_shock_menu_pressed(id: int) -> void:
 	shock_towers[shock_selected_index] = s
 	shock_selected_index = -1
 
+func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
+	if slow_menu == null:
+		return
+	slow_selected_index = idx
+	var s = slow_towers[idx]
+	var can_range: bool = hero["coins"] >= GameConstants.SLOW_RANGE_COST
+	var can_amount: bool = hero["coins"] >= GameConstants.SLOW_AMOUNT_COST and s.slow_amount < 0.9
+	var can_duration: bool = hero["coins"] >= GameConstants.SLOW_DURATION_COST
+	var can_rate: bool = hero["coins"] >= GameConstants.SLOW_RATE_COST and s.fire_rate > 0.2
+	
+	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [GameConstants.SLOW_RANGE_COST, s.range])
+	slow_menu.set_item_text(1, "Slow +10%% (%d) [%.0f%%]" % [GameConstants.SLOW_AMOUNT_COST, s.slow_amount * 100])
+	slow_menu.set_item_text(2, "Duração +0.5s (%d) [%.1fs]" % [GameConstants.SLOW_DURATION_COST, s.slow_duration])
+	slow_menu.set_item_text(3, "Taxa de Aplicação + (%d) [%.1fs]" % [GameConstants.SLOW_RATE_COST, s.fire_rate])
+	slow_menu.set_item_disabled(0, not can_range)
+	slow_menu.set_item_disabled(1, not can_amount)
+	slow_menu.set_item_disabled(2, not can_duration)
+	slow_menu.set_item_disabled(3, not can_rate)
+	slow_menu.position = screen_pos
+	slow_menu.popup()
+
+func _on_slow_menu_pressed(id: int) -> void:
+	if slow_selected_index < 0 or slow_selected_index >= slow_towers.size():
+		return
+	var s = slow_towers[slow_selected_index]
+	match id:
+		1:  # Alcance
+			if hero["coins"] >= GameConstants.SLOW_RANGE_COST:
+				s.range += 30.0
+				s.levels["RANGE"] += 1
+				hero["coins"] -= GameConstants.SLOW_RANGE_COST
+		2:  # Slow Amount
+			if hero["coins"] >= GameConstants.SLOW_AMOUNT_COST and s.slow_amount < 0.9:
+				s.slow_amount = min(0.9, s.slow_amount + 0.1)
+				s.levels["AMOUNT"] += 1
+				hero["coins"] -= GameConstants.SLOW_AMOUNT_COST
+		3:  # Duração
+			if hero["coins"] >= GameConstants.SLOW_DURATION_COST:
+				s.slow_duration += 0.5
+				s.levels["DURATION"] += 1
+				hero["coins"] -= GameConstants.SLOW_DURATION_COST
+		4:  # Taxa de Aplicação
+			if hero["coins"] >= GameConstants.SLOW_RATE_COST and s.fire_rate > 0.2:
+				s.fire_rate = max(0.2, s.fire_rate - 0.1)
+				s.levels["RATE"] += 1
+				hero["coins"] -= GameConstants.SLOW_RATE_COST
+	slow_towers[slow_selected_index] = s
+	slow_selected_index = -1
+
+func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
+	if boost_menu == null:
+		return
+	boost_selected_index = idx
+	var b = boost_towers[idx]
+	var can_range: bool = hero["coins"] >= GameConstants.BOOST_RANGE_COST
+	var can_dmg: bool = hero["coins"] >= GameConstants.BOOST_DMG_COST
+	var can_rate: bool = hero["coins"] >= GameConstants.BOOST_RATE_COST
+	
+	boost_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [GameConstants.BOOST_RANGE_COST, b.range])
+	boost_menu.set_item_text(1, "Boost Dano +10%% (%d) [%.0f%%]" % [GameConstants.BOOST_DMG_COST, b.damage_boost * 100])
+	boost_menu.set_item_text(2, "Boost Cadência +5%% (%d) [%.0f%%]" % [GameConstants.BOOST_RATE_COST, b.rate_boost * 100])
+	boost_menu.set_item_disabled(0, not can_range)
+	boost_menu.set_item_disabled(1, not can_dmg)
+	boost_menu.set_item_disabled(2, not can_rate)
+	boost_menu.position = screen_pos
+	boost_menu.popup()
+
+func _on_boost_menu_pressed(id: int) -> void:
+	if boost_selected_index < 0 or boost_selected_index >= boost_towers.size():
+		return
+	var b = boost_towers[boost_selected_index]
+	match id:
+		1:  # Alcance
+			if hero["coins"] >= GameConstants.BOOST_RANGE_COST:
+				b.range += 30.0
+				b.levels["RANGE"] += 1
+				hero["coins"] -= GameConstants.BOOST_RANGE_COST
+		2:  # Boost Dano
+			if hero["coins"] >= GameConstants.BOOST_DMG_COST:
+				b.damage_boost += 0.1
+				b.levels["DMG"] += 1
+				hero["coins"] -= GameConstants.BOOST_DMG_COST
+		3:  # Boost Cadência
+			if hero["coins"] >= GameConstants.BOOST_RATE_COST:
+				b.rate_boost += 0.05
+				b.levels["RATE"] += 1
+				hero["coins"] -= GameConstants.BOOST_RATE_COST
+	boost_towers[boost_selected_index] = b
+	boost_selected_index = -1
+
 func _is_inside_base_point(p: Vector2) -> bool:
 	return grid_manager.is_inside_base_point(p)
 
@@ -2717,8 +2936,10 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 		"grid_y": grid_coord.y,
 		"range": 200.0,
 		"slow_amount": 0.5,
+		"slow_duration": 1.0,
 		"cooldown": 0.0,
-		"fire_rate": 0.5
+		"fire_rate": 0.5,
+		"levels": {"RANGE": 0, "AMOUNT": 0, "DURATION": 0, "RATE": 0}
 	})
 	hero["coins"] -= GameConstants.SLOW_TOWER_COST
 	placing_slow_tower = false
@@ -2859,7 +3080,8 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 		"grid_y": grid_coord.y,
 		"range": 150.0,
 		"damage_boost": 0.5,
-		"rate_boost": 0.3
+		"rate_boost": 0.3,
+		"levels": {"RANGE": 0, "DMG": 0, "RATE": 0}
 	})
 	hero["coins"] -= GameConstants.BOOST_TOWER_COST
 	placing_boost_tower = false
@@ -3182,7 +3404,12 @@ func _try_place_healing_station(pos: Vector2) -> void:
 	placing_healing_station = false
 
 func _physics_process(delta: float) -> void:
-	hero["cooldown"] = max(0.0, hero["cooldown"] - delta)
+	# aplicar skill de boost de velocidade no herói
+	var hero_rate_multiplier = 1.0
+	if skill_speed_boost_active:
+		hero_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	
+	hero["cooldown"] = max(0.0, hero["cooldown"] - delta * hero_rate_multiplier)
 	
 	# tiro automático do herói - procura inimigo mais próximo e atira quando cooldown estiver pronto
 	if hero["cooldown"] <= 0.0 and not paused and not game_over:
@@ -3208,6 +3435,10 @@ func _physics_process(delta: float) -> void:
 			var dist = t.pos.distance_to(boost.pos)
 			if dist <= boost.range:
 				rate_multiplier += boost.rate_boost
+		
+		# aplicar skill de boost de velocidade
+		if skill_speed_boost_active:
+			rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
 		
 		var effective_fire_rate = t.fire_rate / rate_multiplier
 		t.cooldown = max(0.0, t.cooldown - delta)
@@ -3241,6 +3472,10 @@ func _tower_fire_cross(tower: Dictionary) -> void:
 		if dist <= boost.range:
 			damage_multiplier += boost.damage_boost
 			rate_multiplier += boost.rate_boost
+	
+	# aplicar skill de boost de dano
+	if skill_damage_boost_active:
+		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
 	
 	tower_damage *= damage_multiplier
 	var life := float(tower.get("range", 260.0)) / speed
@@ -3339,7 +3574,12 @@ func _update_mines(delta: float) -> void:
 
 func _update_slow_towers(delta: float) -> void:
 	for st in slow_towers:
-		st.cooldown = max(0.0, st.cooldown - delta)
+		# aplicar skill de boost de velocidade
+		var slow_rate_multiplier = 1.0
+		if skill_speed_boost_active:
+			slow_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+		
+		st.cooldown = max(0.0, st.cooldown - delta * slow_rate_multiplier)
 		if st.cooldown <= 0.0:
 			# aplicar slow em todos os inimigos no alcance
 			for e in enemies:
@@ -3351,7 +3591,7 @@ func _update_slow_towers(delta: float) -> void:
 					if enemy_idx >= 0:
 						if not enemy_effects.has(enemy_idx):
 							enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0 }
-						enemy_effects[enemy_idx].slow_time = 1.0  # slow dura 1 segundo
+						enemy_effects[enemy_idx].slow_time = st.slow_duration  # usar duração configurável
 						enemy_effects[enemy_idx].slow_amount = st.slow_amount
 			st.cooldown = st.fire_rate
 
@@ -3359,7 +3599,12 @@ func _update_aoe_towers(delta: float) -> void:
 	if paused or game_over:
 		return
 	for aoe in aoe_towers:
-		aoe.cooldown = max(0.0, aoe.cooldown - delta)
+		# aplicar skill de boost de velocidade
+		var aoe_rate_multiplier = 1.0
+		if skill_speed_boost_active:
+			aoe_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+		
+		aoe.cooldown = max(0.0, aoe.cooldown - delta * aoe_rate_multiplier)
 		if aoe.cooldown <= 0.0:
 			# encontrar inimigo mais próximo
 			var closest_enemy = null
@@ -3374,12 +3619,17 @@ func _update_aoe_towers(delta: float) -> void:
 			if closest_enemy != null:
 				# criar projétil de canhão (bola preta) até o alvo
 				var cannon_speed = 200.0
+				# aplicar skill de boost de dano
+				var aoe_damage = aoe.damage
+				if skill_damage_boost_active:
+					aoe_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				
 				aoe_cannon_projectiles.append({
 					"pos": aoe.pos,
 					"target": closest_enemy["pos"],
 					"speed": cannon_speed,
 					"radius": aoe.aoe_radius,
-					"damage": aoe.damage,
+					"damage": aoe_damage,
 					"aoe_tower": aoe
 				})
 				# resetar cooldown apenas se encontrou alvo
@@ -3463,12 +3713,17 @@ func _update_sniper_towers(delta: float) -> void:
 							enemies_in_line.append({"enemy": e, "dist": dist_along_line})
 				# ordenar por distância
 				enemies_in_line.sort_custom(func(a, b): return a.dist < b.dist)
+				# aplicar skill de boost de dano
+				var sniper_damage = sniper.damage
+				if skill_damage_boost_active:
+					sniper_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				
 				# causar dano nos primeiros (pierce + 1) inimigos
 				var pierce_count = sniper.pierce + 1  # pierce=1 significa atinge 2 inimigos
 				for i in range(min(pierce_count, enemies_in_line.size())):
 					var e = enemies_in_line[i].enemy
-					e["hp"] -= sniper.damage
-					_create_damage_number(e["pos"], sniper.damage, true)  # crítico para sniper
+					e["hp"] -= sniper_damage
+					_create_damage_number(e["pos"], sniper_damage, true)  # crítico para sniper
 					if e["hp"] <= 0:
 						e["hp"] = 0
 						e["dying"] = true
@@ -3528,10 +3783,15 @@ func _update_shock_towers(delta: float) -> void:
 					else:
 						break
 				
+				# aplicar skill de boost de dano
+				var shock_damage = shock.damage
+				if skill_damage_boost_active:
+					shock_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				
 				# Aplicar dano a todos os alvos da cadeia
 				for target in chain_targets:
-					target["hp"] -= shock.damage
-					_create_damage_number(target["pos"], shock.damage, false, Color(0.5, 0.8, 1.0))  # azul para choque
+					target["hp"] -= shock_damage
+					_create_damage_number(target["pos"], shock_damage, false, Color(0.5, 0.8, 1.0))  # azul para choque
 					if target["hp"] <= 0:
 						target["hp"] = 0
 						target["dying"] = true
@@ -3729,12 +3989,16 @@ func _create_loading_screen() -> void:
 	bg.color = Color(0.05, 0.05, 0.1, 1.0)
 	loading_screen.add_child(bg)
 	
-	# Container central
+	# Container central - usando CenterContainer para centralizar automaticamente
+	var outer_center = CenterContainer.new()
+	outer_center.name = "OuterCenterContainer"
+	outer_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	loading_screen.add_child(outer_center)
+	
 	var center_container = VBoxContainer.new()
 	center_container.name = "CenterContainer"
-	center_container.set_anchors_preset(Control.PRESET_CENTER)
 	center_container.add_theme_constant_override("separation", 20)
-	loading_screen.add_child(center_container)
+	outer_center.add_child(center_container)
 	
 	# Label de carregamento
 	var loading_label = Label.new()
@@ -3777,8 +4041,8 @@ func _create_loading_screen() -> void:
 func _update_loading_progress(progress: float) -> void:
 	loading_progress = progress
 	if loading_screen != null:
-		var progress_label = loading_screen.get_node_or_null("CenterContainer/ProgressLabel")
-		var progress_bar = loading_screen.get_node_or_null("CenterContainer/ProgressBarBG/ProgressBar")
+		var progress_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressLabel")
+		var progress_bar = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressBarBG/ProgressBar")
 		
 		if progress_label:
 			progress_label.text = "%d%%" % int(progress * 100)
@@ -3880,6 +4144,7 @@ func _create_tower_shop_ui() -> void:
 	var total_items_height = 10 * 80 + 20  # 10 itens de 80px + espaçamento
 	var required_height = total_items_height + 45  # +45 para o título
 	var panel_height = max(screen_height - 44.0, required_height)  # altura mínima para caber tudo
+	# Posicionar no lado direito (skills ficará à esquerda deste painel)
 	tower_shop_panel.position = Vector2(screen_width - panel_width, 44.0)
 	tower_shop_panel.size = Vector2(panel_width, panel_height)
 	
@@ -4053,6 +4318,586 @@ func _create_tower_shop_ui() -> void:
 	tooltip_label.add_theme_stylebox_override("normal", tooltip_style)
 	tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	tower_shop_panel.add_child(tooltip_label)
+
+func _create_skills_ui() -> void:
+	# Criar painel lateral para skills (lado esquerdo)
+	var canvas = $CanvasLayer
+	var hud = canvas.get_node("HUD")
+	
+	# Remover menu antigo se existir
+	if hud.has_node("SkillsPanel"):
+		hud.get_node("SkillsPanel").queue_free()
+	
+	# Criar painel lateral
+	skills_panel = Panel.new()
+	skills_panel.name = "SkillsPanel"
+	hud.add_child(skills_panel)
+	
+	# Configurar posição e tamanho do painel (lado direito, à esquerda da loja de torres)
+	var screen_width = get_viewport().get_visible_rect().size.x
+	var screen_height = get_viewport().get_visible_rect().size.y
+	var panel_width = 390.0  # Largura aumentada para melhor visualização
+	# Calcular altura necessária: pode ocupar até o final da tela
+	var panel_height = screen_height - 44.0  # Altura total disponível (tela - top bar)
+	# Posicionar no lado direito, à esquerda do painel de torres
+	var tower_panel_width = 280.0
+	# Garantir que não sobreponha: posição = largura_tela - largura_torre - largura_skills - margem
+	var margin = 5.0  # Margem entre os painéis
+	skills_panel.position = Vector2(screen_width - tower_panel_width - panel_width - margin, 44.0)
+	skills_panel.size = Vector2(panel_width, panel_height)
+	
+	# Estilizar o painel
+	var style_box = StyleBoxFlat.new()
+	style_box.bg_color = Color(0.15, 0.15, 0.2, 0.95)
+	style_box.border_color = Color(0.3, 0.3, 0.4)
+	style_box.border_width_left = 0
+	style_box.border_width_top = 0
+	style_box.border_width_right = 2
+	style_box.border_width_bottom = 0
+	skills_panel.add_theme_stylebox_override("panel", style_box)
+	
+	# Título do painel
+	var title_label = Label.new()
+	title_label.name = "TitleLabel"
+	title_label.text = "SKILLS"
+	title_label.position = Vector2(10, 10)
+	title_label.size = Vector2(panel_width - 20, 35)
+	title_label.add_theme_color_override("font_color", Color(0.3, 0.7, 1.0))
+	title_label.add_theme_font_size_override("font_size", 18)
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skills_panel.add_child(title_label)
+	
+	# Container para botões de skills
+	var vbox = VBoxContainer.new()
+	vbox.name = "SkillsButtonsContainer"
+	vbox.position = Vector2(10, 50)
+	vbox.size = Vector2(panel_width - 20, panel_height - 50)
+	vbox.add_theme_constant_override("separation", 10)
+	skills_panel.add_child(vbox)
+	
+	# Skill 1: Coletar todas as moedas
+	var skill1_container = PanelContainer.new()
+	skill1_container.custom_minimum_size = Vector2(panel_width - 20, 85)
+	var skill1_style = StyleBoxFlat.new()
+	skill1_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	skill1_style.border_color = Color(0.4, 0.4, 0.5)
+	skill1_style.border_width_left = 1
+	skill1_style.border_width_top = 1
+	skill1_style.border_width_right = 1
+	skill1_style.border_width_bottom = 1
+	skill1_container.add_theme_stylebox_override("panel", skill1_style)
+	
+	var skill1_hbox = HBoxContainer.new()
+	skill1_hbox.add_theme_constant_override("separation", 5)
+	skill1_container.add_child(skill1_hbox)
+	
+	# Ícone da moeda
+	var coin_icon = TextureRect.new()
+	coin_icon.custom_minimum_size = Vector2(50, 50)
+	coin_icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	if tex_coin != null:
+		coin_icon.texture = tex_coin
+	skill1_hbox.add_child(coin_icon)
+	
+	# Texto da skill
+	var skill1_text = VBoxContainer.new()
+	skill1_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill1_hbox.add_child(skill1_text)
+	
+	var skill1_name = Label.new()
+	skill1_name.text = "Coletar Moedas"
+	skill1_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill1_name.add_theme_font_size_override("font_size", 14)
+	skill1_text.add_child(skill1_name)
+	
+	var skill1_desc = Label.new()
+	skill1_desc.name = "Skill1Desc"
+	skill1_desc.text = "Coleta todas as moedas do mapa"
+	skill1_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	skill1_desc.add_theme_font_size_override("font_size", 11)
+	skill1_text.add_child(skill1_desc)
+	
+	# Label de cooldown base
+	var skill1_cooldown_base_label = Label.new()
+	skill1_cooldown_base_label.name = "Skill1CooldownBase"
+	skill1_cooldown_base_label.text = "CD: %.0fs" % GameConstants.SKILL_COLLECT_COINS_COOLDOWN
+	skill1_cooldown_base_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	skill1_cooldown_base_label.add_theme_font_size_override("font_size", 10)
+	skill1_text.add_child(skill1_cooldown_base_label)
+	
+	# Label de cooldown ativo
+	var skill1_cooldown_label = Label.new()
+	skill1_cooldown_label.name = "Skill1Cooldown"
+	skill1_cooldown_label.text = ""
+	skill1_cooldown_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	skill1_cooldown_label.add_theme_font_size_override("font_size", 11)
+	skill1_text.add_child(skill1_cooldown_label)
+	
+	# Botão
+	var skill1_btn = Button.new()
+	skill1_btn.name = "Skill1Button"
+	skill1_btn.text = "Usar"
+	skill1_btn.custom_minimum_size = Vector2(60, 35)
+	skill1_btn.pressed.connect(_on_skill_collect_coins)
+	skill_buttons["collect_coins"] = {"button": skill1_btn, "cooldown_label": skill1_cooldown_label, "cooldown_base_label": skill1_cooldown_base_label}
+	var btn1_style = StyleBoxFlat.new()
+	btn1_style.bg_color = Color(0.2, 0.6, 0.2)
+	btn1_style.border_color = Color(0.3, 0.7, 0.3)
+	btn1_style.border_width_left = 1
+	btn1_style.border_width_top = 1
+	btn1_style.border_width_right = 1
+	btn1_style.border_width_bottom = 1
+	skill1_btn.add_theme_stylebox_override("normal", btn1_style)
+	skill1_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill1_btn.add_theme_font_size_override("font_size", 12)
+	skill1_hbox.add_child(skill1_btn)
+	
+	vbox.add_child(skill1_container)
+	
+	# Skill 2: Boost de Dano
+	var skill2_container = PanelContainer.new()
+	skill2_container.custom_minimum_size = Vector2(panel_width - 20, 85)
+	var skill2_style = StyleBoxFlat.new()
+	skill2_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	skill2_style.border_color = Color(0.4, 0.4, 0.5)
+	skill2_style.border_width_left = 1
+	skill2_style.border_width_top = 1
+	skill2_style.border_width_right = 1
+	skill2_style.border_width_bottom = 1
+	skill2_container.add_theme_stylebox_override("panel", skill2_style)
+	
+	var skill2_hbox = HBoxContainer.new()
+	skill2_hbox.add_theme_constant_override("separation", 5)
+	skill2_container.add_child(skill2_hbox)
+	
+	# Ícone (usar um Label com símbolo)
+	var skill2_icon = Label.new()
+	skill2_icon.text = "⚔"
+	skill2_icon.custom_minimum_size = Vector2(50, 50)
+	skill2_icon.add_theme_font_size_override("font_size", 32)
+	skill2_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill2_icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	skill2_hbox.add_child(skill2_icon)
+	
+	# Texto da skill
+	var skill2_text = VBoxContainer.new()
+	skill2_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill2_hbox.add_child(skill2_text)
+	
+	var skill2_name = Label.new()
+	skill2_name.text = "Boost de Dano"
+	skill2_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill2_name.add_theme_font_size_override("font_size", 14)
+	skill2_text.add_child(skill2_name)
+	
+	var skill2_desc = Label.new()
+	skill2_desc.name = "Skill2Desc"
+	skill2_desc.text = "+50%% dano por %.0fs" % GameConstants.SKILL_DAMAGE_BOOST_DURATION
+	skill2_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	skill2_desc.add_theme_font_size_override("font_size", 11)
+	skill2_text.add_child(skill2_desc)
+	
+	# Label de cooldown base
+	var skill2_cooldown_base_label = Label.new()
+	skill2_cooldown_base_label.name = "Skill2CooldownBase"
+	skill2_cooldown_base_label.text = "CD: %.0fs" % GameConstants.SKILL_DAMAGE_BOOST_COOLDOWN
+	skill2_cooldown_base_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	skill2_cooldown_base_label.add_theme_font_size_override("font_size", 10)
+	skill2_text.add_child(skill2_cooldown_base_label)
+	
+	# Label de cooldown ativo
+	var skill2_cooldown_label = Label.new()
+	skill2_cooldown_label.name = "Skill2Cooldown"
+	skill2_cooldown_label.text = ""
+	skill2_cooldown_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	skill2_cooldown_label.add_theme_font_size_override("font_size", 11)
+	skill2_text.add_child(skill2_cooldown_label)
+	
+	# Botão
+	var skill2_btn = Button.new()
+	skill2_btn.name = "Skill2Button"
+	skill2_btn.text = "Usar"
+	skill2_btn.custom_minimum_size = Vector2(60, 35)
+	skill2_btn.pressed.connect(_on_skill_damage_boost)
+	skill_buttons["damage_boost"] = {"button": skill2_btn, "cooldown_label": skill2_cooldown_label, "cooldown_base_label": skill2_cooldown_base_label}
+	var btn2_style = StyleBoxFlat.new()
+	btn2_style.bg_color = Color(0.6, 0.2, 0.2)
+	btn2_style.border_color = Color(0.7, 0.3, 0.3)
+	btn2_style.border_width_left = 1
+	btn2_style.border_width_top = 1
+	btn2_style.border_width_right = 1
+	btn2_style.border_width_bottom = 1
+	skill2_btn.add_theme_stylebox_override("normal", btn2_style)
+	skill2_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill2_btn.add_theme_font_size_override("font_size", 12)
+	skill2_hbox.add_child(skill2_btn)
+	
+	vbox.add_child(skill2_container)
+	
+	# Skill 3: Boost de Velocidade
+	var skill3_container = PanelContainer.new()
+	skill3_container.custom_minimum_size = Vector2(panel_width - 20, 85)
+	var skill3_style = StyleBoxFlat.new()
+	skill3_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	skill3_style.border_color = Color(0.4, 0.4, 0.5)
+	skill3_style.border_width_left = 1
+	skill3_style.border_width_top = 1
+	skill3_style.border_width_right = 1
+	skill3_style.border_width_bottom = 1
+	skill3_container.add_theme_stylebox_override("panel", skill3_style)
+	
+	var skill3_hbox = HBoxContainer.new()
+	skill3_hbox.add_theme_constant_override("separation", 5)
+	skill3_container.add_child(skill3_hbox)
+	
+	# Ícone (usar um Label com símbolo)
+	var skill3_icon = Label.new()
+	skill3_icon.text = "⚡"
+	skill3_icon.custom_minimum_size = Vector2(50, 50)
+	skill3_icon.add_theme_font_size_override("font_size", 32)
+	skill3_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill3_icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	skill3_hbox.add_child(skill3_icon)
+	
+	# Texto da skill
+	var skill3_text = VBoxContainer.new()
+	skill3_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill3_hbox.add_child(skill3_text)
+	
+	var skill3_name = Label.new()
+	skill3_name.text = "Boost de Velocidade"
+	skill3_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill3_name.add_theme_font_size_override("font_size", 14)
+	skill3_text.add_child(skill3_name)
+	
+	var skill3_desc = Label.new()
+	skill3_desc.name = "Skill3Desc"
+	skill3_desc.text = "+30%% velocidade por %.0fs" % GameConstants.SKILL_SPEED_BOOST_DURATION
+	skill3_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	skill3_desc.add_theme_font_size_override("font_size", 11)
+	skill3_text.add_child(skill3_desc)
+	
+	# Label de cooldown base
+	var skill3_cooldown_base_label = Label.new()
+	skill3_cooldown_base_label.name = "Skill3CooldownBase"
+	skill3_cooldown_base_label.text = "CD: %.0fs" % GameConstants.SKILL_SPEED_BOOST_COOLDOWN
+	skill3_cooldown_base_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	skill3_cooldown_base_label.add_theme_font_size_override("font_size", 10)
+	skill3_text.add_child(skill3_cooldown_base_label)
+	
+	# Label de cooldown ativo
+	var skill3_cooldown_label = Label.new()
+	skill3_cooldown_label.name = "Skill3Cooldown"
+	skill3_cooldown_label.text = ""
+	skill3_cooldown_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	skill3_cooldown_label.add_theme_font_size_override("font_size", 11)
+	skill3_text.add_child(skill3_cooldown_label)
+	
+	# Botão
+	var skill3_btn = Button.new()
+	skill3_btn.name = "Skill3Button"
+	skill3_btn.text = "Usar"
+	skill3_btn.custom_minimum_size = Vector2(60, 35)
+	skill3_btn.pressed.connect(_on_skill_speed_boost)
+	skill_buttons["speed_boost"] = {"button": skill3_btn, "cooldown_label": skill3_cooldown_label, "cooldown_base_label": skill3_cooldown_base_label}
+	var btn3_style = StyleBoxFlat.new()
+	btn3_style.bg_color = Color(0.2, 0.2, 0.6)
+	btn3_style.border_color = Color(0.3, 0.3, 0.7)
+	btn3_style.border_width_left = 1
+	btn3_style.border_width_top = 1
+	btn3_style.border_width_right = 1
+	btn3_style.border_width_bottom = 1
+	skill3_btn.add_theme_stylebox_override("normal", btn3_style)
+	skill3_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill3_btn.add_theme_font_size_override("font_size", 12)
+	skill3_hbox.add_child(skill3_btn)
+	
+	vbox.add_child(skill3_container)
+	
+	# Skill 4: Slow Global
+	var skill4_container = PanelContainer.new()
+	skill4_container.custom_minimum_size = Vector2(panel_width - 20, 85)
+	var skill4_style = StyleBoxFlat.new()
+	skill4_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	skill4_style.border_color = Color(0.4, 0.4, 0.5)
+	skill4_style.border_width_left = 1
+	skill4_style.border_width_top = 1
+	skill4_style.border_width_right = 1
+	skill4_style.border_width_bottom = 1
+	skill4_container.add_theme_stylebox_override("panel", skill4_style)
+	
+	var skill4_hbox = HBoxContainer.new()
+	skill4_hbox.add_theme_constant_override("separation", 5)
+	skill4_container.add_child(skill4_hbox)
+	
+	# Ícone (usar um Label com símbolo)
+	var skill4_icon = Label.new()
+	skill4_icon.text = "❄"
+	skill4_icon.custom_minimum_size = Vector2(50, 50)
+	skill4_icon.add_theme_font_size_override("font_size", 32)
+	skill4_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill4_icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	skill4_hbox.add_child(skill4_icon)
+	
+	# Texto da skill
+	var skill4_text = VBoxContainer.new()
+	skill4_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill4_hbox.add_child(skill4_text)
+	
+	var skill4_name = Label.new()
+	skill4_name.text = "Slow Global"
+	skill4_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill4_name.add_theme_font_size_override("font_size", 14)
+	skill4_text.add_child(skill4_name)
+	
+	var skill4_desc = Label.new()
+	skill4_desc.name = "Skill4Desc"
+	skill4_desc.text = "Reduz velocidade de todos os inimigos por %.0fs" % GameConstants.SKILL_SLOW_ALL_DURATION
+	skill4_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	skill4_desc.add_theme_font_size_override("font_size", 11)
+	skill4_text.add_child(skill4_desc)
+	
+	# Label de cooldown base
+	var skill4_cooldown_base_label = Label.new()
+	skill4_cooldown_base_label.name = "Skill4CooldownBase"
+	skill4_cooldown_base_label.text = "CD: %.0fs" % GameConstants.SKILL_SLOW_ALL_COOLDOWN
+	skill4_cooldown_base_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	skill4_cooldown_base_label.add_theme_font_size_override("font_size", 10)
+	skill4_text.add_child(skill4_cooldown_base_label)
+	
+	# Label de cooldown ativo
+	var skill4_cooldown_label = Label.new()
+	skill4_cooldown_label.name = "Skill4Cooldown"
+	skill4_cooldown_label.text = ""
+	skill4_cooldown_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	skill4_cooldown_label.add_theme_font_size_override("font_size", 11)
+	skill4_text.add_child(skill4_cooldown_label)
+	
+	# Botão
+	var skill4_btn = Button.new()
+	skill4_btn.name = "Skill4Button"
+	skill4_btn.text = "Usar"
+	skill4_btn.custom_minimum_size = Vector2(60, 35)
+	skill4_btn.pressed.connect(_on_skill_slow_all)
+	skill_buttons["slow_all"] = {"button": skill4_btn, "cooldown_label": skill4_cooldown_label, "cooldown_base_label": skill4_cooldown_base_label}
+	var btn4_style = StyleBoxFlat.new()
+	btn4_style.bg_color = Color(0.2, 0.4, 0.6)
+	btn4_style.border_color = Color(0.3, 0.5, 0.7)
+	btn4_style.border_width_left = 1
+	btn4_style.border_width_top = 1
+	btn4_style.border_width_right = 1
+	btn4_style.border_width_bottom = 1
+	skill4_btn.add_theme_stylebox_override("normal", btn4_style)
+	skill4_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill4_btn.add_theme_font_size_override("font_size", 12)
+	skill4_hbox.add_child(skill4_btn)
+	
+	vbox.add_child(skill4_container)
+
+func _on_skill_collect_coins() -> void:
+	# Verificar cooldown
+	if skill_collect_coins_cooldown > 0.0:
+		return
+	
+	# Coletar todas as moedas do mapa
+	var total_collected = 0
+	for coin in dropped_coins:
+		if not coin.collected:
+			hero["coins"] += coin.value
+			total_collected += coin.value
+			coin.collected = true
+			# Criar efeito visual de coleta
+			_play_coin_sound()
+	
+	# Remover moedas coletadas
+	var new_coins: Array = []
+	for coin in dropped_coins:
+		if not coin.collected:
+			new_coins.append(coin)
+	dropped_coins = new_coins
+	
+	# Ativar cooldown
+	skill_collect_coins_cooldown = GameConstants.SKILL_COLLECT_COINS_COOLDOWN
+	
+	if total_collected > 0:
+		print("Coletadas %d moedas!" % total_collected)
+
+func _on_skill_slow_all() -> void:
+	# Verificar cooldown
+	if skill_slow_all_cooldown > 0.0:
+		return
+	if skill_slow_all_active:
+		return  # Já está ativo
+	
+	skill_slow_all_active = true
+	skill_slow_all_time = GameConstants.SKILL_SLOW_ALL_DURATION
+	skill_slow_all_cooldown = GameConstants.SKILL_SLOW_ALL_COOLDOWN
+	
+	# Aplicar slow em todos os inimigos através do sistema de efeitos
+	for i in range(enemies.size()):
+		var e = enemies[i]
+		var enemy_idx = e.get("idx", i)
+		if not enemy_effects.has(enemy_idx):
+			enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0 }
+		# Aplicar slow global (sobrescreve outros slows temporariamente)
+		enemy_effects[enemy_idx].slow_time = GameConstants.SKILL_SLOW_ALL_DURATION
+		enemy_effects[enemy_idx].slow_amount = GameConstants.SKILL_SLOW_ALL_AMOUNT
+	
+	print("Slow Global ativado por %.0f segundos!" % skill_slow_all_time)
+
+func _on_skill_damage_boost() -> void:
+	# Verificar cooldown
+	if skill_damage_boost_cooldown > 0.0:
+		return
+	if skill_damage_boost_active:
+		return  # Já está ativo
+	
+	skill_damage_boost_active = true
+	skill_damage_boost_time = GameConstants.SKILL_DAMAGE_BOOST_DURATION
+	skill_damage_boost_cooldown = GameConstants.SKILL_DAMAGE_BOOST_COOLDOWN
+	print("Boost de Dano ativado por %.0f segundos!" % skill_damage_boost_time)
+
+func _on_skill_speed_boost() -> void:
+	# Verificar cooldown
+	if skill_speed_boost_cooldown > 0.0:
+		return
+	if skill_speed_boost_active:
+		return  # Já está ativo
+	
+	skill_speed_boost_active = true
+	skill_speed_boost_time = GameConstants.SKILL_SPEED_BOOST_DURATION
+	skill_speed_boost_cooldown = GameConstants.SKILL_SPEED_BOOST_COOLDOWN
+	print("Boost de Velocidade ativado por %.0f segundos!" % skill_speed_boost_time)
+
+func _update_skills_ui() -> void:
+	if not skills_panel:
+		return
+	
+	# Atualizar Skill 1: Coletar Moedas
+	if skill_buttons.has("collect_coins"):
+		var btn_data = skill_buttons["collect_coins"]
+		var btn = btn_data.button
+		var cooldown_label = btn_data.cooldown_label
+		
+		if skill_collect_coins_cooldown > 0.0:
+			btn.disabled = true
+			cooldown_label.text = "Cooldown: %.1fs" % skill_collect_coins_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.2, 0.6, 0.2)
+			btn_style.border_color = Color(0.3, 0.7, 0.3)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+	
+	# Atualizar Skill 2: Boost de Dano
+	if skill_buttons.has("damage_boost"):
+		var btn_data = skill_buttons["damage_boost"]
+		var btn = btn_data.button
+		var cooldown_label = btn_data.cooldown_label
+		
+		if skill_damage_boost_cooldown > 0.0 or skill_damage_boost_active:
+			btn.disabled = true
+			if skill_damage_boost_active:
+				cooldown_label.text = "Ativo: %.1fs" % skill_damage_boost_time
+			else:
+				cooldown_label.text = "Cooldown: %.1fs" % skill_damage_boost_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.6, 0.2, 0.2)
+			btn_style.border_color = Color(0.7, 0.3, 0.3)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+	
+	# Atualizar Skill 3: Boost de Velocidade
+	if skill_buttons.has("speed_boost"):
+		var btn_data = skill_buttons["speed_boost"]
+		var btn = btn_data.button
+		var cooldown_label = btn_data.cooldown_label
+		
+		if skill_speed_boost_cooldown > 0.0 or skill_speed_boost_active:
+			btn.disabled = true
+			if skill_speed_boost_active:
+				cooldown_label.text = "Ativo: %.1fs" % skill_speed_boost_time
+			else:
+				cooldown_label.text = "Cooldown: %.1fs" % skill_speed_boost_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.2, 0.2, 0.6)
+			btn_style.border_color = Color(0.3, 0.3, 0.7)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+	
+	# Atualizar Skill 4: Slow Global
+	if skill_buttons.has("slow_all"):
+		var btn_data = skill_buttons["slow_all"]
+		var btn = btn_data.button
+		var cooldown_label = btn_data.cooldown_label
+		
+		if skill_slow_all_cooldown > 0.0 or skill_slow_all_active:
+			btn.disabled = true
+			if skill_slow_all_active:
+				cooldown_label.text = "Ativo: %.1fs" % skill_slow_all_time
+			else:
+				cooldown_label.text = "Cooldown: %.1fs" % skill_slow_all_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.2, 0.4, 0.6)
+			btn_style.border_color = Color(0.3, 0.5, 0.7)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
 
 func _toggle_music() -> void:
 	music_muted = not music_muted
