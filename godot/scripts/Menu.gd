@@ -40,6 +40,7 @@ func _ready() -> void:
 	
 	# Estilizar os botões
 	var btn_play = get_node("Panel/VBoxContainer/BtnPlay")
+	var btn_load = get_node("Panel/VBoxContainer/BtnLoad")
 	var btn_exit = get_node("Panel/VBoxContainer/BtnExit")
 	
 	var btn_style = StyleBoxFlat.new()
@@ -55,19 +56,23 @@ func _ready() -> void:
 	btn_style.border_color = Color(0.5, 0.7, 0.9, 1.0)
 	
 	btn_play.add_theme_stylebox_override("normal", btn_style)
+	btn_load.add_theme_stylebox_override("normal", btn_style)
 	btn_exit.add_theme_stylebox_override("normal", btn_style)
 	
 	var btn_hover_style = btn_style.duplicate()
 	btn_hover_style.bg_color = Color(0.4, 0.6, 0.8, 1.0)
 	btn_play.add_theme_stylebox_override("hover", btn_hover_style)
+	btn_load.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_exit.add_theme_stylebox_override("hover", btn_hover_style)
 	
 	var btn_pressed_style = btn_style.duplicate()
 	btn_pressed_style.bg_color = Color(0.2, 0.4, 0.6, 1.0)
 	btn_play.add_theme_stylebox_override("pressed", btn_pressed_style)
+	btn_load.add_theme_stylebox_override("pressed", btn_pressed_style)
 	btn_exit.add_theme_stylebox_override("pressed", btn_pressed_style)
 	
 	get_node("Panel/VBoxContainer/BtnPlay").pressed.connect(_on_play)
+	get_node("Panel/VBoxContainer/BtnLoad").pressed.connect(_on_load)
 	get_node("Panel/VBoxContainer/BtnExit").pressed.connect(_on_exit)
 	
 	# Tentar carregar imagem de fundo, se existir
@@ -121,11 +126,132 @@ func _ready() -> void:
 func _on_play() -> void:
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
+func _on_load() -> void:
+	_show_load_dialog()
+
 func _on_exit() -> void:
 	get_tree().quit()
 
+func _show_load_dialog() -> void:
+	const SaveManager = preload("res://scripts/managers/SaveManager.gd")
+	
+	# Criar diálogo de seleção de slots
+	var dialog = Window.new()
+	dialog.title = "Carregar Jogo"
+	dialog.size = Vector2(520, 450)
+	dialog.min_size = Vector2(500, 400)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Container principal
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	
+	# ScrollContainer para lista de slots
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(480, 300)
+	
+	var slot_list = VBoxContainer.new()
+	slot_list.add_theme_constant_override("separation", 5)
+	scroll.add_child(slot_list)
+	vbox.add_child(scroll)
+	
+	# Obter slots disponíveis
+	var available_slots = SaveManager.list_available_slots()
+	
+	if available_slots.is_empty():
+		var no_saves_label = Label.new()
+		no_saves_label.text = "Nenhum save encontrado!"
+		no_saves_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		slot_list.add_child(no_saves_label)
+	else:
+		# Criar botão para cada slot
+		for slot_info in available_slots:
+			var slot_button = Button.new()
+			slot_button.custom_minimum_size = Vector2(460, 60)
+			slot_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			
+			var slot_name = slot_info.get("slot_name", "Desconhecido")
+			var wave = slot_info.get("wave", 0)
+			var coins = slot_info.get("coins", 0)
+			var base_hp = slot_info.get("base_hp", 100)
+			var save_time = slot_info.get("save_time", "Desconhecido")
+			var is_autosave = slot_info.get("is_autosave", false)
+			
+			# Formatar nome do slot
+			var display_name = ""
+			if is_autosave:
+				display_name = "Auto-save"
+			elif slot_name.begins_with("slot"):
+				var slot_num = slot_name.substr(4)
+				display_name = "Slot %s" % slot_num
+			else:
+				display_name = slot_name
+			
+			# Texto do botão
+			var button_text = "%s\nWave: %d | Moedas: %d | Vida: %d\n%s" % [display_name, wave, coins, base_hp, save_time]
+			slot_button.text = button_text
+			
+			# Estilizar botão
+			var slot_style = StyleBoxFlat.new()
+			slot_style.bg_color = Color(0.25, 0.3, 0.35, 1.0)
+			slot_style.corner_radius_top_left = 5
+			slot_style.corner_radius_top_right = 5
+			slot_style.corner_radius_bottom_left = 5
+			slot_style.corner_radius_bottom_right = 5
+			slot_style.border_width_left = 1
+			slot_style.border_width_top = 1
+			slot_style.border_width_right = 1
+			slot_style.border_width_bottom = 1
+			slot_style.border_color = Color(0.4, 0.5, 0.6, 1.0)
+			slot_button.add_theme_stylebox_override("normal", slot_style)
+			
+			var slot_hover_style = slot_style.duplicate()
+			slot_hover_style.bg_color = Color(0.35, 0.4, 0.45, 1.0)
+			slot_button.add_theme_stylebox_override("hover", slot_hover_style)
+			
+			# Conectar sinal
+			slot_button.pressed.connect(func(): _load_slot(slot_name, dialog))
+			
+			slot_list.add_child(slot_button)
+	
+	# Botão cancelar
+	var cancel_button = Button.new()
+	cancel_button.text = "Cancelar"
+	cancel_button.custom_minimum_size = Vector2(480, 40)
+	cancel_button.pressed.connect(func(): dialog.queue_free())
+	vbox.add_child(cancel_button)
+	
+	dialog.add_child(vbox)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout do vbox
+	await get_tree().process_frame
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+	
+	# Ajustar posição do conteúdo
+	await get_tree().process_frame
 
-
-
-
-
+func _load_slot(slot_name: String, dialog: Window) -> void:
+	const SaveManager = preload("res://scripts/managers/SaveManager.gd")
+	
+	# Criar uma instância temporária do jogo para carregar
+	# Na verdade, vamos mudar para a cena do jogo e carregar lá
+	# Mas primeiro precisamos passar o slot_name de alguma forma
+	# Vamos usar um autoload ou variável global temporária
+	
+	# Por enquanto, vamos usar uma abordagem simples: salvar o slot em uma variável global
+	# ou passar via singleton. Vamos criar um singleton temporário ou usar get_tree().set_meta()
+	get_tree().set_meta("load_slot", slot_name)
+	
+	dialog.queue_free()
+	
+	# Mudar para a cena do jogo
+	get_tree().change_scene_to_file("res://scenes/Main.tscn")

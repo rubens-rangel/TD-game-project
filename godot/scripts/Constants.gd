@@ -103,7 +103,7 @@ const HERO_BASE_FIRE_RATE := 0.35
 const HERO_BASE_DAMAGE := 1
 
 # Coin drops
-const COIN_DROP_CHANCE := 0.25  # 25% de chance de dropar moeda (reduzido de 30%)
+const COIN_DROP_CHANCE := 0.125  # 12.5% de chance de dropar moeda
 const COIN_MIN_VALUE := 5
 const COIN_MAX_VALUE := 20
 const COIN_LIFETIME := 10.0  # tempo que a moeda fica no chão antes de desaparecer

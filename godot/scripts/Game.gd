@@ -6,6 +6,7 @@ const Pathfinder = preload("res://scripts/Pathfinder.gd")
 const WaveManager = preload("res://scripts/WaveManager.gd")
 const ProjectileManager = preload("res://scripts/ProjectileManager.gd")
 const GameConstants = preload("res://scripts/Constants.gd")
+const SaveManager = preload("res://scripts/managers/SaveManager.gd")
 
 # Managers
 var grid_manager: GridManager
@@ -119,6 +120,17 @@ var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
+
+# Boss alert
+var boss_alert_label: Label
+var boss_alert_timer: float = 0.0
+var boss_alert_duration: float = 4.0
+var boss_warning_sound: AudioStream
+var boss_alert_player: AudioStreamPlayer
+
+# Menu de pause
+var pause_overlay: Control
+var save_status_label: Label
 
 # Skills system
 var skills_panel: Panel
@@ -546,6 +558,16 @@ func _ready() -> void:
 	ov.get_node("Panel/Btn3").pressed.connect(func(): _apply_benefit(2))
 	ov.get_node("Panel/BtnResume").pressed.connect(func(): _resume_after_upgrade())
 
+	# wire Pause overlay
+	pause_overlay = $CanvasLayer/PauseOverlay
+	pause_overlay.get_node("Panel/BtnResume").pressed.connect(_on_pause_resume)
+	pause_overlay.get_node("Panel/BtnSave").pressed.connect(_on_pause_save)
+	pause_overlay.get_node("Panel/BtnLoad").pressed.connect(_on_pause_load)
+	pause_overlay.get_node("Panel/BtnMenuMain").pressed.connect(_on_pause_menu)
+	pause_overlay.get_node("Panel/BtnQuit").pressed.connect(_on_pause_quit)
+	save_status_label = pause_overlay.get_node("Panel/SaveStatusLabel")
+	pause_overlay.visible = false
+
 	# wire Game Over overlay
 	if has_node("CanvasLayer/GameOverOverlay"):
 		var go = $CanvasLayer/GameOverOverlay
@@ -577,12 +599,28 @@ func _ready() -> void:
 		else:
 			print("Game: Música de fundo não encontrada")
 	
+	_create_boss_alert_ui()
+	_load_boss_warning_sound()
+	
+	# Verificar se há um slot para carregar (vindo do menu)
+	var load_slot = get_tree().get_meta("load_slot", "")
+	if load_slot != "":
+		get_tree().remove_meta("load_slot")
+		if SaveManager.has_save(load_slot) and SaveManager.load_game(self, load_slot):
+			print("Jogo carregado do slot: ", load_slot)
+			_apply_loaded_game_state()
+	
 	set_process(true)
 	set_physics_process(true)
 
 func _process(delta: float) -> void:
 	if paused or game_over:
 		return
+
+	if boss_alert_timer > 0.0:
+		boss_alert_timer -= delta
+		if boss_alert_timer <= 0.0 and boss_alert_label:
+			boss_alert_label.visible = false
 
 	# Atualizar timers das skills
 	if skill_damage_boost_active:
@@ -784,6 +822,8 @@ func _process(delta: float) -> void:
 			]
 			pool.shuffle()
 			upgrade_options = pool.slice(0, 3)
+			# Auto-save quando a wave termina (antes do upgrade overlay)
+			_auto_save_after_wave()
 			choosing_upgrade = true
 			benefit_applied = false
 			$CanvasLayer/UpgradeOverlay.visible = true
@@ -860,6 +900,19 @@ func _update_tower_shop_ui() -> void:
 	queue_redraw()
 
 func _input(event: InputEvent) -> void:
+	# Pausar/despausar com ESC
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if game_over:
+			return
+		if choosing_upgrade:
+			return  # Não pausar durante escolha de upgrade
+		if paused:
+			_unpause_game()
+		else:
+			_pause_game()
+		get_viewport().set_input_as_handled()
+		return
+	
 	# atualizar posição do mouse para preview
 	if event is InputEventMouseMotion:
 		preview_mouse_pos = to_local(event.position)
@@ -2416,7 +2469,8 @@ func _jump_10_waves() -> void:
 	$CanvasLayer/UpgradeOverlay.visible = false
 
 func _on_wave_started(wave_number: int, is_boss_wave: bool):
-	pass
+	if ((wave_number + 1) % 5) == 0:
+		_show_boss_warning("ALERTA! Boss chegando na próxima wave!")
 
 func _on_buy_tower() -> void:
 	if placing_tower:
@@ -3963,6 +4017,333 @@ func _on_game_over_menu() -> void:
 func _on_game_over_restart() -> void:
 	get_tree().reload_current_scene()
 
+# ==================== FUNÇÕES DE PAUSE/SAVE/LOAD ====================
+
+func _pause_game() -> void:
+	paused = true
+	pause_overlay.visible = true
+	get_tree().paused = false  # Não usar pause do tree para permitir UI funcionar
+
+func _unpause_game() -> void:
+	paused = false
+	pause_overlay.visible = false
+	save_status_label.visible = false
+
+func _on_pause_resume() -> void:
+	_unpause_game()
+
+func _on_pause_save() -> void:
+	_show_save_slot_dialog()
+
+func _show_save_slot_dialog() -> void:
+	# Criar diálogo de seleção de slot para salvar
+	var dialog = Window.new()
+	dialog.title = "Salvar Jogo"
+	dialog.size = Vector2(520, 450)
+	dialog.min_size = Vector2(500, 400)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Container principal
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	
+	# ScrollContainer para lista de slots
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(480, 300)
+	
+	var slot_list = VBoxContainer.new()
+	slot_list.add_theme_constant_override("separation", 5)
+	scroll.add_child(slot_list)
+	vbox.add_child(scroll)
+	
+	# Criar botões para slots (1 a MAX_SLOTS)
+	for i in range(1, SaveManager.MAX_SLOTS + 1):
+		var slot_name = "slot%d" % i
+		var slot_info = SaveManager.get_save_info(slot_name)
+		var has_save = not slot_info.is_empty()
+		
+		var slot_button = Button.new()
+		slot_button.custom_minimum_size = Vector2(460, 60)
+		slot_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		
+		var button_text = "Slot %d" % i
+		if has_save:
+			var wave = slot_info.get("wave", 0)
+			var coins = slot_info.get("coins", 0)
+			var save_time = slot_info.get("save_time", "Desconhecido")
+			button_text = "Slot %d (Wave: %d | Moedas: %d)\n%s" % [i, wave, coins, save_time]
+		else:
+			button_text = "Slot %d (Vazio)" % i
+		
+		slot_button.text = button_text
+		
+		# Estilizar botão
+		var slot_style = StyleBoxFlat.new()
+		if has_save:
+			slot_style.bg_color = Color(0.25, 0.3, 0.35, 1.0)
+		else:
+			slot_style.bg_color = Color(0.2, 0.2, 0.25, 1.0)
+		slot_style.corner_radius_top_left = 5
+		slot_style.corner_radius_top_right = 5
+		slot_style.corner_radius_bottom_left = 5
+		slot_style.corner_radius_bottom_right = 5
+		slot_style.border_width_left = 1
+		slot_style.border_width_top = 1
+		slot_style.border_width_right = 1
+		slot_style.border_width_bottom = 1
+		slot_style.border_color = Color(0.4, 0.5, 0.6, 1.0)
+		slot_button.add_theme_stylebox_override("normal", slot_style)
+		
+		var slot_hover_style = slot_style.duplicate()
+		slot_hover_style.bg_color = Color(0.35, 0.4, 0.45, 1.0)
+		slot_button.add_theme_stylebox_override("hover", slot_hover_style)
+		
+		# Conectar sinal
+		slot_button.pressed.connect(func(): _save_to_slot(slot_name, dialog))
+		
+		slot_list.add_child(slot_button)
+	
+	# Botão cancelar
+	var cancel_button = Button.new()
+	cancel_button.text = "Cancelar"
+	cancel_button.custom_minimum_size = Vector2(480, 40)
+	cancel_button.pressed.connect(func(): dialog.queue_free())
+	vbox.add_child(cancel_button)
+	
+	dialog.add_child(vbox)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout do vbox
+	await get_tree().process_frame
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _save_to_slot(slot_name: String, dialog: Window) -> void:
+	if SaveManager.save_game(self, slot_name):
+		save_status_label.text = "Jogo salvo com sucesso no %s!" % slot_name
+		save_status_label.modulate = Color(0.2, 1.0, 0.2)  # Verde
+		save_status_label.visible = true
+		dialog.queue_free()
+		await get_tree().create_timer(2.0).timeout
+		save_status_label.visible = false
+	else:
+		save_status_label.text = "Erro ao salvar jogo!"
+		save_status_label.modulate = Color(1.0, 0.2, 0.2)  # Vermelho
+		save_status_label.visible = true
+		dialog.queue_free()
+		await get_tree().create_timer(2.0).timeout
+		save_status_label.visible = false
+
+func _on_pause_load() -> void:
+	_show_load_slot_dialog()
+
+func _show_load_slot_dialog() -> void:
+	# Criar diálogo de seleção de slot para carregar
+	var dialog = Window.new()
+	dialog.title = "Carregar Jogo"
+	dialog.size = Vector2(520, 450)
+	dialog.min_size = Vector2(500, 400)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Container principal
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	
+	# ScrollContainer para lista de slots
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(480, 300)
+	
+	var slot_list = VBoxContainer.new()
+	slot_list.add_theme_constant_override("separation", 5)
+	scroll.add_child(slot_list)
+	vbox.add_child(scroll)
+	
+	# Obter slots disponíveis
+	var available_slots = SaveManager.list_available_slots()
+	
+	if available_slots.is_empty():
+		var no_saves_label = Label.new()
+		no_saves_label.text = "Nenhum save encontrado!"
+		no_saves_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		slot_list.add_child(no_saves_label)
+	else:
+		# Criar botão para cada slot disponível
+		for slot_info in available_slots:
+			var slot_button = Button.new()
+			slot_button.custom_minimum_size = Vector2(460, 60)
+			slot_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			
+			var slot_name = slot_info.get("slot_name", "Desconhecido")
+			var wave = slot_info.get("wave", 0)
+			var coins = slot_info.get("coins", 0)
+			var base_hp = slot_info.get("base_hp", 100)
+			var save_time = slot_info.get("save_time", "Desconhecido")
+			var is_autosave = slot_info.get("is_autosave", false)
+			
+			# Formatar nome do slot
+			var display_name = ""
+			if is_autosave:
+				display_name = "Auto-save"
+			elif slot_name.begins_with("slot"):
+				var slot_num = slot_name.substr(4)
+				display_name = "Slot %s" % slot_num
+			else:
+				display_name = slot_name
+			
+			# Texto do botão
+			var button_text = "%s\nWave: %d | Moedas: %d | Vida: %d\n%s" % [display_name, wave, coins, base_hp, save_time]
+			slot_button.text = button_text
+			
+			# Estilizar botão
+			var slot_style = StyleBoxFlat.new()
+			slot_style.bg_color = Color(0.25, 0.3, 0.35, 1.0)
+			slot_style.corner_radius_top_left = 5
+			slot_style.corner_radius_top_right = 5
+			slot_style.corner_radius_bottom_left = 5
+			slot_style.corner_radius_bottom_right = 5
+			slot_style.border_width_left = 1
+			slot_style.border_width_top = 1
+			slot_style.border_width_right = 1
+			slot_style.border_width_bottom = 1
+			slot_style.border_color = Color(0.4, 0.5, 0.6, 1.0)
+			slot_button.add_theme_stylebox_override("normal", slot_style)
+			
+			var slot_hover_style = slot_style.duplicate()
+			slot_hover_style.bg_color = Color(0.35, 0.4, 0.45, 1.0)
+			slot_button.add_theme_stylebox_override("hover", slot_hover_style)
+			
+			# Conectar sinal
+			slot_button.pressed.connect(func(): _load_from_slot(slot_name, dialog))
+			
+			slot_list.add_child(slot_button)
+	
+	# Botão cancelar
+	var cancel_button = Button.new()
+	cancel_button.text = "Cancelar"
+	cancel_button.custom_minimum_size = Vector2(480, 40)
+	cancel_button.pressed.connect(func(): dialog.queue_free())
+	vbox.add_child(cancel_button)
+	
+	dialog.add_child(vbox)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout do vbox
+	await get_tree().process_frame
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _load_from_slot(slot_name: String, dialog: Window) -> void:
+	if SaveManager.has_save(slot_name):
+		if SaveManager.load_game(self, slot_name):
+			_apply_loaded_game_state()
+			save_status_label.text = "Jogo carregado com sucesso do %s!" % slot_name
+			save_status_label.modulate = Color(0.2, 1.0, 0.2)  # Verde
+			save_status_label.visible = true
+			dialog.queue_free()
+			_unpause_game()
+			await get_tree().create_timer(2.0).timeout
+			save_status_label.visible = false
+		else:
+			save_status_label.text = "Erro ao carregar jogo!"
+			save_status_label.modulate = Color(1.0, 0.2, 0.2)  # Vermelho
+			save_status_label.visible = true
+			dialog.queue_free()
+			await get_tree().create_timer(2.0).timeout
+			save_status_label.visible = false
+	else:
+		save_status_label.text = "Slot não encontrado!"
+		save_status_label.modulate = Color(1.0, 0.8, 0.2)  # Amarelo
+		save_status_label.visible = true
+		dialog.queue_free()
+		await get_tree().create_timer(2.0).timeout
+		save_status_label.visible = false
+
+func _on_pause_menu() -> void:
+	get_tree().change_scene_to_file("res://scenes/Menu.tscn")
+
+func _on_pause_quit() -> void:
+	get_tree().quit()
+
+# Auto-save após cada wave
+func _auto_save_after_wave() -> void:
+	SaveManager.auto_save(self)
+	print("Auto-save realizado após wave ", wave_manager.wave)
+
+func _apply_loaded_game_state() -> void:
+	_rebuild_base_grid_from_structures()
+	pathfinder.invalidate_cache()
+	_reset_build_and_selection_state()
+
+func _rebuild_base_grid_from_structures() -> void:
+	if grid_manager == null:
+		return
+	grid_manager.reset_base_grid()
+	_occupy_structures_in_grid(towers, GameConstants.TOWER_SIZE_GRID, 1)
+	_occupy_structures_in_grid(barracks, GameConstants.BARRACKS_SIZE_GRID, 3)
+	_occupy_structures_in_grid(mines, GameConstants.MINE_SIZE_GRID, 4)
+	_occupy_structures_in_grid(slow_towers, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+	_occupy_structures_in_grid(aoe_towers, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+	_occupy_structures_in_grid(sniper_towers, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+	_occupy_structures_in_grid(boost_towers, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+	_occupy_structures_in_grid(shock_towers, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+	_occupy_structures_in_grid(walls, GameConstants.WALL_SIZE_GRID, 9)
+	_occupy_structures_in_grid(healing_stations, GameConstants.HEALING_STATION_SIZE_GRID, 10)
+
+func _occupy_structures_in_grid(structures: Array, size: int, item_type: int) -> void:
+	for data in structures:
+		if data is Dictionary and data.has("grid_x") and data.has("grid_y"):
+			var gx = int(data["grid_x"])
+			var gy = int(data["grid_y"])
+			grid_manager.set_grid_area(gx, gy, size, item_type)
+
+func _reset_build_and_selection_state() -> void:
+	placing_tower = false
+	placing_barracks = false
+	placing_mine = false
+	placing_slow_tower = false
+	placing_aoe_tower = false
+	placing_sniper_tower = false
+	placing_boost_tower = false
+	placing_shock_tower = false
+	placing_wall = false
+	placing_healing_station = false
+	dragging_tower = false
+	tower_selected_index = -1
+	barracks_selected_index = -1
+	sniper_selected_index = -1
+	aoe_selected_index = -1
+	shock_selected_index = -1
+	slow_selected_index = -1
+	boost_selected_index = -1
+	if tower_menu:
+		tower_menu.hide()
+	if barracks_menu:
+		barracks_menu.hide()
+	if sniper_menu:
+		sniper_menu.hide()
+	if aoe_menu:
+		aoe_menu.hide()
+	if shock_menu:
+		shock_menu.hide()
+	if slow_menu:
+		slow_menu.hide()
+	if boost_menu:
+		boost_menu.hide()
+
 func _try_drop_coin(pos: Vector2) -> void:
 	# chance aleatória de dropar moeda
 	if randf() < GameConstants.COIN_DROP_CHANCE:
@@ -4898,6 +5279,55 @@ func _update_skills_ui() -> void:
 			btn_style.border_width_right = 1
 			btn_style.border_width_bottom = 1
 			btn.add_theme_stylebox_override("normal", btn_style)
+
+func _create_boss_alert_ui() -> void:
+	var canvas = $CanvasLayer
+	if boss_alert_label and boss_alert_label.is_inside_tree():
+		boss_alert_label.queue_free()
+	var alert_label = Label.new()
+	alert_label.name = "BossAlertLabel"
+	alert_label.text = ""
+	alert_label.visible = false
+	alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	alert_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	alert_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	alert_label.add_theme_font_size_override("font_size", 36)
+	alert_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.3))
+	alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	alert_label.add_theme_constant_override("outline_size", 3)
+	alert_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	alert_label.size = Vector2(800, 140)
+	alert_label.position = Vector2(-alert_label.size.x * 0.5, -alert_label.size.y * 0.5)
+	canvas.add_child(alert_label)
+	boss_alert_label = alert_label
+	
+	if boss_alert_player == null:
+		boss_alert_player = AudioStreamPlayer.new()
+		boss_alert_player.name = "BossAlertPlayer"
+		add_child(boss_alert_player)
+
+func _load_boss_warning_sound() -> void:
+	boss_warning_sound = _try_load_music("res://assets/sounds/aproaching.wav")
+	if boss_warning_sound == null:
+		boss_warning_sound = _try_load_music("res://assets/sounds/approaching.wav")
+
+func _show_boss_warning(message: String) -> void:
+	if boss_alert_label == null:
+		return
+	boss_alert_label.text = message
+	boss_alert_label.visible = true
+	boss_alert_timer = boss_alert_duration
+	_play_boss_warning_sound()
+
+func _play_boss_warning_sound() -> void:
+	if boss_warning_sound == null:
+		return
+	if boss_alert_player == null:
+		boss_alert_player = AudioStreamPlayer.new()
+		boss_alert_player.name = "BossAlertPlayer"
+		add_child(boss_alert_player)
+	boss_alert_player.stream = boss_warning_sound
+	boss_alert_player.play()
 
 func _toggle_music() -> void:
 	music_muted = not music_muted

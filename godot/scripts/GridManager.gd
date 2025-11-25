@@ -229,3 +229,6 @@ func clear_grid_area(grid_x: int, grid_y: int, size: int):
 				if base_grid.size() > gy and base_grid[gy].size() > gx:
 					base_grid[gy][gx] = 0
 
+func reset_base_grid():
+	_init_base_grid()
+
