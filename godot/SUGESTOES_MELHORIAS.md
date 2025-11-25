@@ -216,3 +216,25 @@ Estas features podem ser implementadas rapidamente e têm grande impacto:
 
 **Nota**: Estas são sugestões baseadas em boas práticas de tower defense games. Escolha as que fazem mais sentido para a visão do seu jogo!
 
+## 🧪 Inovações Inéditas
+
+### 25. Diretor IA Dinâmico
+- Sistema que observa performance do jogador e reconfigura waves em tempo real, criando “micro-histórias” (ex.: emboscada surpresa se o jogador concentra torres em um corredor).
+- Ajusta música, clima e iluminação com base no risco percebido, criando feedback audiovisual adaptativo.
+
+### 26. Torres Orgânicas Evolutivas
+- Torres “vivas” que absorvem DNA dos inimigos derrotados e desbloqueiam mutações únicas a cada partida.
+- Jogador decide quais traços manter ou descartar usando um minigame de edição genética entre waves.
+
+### 27. Ghost Co-op Assíncrono
+- Grave o “fantasma” de outra partida (trajetória das torres colocadas e decisões críticas) e importe como aliado ou rival para testar estratégias sem multiplayer em tempo real.
+- Ghosts rendem recompensas extras se o jogador superar o desempenho registrado.
+
+### 28. Terreno Modular Vivo
+- Hexágonos do mapa podem ser “cultivados” com biomas que influenciam torres e inimigos (pântano desacelera, vulcão amplifica dano de fogo).
+- Eventos climáticos temporários alteram as vantagens desses biomas, incentivando reposicionamento.
+
+### 29. Narrativa Persistente de Facções
+- Cada run contribui para facções do mundo (torres místicas, tecnológicas, naturais). Escolhas de pesquisa e construção alimentam a facção correspondente.
+- Facções retornam com missões exclusivas e modificadores permanentes nas próximas sessões, criando metaprogressão narrativa.
+

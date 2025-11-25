@@ -75,6 +75,32 @@ func _ready() -> void:
 	get_node("Panel/VBoxContainer/BtnLoad").pressed.connect(_on_load)
 	get_node("Panel/VBoxContainer/BtnExit").pressed.connect(_on_exit)
 	
+	# Adicionar botão de Achievements
+	var btn_achievements = Button.new()
+	btn_achievements.text = "Conquistas"
+	btn_achievements.custom_minimum_size = Vector2(200, 40)
+	btn_achievements.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_achievements.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn_achievements.pressed.connect(_on_achievements)
+	get_node("Panel/VBoxContainer").add_child(btn_achievements)
+	
+	# Adicionar botão de Perks
+	var btn_perks = Button.new()
+	btn_perks.text = "Melhorias"
+	btn_perks.custom_minimum_size = Vector2(200, 40)
+	btn_perks.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_perks.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn_perks.pressed.connect(_on_perks)
+	get_node("Panel/VBoxContainer").add_child(btn_perks)
+	
+	# Aplicar estilo aos novos botões
+	btn_achievements.add_theme_stylebox_override("normal", btn_style)
+	btn_perks.add_theme_stylebox_override("normal", btn_style)
+	btn_achievements.add_theme_stylebox_override("hover", btn_hover_style)
+	btn_perks.add_theme_stylebox_override("hover", btn_hover_style)
+	btn_achievements.add_theme_stylebox_override("pressed", btn_pressed_style)
+	btn_perks.add_theme_stylebox_override("pressed", btn_pressed_style)
+	
 	# Tentar carregar imagem de fundo, se existir
 	var bg_image = get_node_or_null("BGImage")
 	var bg = get_node_or_null("BG")
@@ -255,3 +281,638 @@ func _load_slot(slot_name: String, dialog: Window) -> void:
 	
 	# Mudar para a cena do jogo
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+
+func _on_achievements() -> void:
+	_show_achievements_dialog()
+
+func _on_perks() -> void:
+	_show_perks_dialog()
+
+func _show_achievements_dialog() -> void:
+	const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
+	
+	var achievement_manager = AchievementManager.get_instance()
+	var stats = achievement_manager.get_stats()
+	
+	# Criar janela de achievements
+	var dialog = Window.new()
+	dialog.title = "Conquistas - %d/%d Desbloqueadas" % [stats.unlocked, stats.total]
+	dialog.size = Vector2(900, 700)
+	dialog.min_size = Vector2(800, 600)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Conectar signal de fechar (botão X)
+	dialog.close_requested.connect(func(): dialog.queue_free())
+	
+	# Container principal com padding
+	var main_container = MarginContainer.new()
+	main_container.add_theme_constant_override("margin_left", 15)
+	main_container.add_theme_constant_override("margin_top", 15)
+	main_container.add_theme_constant_override("margin_right", 15)
+	main_container.add_theme_constant_override("margin_bottom", 15)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	
+	# Barra de estatísticas no topo - melhorada
+	var stats_panel = Panel.new()
+	stats_panel.custom_minimum_size = Vector2(0, 80)
+	
+	# Estilo do painel de stats
+	var stats_style = StyleBoxFlat.new()
+	stats_style.bg_color = Color(0.15, 0.2, 0.3, 0.9)
+	stats_style.corner_radius_top_left = 8
+	stats_style.corner_radius_top_right = 8
+	stats_style.corner_radius_bottom_left = 8
+	stats_style.corner_radius_bottom_right = 8
+	stats_style.border_width_left = 2
+	stats_style.border_width_top = 2
+	stats_style.border_width_right = 2
+	stats_style.border_width_bottom = 2
+	stats_style.border_color = Color(0.4, 0.6, 0.9, 1.0)
+	stats_panel.add_theme_stylebox_override("panel", stats_style)
+	
+	var stats_vbox = VBoxContainer.new()
+	stats_vbox.add_theme_constant_override("separation", 8)
+	
+	# Padding interno
+	var stats_margin = MarginContainer.new()
+	stats_margin.add_theme_constant_override("margin_left", 15)
+	stats_margin.add_theme_constant_override("margin_top", 12)
+	stats_margin.add_theme_constant_override("margin_right", 15)
+	stats_margin.add_theme_constant_override("margin_bottom", 12)
+	
+	var stats_label = Label.new()
+	stats_label.text = "Pontos Totais: %d  |  Progresso: %.1f%%" % [stats.total_points, stats.completion_percentage]
+	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats_label.add_theme_font_size_override("font_size", 18)
+	stats_label.modulate = Color(1.0, 0.9, 0.3)
+	stats_vbox.add_child(stats_label)
+	
+	# Barra de progresso visual
+	var progress_bar = ProgressBar.new()
+	progress_bar.min_value = 0
+	progress_bar.max_value = 100
+	progress_bar.value = stats.completion_percentage
+	progress_bar.custom_minimum_size = Vector2(0, 25)
+	progress_bar.show_percentage = true
+	stats_vbox.add_child(progress_bar)
+	
+	stats_margin.add_child(stats_vbox)
+	stats_panel.add_child(stats_margin)
+	vbox.add_child(stats_panel)
+	
+	# Tabs para categorias - altura ajustada
+	var tab_container = TabContainer.new()
+	tab_container.custom_minimum_size = Vector2(0, 480)
+	tab_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	
+	# Categorias
+	var categories = [
+		{"name": "Combate", "category": AchievementManager.Category.COMBAT, "icon": "⚔️"},
+		{"name": "Economia", "category": AchievementManager.Category.ECONOMY, "icon": "💰"},
+		{"name": "Defesa", "category": AchievementManager.Category.DEFENSE, "icon": "🏰"},
+		{"name": "Progressão", "category": AchievementManager.Category.PROGRESSION, "icon": "📈"},
+		{"name": "Especiais", "category": AchievementManager.Category.SPECIAL, "icon": "⭐"}
+	]
+	
+	for cat_info in categories:
+		var scroll = ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		
+		var achievement_list = VBoxContainer.new()
+		achievement_list.add_theme_constant_override("separation", 8)
+		achievement_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		
+		var achievements = achievement_manager.get_achievements_by_category(cat_info.category)
+		
+		if achievements.is_empty():
+			var empty_container = CenterContainer.new()
+			var empty_label = Label.new()
+			empty_label.text = "Nenhuma conquista nesta categoria"
+			empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			empty_label.add_theme_font_size_override("font_size", 14)
+			empty_label.modulate = Color(0.6, 0.6, 0.6)
+			empty_container.add_child(empty_label)
+			achievement_list.add_child(empty_container)
+		else:
+			for achievement in achievements:
+				var achievement_panel = await _create_achievement_panel(achievement)
+				achievement_list.add_child(achievement_panel)
+		
+		scroll.add_child(achievement_list)
+		tab_container.add_child(scroll)
+		tab_container.set_tab_title(tab_container.get_tab_count() - 1, cat_info.icon + " " + cat_info.name)
+	
+	vbox.add_child(tab_container)
+	
+	# Botão fechar - melhorado e sem espaço extra
+	var button_container = HBoxContainer.new()
+	button_container.add_theme_constant_override("separation", 10)
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	button_container.custom_minimum_size = Vector2(0, 50)
+	
+	var close_button = Button.new()
+	close_button.text = "Fechar"
+	close_button.custom_minimum_size = Vector2(150, 45)
+	
+	# Estilo do botão fechar
+	var close_btn_style = StyleBoxFlat.new()
+	close_btn_style.bg_color = Color(0.4, 0.4, 0.5, 1.0)
+	close_btn_style.corner_radius_top_left = 5
+	close_btn_style.corner_radius_top_right = 5
+	close_btn_style.corner_radius_bottom_left = 5
+	close_btn_style.corner_radius_bottom_right = 5
+	close_btn_style.border_width_left = 2
+	close_btn_style.border_width_top = 2
+	close_btn_style.border_width_right = 2
+	close_btn_style.border_width_bottom = 2
+	close_btn_style.border_color = Color(0.5, 0.5, 0.6, 1.0)
+	close_button.add_theme_stylebox_override("normal", close_btn_style)
+	
+	var close_hover_style = close_btn_style.duplicate()
+	close_hover_style.bg_color = Color(0.5, 0.5, 0.6, 1.0)
+	close_button.add_theme_stylebox_override("hover", close_hover_style)
+	
+	var close_pressed_style = close_btn_style.duplicate()
+	close_pressed_style.bg_color = Color(0.3, 0.3, 0.4, 1.0)
+	close_button.add_theme_stylebox_override("pressed", close_pressed_style)
+	
+	close_button.add_theme_font_size_override("font_size", 14)
+	close_button.pressed.connect(func(): dialog.queue_free())
+	
+	button_container.add_child(close_button)
+	vbox.add_child(button_container)
+	
+	main_container.add_child(vbox)
+	dialog.add_child(main_container)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	main_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_container.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela na tela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _create_achievement_panel(achievement: Dictionary) -> Panel:
+	var panel = Panel.new()
+	panel.custom_minimum_size = Vector2(0, 80)
+	
+	# Estilo do painel
+	var panel_style = StyleBoxFlat.new()
+	if achievement.unlocked:
+		panel_style.bg_color = Color(0.2, 0.4, 0.2, 0.8)  # Verde para desbloqueado
+		panel_style.border_color = Color(0.3, 0.6, 0.3, 1.0)
+	else:
+		panel_style.bg_color = Color(0.2, 0.2, 0.2, 0.8)  # Cinza para bloqueado
+		panel_style.border_color = Color(0.3, 0.3, 0.3, 1.0)
+	panel_style.corner_radius_top_left = 5
+	panel_style.corner_radius_top_right = 5
+	panel_style.corner_radius_bottom_left = 5
+	panel_style.corner_radius_bottom_right = 5
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Container horizontal
+	var hbox = HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	
+	# Ícone
+	var icon_label = Label.new()
+	icon_label.text = achievement.icon
+	icon_label.add_theme_font_size_override("font_size", 32)
+	icon_label.custom_minimum_size = Vector2(50, 0)
+	icon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(icon_label)
+	
+	# Informações
+	var info_vbox = VBoxContainer.new()
+	info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	var name_label = Label.new()
+	name_label.text = achievement.name
+	if achievement.unlocked:
+		name_label.modulate = Color(0.8, 1.0, 0.8)  # Verde claro
+	else:
+		name_label.modulate = Color(0.6, 0.6, 0.6)  # Cinza
+	name_label.add_theme_font_size_override("font_size", 14)
+	info_vbox.add_child(name_label)
+	
+	var desc_label = Label.new()
+	desc_label.text = achievement.description
+	desc_label.add_theme_font_size_override("font_size", 11)
+	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_vbox.add_child(desc_label)
+	
+	# Barra de progresso
+	var progress_container = HBoxContainer.new()
+	var progress_label = Label.new()
+	if achievement.unlocked:
+		progress_label.text = "✓ Desbloqueado!"
+		progress_label.modulate = Color(0.5, 1.0, 0.5)
+	else:
+		var progress_pct = (float(achievement.progress) / float(achievement.max_progress)) * 100.0
+		progress_label.text = "%d / %d (%.0f%%)" % [achievement.progress, achievement.max_progress, progress_pct]
+		progress_label.modulate = Color(1.0, 1.0, 0.5)
+	progress_label.add_theme_font_size_override("font_size", 10)
+	progress_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	progress_container.add_child(progress_label)
+	
+	var reward_label = Label.new()
+	reward_label.text = "+%d pontos" % achievement.reward_points
+	reward_label.add_theme_font_size_override("font_size", 10)
+	reward_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	progress_container.add_child(reward_label)
+	info_vbox.add_child(progress_container)
+	
+	hbox.add_child(info_vbox)
+	panel.add_child(hbox)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.set_offsets_preset(Control.PRESET_FULL_RECT, 5)
+	
+	return panel
+
+func _show_perks_dialog() -> void:
+	const PerkManager = preload("res://scripts/managers/PerkManager.gd")
+	const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
+	
+	var perk_manager = PerkManager.get_instance()
+	var achievement_manager = AchievementManager.get_instance()
+	
+	# Criar janela de perks
+	var dialog = Window.new()
+	dialog.title = "Melhorias Persistentes"
+	dialog.size = Vector2(900, 650)
+	dialog.min_size = Vector2(800, 550)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Conectar signal de fechar (botão X)
+	dialog.close_requested.connect(func(): dialog.queue_free())
+	
+	# Container principal com padding
+	var main_container = MarginContainer.new()
+	main_container.add_theme_constant_override("margin_left", 15)
+	main_container.add_theme_constant_override("margin_top", 15)
+	main_container.add_theme_constant_override("margin_right", 15)
+	main_container.add_theme_constant_override("margin_bottom", 15)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 15)
+	
+	# Barra de pontos disponíveis - melhorada
+	var points_panel = Panel.new()
+	points_panel.custom_minimum_size = Vector2(0, 60)
+	
+	# Estilo do painel de pontos
+	var points_style = StyleBoxFlat.new()
+	points_style.bg_color = Color(0.15, 0.2, 0.3, 0.9)
+	points_style.corner_radius_top_left = 8
+	points_style.corner_radius_top_right = 8
+	points_style.corner_radius_bottom_left = 8
+	points_style.corner_radius_bottom_right = 8
+	points_style.border_width_left = 2
+	points_style.border_width_top = 2
+	points_style.border_width_right = 2
+	points_style.border_width_bottom = 2
+	points_style.border_color = Color(0.4, 0.6, 0.9, 1.0)
+	points_panel.add_theme_stylebox_override("panel", points_style)
+	
+	var points_container = HBoxContainer.new()
+	points_container.add_theme_constant_override("separation", 10)
+	
+	# Ícone de moedas
+	var coin_icon = Label.new()
+	coin_icon.text = "💰"
+	coin_icon.add_theme_font_size_override("font_size", 28)
+	coin_icon.custom_minimum_size = Vector2(50, 0)
+	coin_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	coin_icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	points_container.add_child(coin_icon)
+	
+	# Label de pontos
+	var points_label = Label.new()
+	points_label.name = "PointsLabel"
+	points_label.text = "Pontos Disponíveis: %d" % achievement_manager.total_points
+	points_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	points_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	points_label.add_theme_font_size_override("font_size", 20)
+	points_label.modulate = Color(1.0, 0.9, 0.3)
+	points_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	points_container.add_child(points_label)
+	
+	# Descrição
+	var points_desc = Label.new()
+	points_desc.text = "Use pontos de conquistas para desbloquear melhorias permanentes"
+	points_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	points_desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	points_desc.add_theme_font_size_override("font_size", 11)
+	points_desc.modulate = Color(0.7, 0.7, 0.7)
+	points_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	points_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	points_container.add_child(points_desc)
+	
+	points_panel.add_child(points_container)
+	vbox.add_child(points_panel)
+	
+	# Tabs para categorias
+	var tab_container = TabContainer.new()
+	tab_container.custom_minimum_size = Vector2(0, 480)
+	tab_container.add_theme_constant_override("h_separation", 10)
+	
+	# Categorias
+	var categories = [
+		{"name": "Início", "category": PerkManager.Category.STARTING, "icon": "🚀"},
+		{"name": "Economia", "category": PerkManager.Category.ECONOMY, "icon": "💰"},
+		{"name": "Combate", "category": PerkManager.Category.COMBAT, "icon": "⚔️"},
+		{"name": "Defesa", "category": PerkManager.Category.DEFENSE, "icon": "🛡️"}
+	]
+	
+	for cat_info in categories:
+		var scroll = ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+		
+		var perk_list = VBoxContainer.new()
+		perk_list.add_theme_constant_override("separation", 8)
+		perk_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		
+		var perks = perk_manager.get_perks_by_category(cat_info.category)
+		
+		if perks.is_empty():
+			var empty_container = CenterContainer.new()
+			empty_container.custom_minimum_size = Vector2(0, 200)
+			var empty_label = Label.new()
+			empty_label.text = "Nenhuma melhoria nesta categoria"
+			empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			empty_label.add_theme_font_size_override("font_size", 14)
+			empty_label.modulate = Color(0.6, 0.6, 0.6)
+			empty_container.add_child(empty_label)
+			perk_list.add_child(empty_container)
+		else:
+			for perk in perks:
+				var perk_panel = await _create_perk_panel(perk, perk_manager, achievement_manager, dialog)
+				perk_list.add_child(perk_panel)
+		
+		scroll.add_child(perk_list)
+		tab_container.add_child(scroll)
+		tab_container.set_tab_title(tab_container.get_tab_count() - 1, cat_info.icon + " " + cat_info.name)
+	
+	vbox.add_child(tab_container)
+	
+	# Botão fechar - melhorado
+	var button_container = HBoxContainer.new()
+	button_container.add_theme_constant_override("separation", 10)
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	
+	var close_button = Button.new()
+	close_button.text = "Fechar"
+	close_button.custom_minimum_size = Vector2(150, 45)
+	
+	# Estilo do botão fechar
+	var close_btn_style = StyleBoxFlat.new()
+	close_btn_style.bg_color = Color(0.4, 0.4, 0.5, 1.0)
+	close_btn_style.corner_radius_top_left = 5
+	close_btn_style.corner_radius_top_right = 5
+	close_btn_style.corner_radius_bottom_left = 5
+	close_btn_style.corner_radius_bottom_right = 5
+	close_btn_style.border_width_left = 2
+	close_btn_style.border_width_top = 2
+	close_btn_style.border_width_right = 2
+	close_btn_style.border_width_bottom = 2
+	close_btn_style.border_color = Color(0.5, 0.5, 0.6, 1.0)
+	close_button.add_theme_stylebox_override("normal", close_btn_style)
+	
+	var close_hover_style = close_btn_style.duplicate()
+	close_hover_style.bg_color = Color(0.5, 0.5, 0.6, 1.0)
+	close_button.add_theme_stylebox_override("hover", close_hover_style)
+	
+	var close_pressed_style = close_btn_style.duplicate()
+	close_pressed_style.bg_color = Color(0.3, 0.3, 0.4, 1.0)
+	close_button.add_theme_stylebox_override("pressed", close_pressed_style)
+	
+	close_button.add_theme_font_size_override("font_size", 14)
+	close_button.pressed.connect(func(): dialog.queue_free())
+	
+	button_container.add_child(close_button)
+	vbox.add_child(button_container)
+	
+	main_container.add_child(vbox)
+	dialog.add_child(main_container)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	main_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_container.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela na tela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement_manager: AchievementManager, dialog: Window) -> Panel:
+	var panel = Panel.new()
+	panel.custom_minimum_size = Vector2(0, 120)
+	
+	# Estilo do painel - melhorado
+	var panel_style = StyleBoxFlat.new()
+	if perk.level > 0:
+		panel_style.bg_color = Color(0.15, 0.25, 0.35, 0.9)  # Azul mais escuro para comprado
+		panel_style.border_color = Color(0.4, 0.6, 0.8, 1.0)
+	else:
+		panel_style.bg_color = Color(0.18, 0.18, 0.22, 0.9)  # Cinza escuro para não comprado
+		panel_style.border_color = Color(0.35, 0.35, 0.4, 1.0)
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Container principal com padding
+	var main_margin = MarginContainer.new()
+	main_margin.add_theme_constant_override("margin_left", 12)
+	main_margin.add_theme_constant_override("margin_top", 10)
+	main_margin.add_theme_constant_override("margin_right", 12)
+	main_margin.add_theme_constant_override("margin_bottom", 10)
+	
+	var main_vbox = VBoxContainer.new()
+	main_vbox.add_theme_constant_override("separation", 8)
+	
+	# Linha superior: ícone, nome e nível
+	var top_hbox = HBoxContainer.new()
+	top_hbox.add_theme_constant_override("separation", 12)
+	top_hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	# Ícone - maior e mais destacado
+	var icon_container = Panel.new()
+	icon_container.custom_minimum_size = Vector2(55, 55)
+	var icon_style = StyleBoxFlat.new()
+	icon_style.bg_color = Color(0.1, 0.1, 0.15, 0.8)
+	icon_style.corner_radius_top_left = 6
+	icon_style.corner_radius_top_right = 6
+	icon_style.corner_radius_bottom_left = 6
+	icon_style.corner_radius_bottom_right = 6
+	icon_container.add_theme_stylebox_override("panel", icon_style)
+	
+	var icon_label = Label.new()
+	icon_label.text = perk.icon
+	icon_label.add_theme_font_size_override("font_size", 32)
+	icon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	icon_container.add_child(icon_label)
+	top_hbox.add_child(icon_container)
+	
+	# Nome e nível
+	var name_vbox = VBoxContainer.new()
+	name_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	var name_label = Label.new()
+	name_label.text = perk.name
+	if perk.level > 0:
+		name_label.modulate = Color(0.8, 0.9, 1.0)
+	else:
+		name_label.modulate = Color(0.6, 0.6, 0.6)
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_vbox.add_child(name_label)
+	
+	var level_label = Label.new()
+	if perk.is_max_level:
+		level_label.text = "Nível Máximo (%d/%d)" % [perk.level, perk.max_level]
+		level_label.modulate = Color(0.5, 1.0, 0.5)
+	else:
+		level_label.text = "Nível %d/%d" % [perk.level, perk.max_level]
+		level_label.modulate = Color(1.0, 1.0, 0.5)
+	level_label.add_theme_font_size_override("font_size", 11)
+	name_vbox.add_child(level_label)
+	
+	top_hbox.add_child(name_vbox)
+	
+	# Botão de compra - melhorado e alinhado
+	var buy_button = Button.new()
+	buy_button.custom_minimum_size = Vector2(150, 50)
+	buy_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+	
+	if perk.is_max_level:
+		buy_button.text = "✓ Máximo"
+		buy_button.disabled = true
+		var max_style = StyleBoxFlat.new()
+		max_style.bg_color = Color(0.2, 0.5, 0.2, 1.0)
+		max_style.corner_radius_top_left = 6
+		max_style.corner_radius_top_right = 6
+		max_style.corner_radius_bottom_left = 6
+		max_style.corner_radius_bottom_right = 6
+		max_style.border_color = Color(0.3, 0.7, 0.3, 1.0)
+		max_style.border_width_left = 2
+		max_style.border_width_top = 2
+		max_style.border_width_right = 2
+		max_style.border_width_bottom = 2
+		buy_button.add_theme_stylebox_override("normal", max_style)
+		buy_button.add_theme_color_override("font_color", Color(0.9, 1.0, 0.9))
+	elif achievement_manager.total_points < perk.cost:
+		buy_button.text = "💰 %d" % perk.cost
+		buy_button.disabled = true
+		var disabled_style = StyleBoxFlat.new()
+		disabled_style.bg_color = Color(0.3, 0.3, 0.3, 1.0)
+		disabled_style.corner_radius_top_left = 6
+		disabled_style.corner_radius_top_right = 6
+		disabled_style.corner_radius_bottom_left = 6
+		disabled_style.corner_radius_bottom_right = 6
+		disabled_style.border_color = Color(0.4, 0.4, 0.4, 1.0)
+		disabled_style.border_width_left = 2
+		disabled_style.border_width_top = 2
+		disabled_style.border_width_right = 2
+		disabled_style.border_width_bottom = 2
+		buy_button.add_theme_stylebox_override("normal", disabled_style)
+		buy_button.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	else:
+		buy_button.text = "Comprar\n💰 %d" % perk.cost
+		var buy_style = StyleBoxFlat.new()
+		buy_style.bg_color = Color(0.2, 0.5, 0.8, 1.0)
+		buy_style.corner_radius_top_left = 6
+		buy_style.corner_radius_top_right = 6
+		buy_style.corner_radius_bottom_left = 6
+		buy_style.corner_radius_bottom_right = 6
+		buy_style.border_color = Color(0.3, 0.6, 0.9, 1.0)
+		buy_style.border_width_left = 2
+		buy_style.border_width_top = 2
+		buy_style.border_width_right = 2
+		buy_style.border_width_bottom = 2
+		buy_button.add_theme_stylebox_override("normal", buy_style)
+		
+		var buy_hover_style = buy_style.duplicate()
+		buy_hover_style.bg_color = Color(0.3, 0.6, 0.9, 1.0)
+		buy_button.add_theme_stylebox_override("hover", buy_hover_style)
+		
+		var buy_pressed_style = buy_style.duplicate()
+		buy_pressed_style.bg_color = Color(0.15, 0.4, 0.7, 1.0)
+		buy_button.add_theme_stylebox_override("pressed", buy_pressed_style)
+		
+		buy_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	
+	buy_button.add_theme_font_size_override("font_size", 12)
+	buy_button.pressed.connect(func():
+		if perk_manager.purchase_perk(perk.id, achievement_manager):
+			# Atualizar pontos na UI
+			var main_container = dialog.get_child(0)
+			if main_container:
+				var vbox = main_container.get_child(0)
+				if vbox:
+					var points_panel = vbox.get_child(0)
+					if points_panel:
+						var points_container = points_panel.get_child(0)
+						if points_container:
+							var points_label = points_container.get_node("PointsLabel")
+							if points_label:
+								points_label.text = "Pontos Disponíveis: %d" % achievement_manager.total_points
+			# Recriar painel do perk
+			var parent = panel.get_parent()
+			var index = parent.get_children().find(panel)
+			panel.queue_free()
+			await get_tree().process_frame
+			var new_panel = await _create_perk_panel(perk_manager.get_perk_info(perk.id), perk_manager, achievement_manager, dialog)
+			parent.add_child(new_panel)
+			parent.move_child(new_panel, index)
+	)
+	top_hbox.add_child(buy_button)
+	
+	main_vbox.add_child(top_hbox)
+	
+	# Descrição - melhorada
+	var desc_label = Label.new()
+	desc_label.text = perk.description
+	desc_label.add_theme_font_size_override("font_size", 12)
+	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if perk.level > 0:
+		desc_label.modulate = Color(0.85, 0.9, 1.0)
+	else:
+		desc_label.modulate = Color(0.7, 0.7, 0.75)
+	main_vbox.add_child(desc_label)
+	
+	main_margin.add_child(main_vbox)
+	panel.add_child(main_margin)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	main_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_margin.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	return panel

@@ -7,12 +7,28 @@ const WaveManager = preload("res://scripts/WaveManager.gd")
 const ProjectileManager = preload("res://scripts/ProjectileManager.gd")
 const GameConstants = preload("res://scripts/Constants.gd")
 const SaveManager = preload("res://scripts/managers/SaveManager.gd")
+const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
+const PerkManager = preload("res://scripts/managers/PerkManager.gd")
 
 # Managers
 var grid_manager: GridManager
 var pathfinder: Pathfinder
 var wave_manager: WaveManager
 var projectile_manager: ProjectileManager
+var achievement_manager: AchievementManager
+var perk_manager: PerkManager
+
+# Estatísticas para achievements
+var total_kills: int = 0
+var total_boss_kills: int = 0
+var total_coins_collected: int = 0
+var total_coins_spent: int = 0
+var towers_built: int = 0
+var tower_types_built: Dictionary = {}  # rastrear tipos de torres construídas
+var perfect_waves: int = 0
+var current_wave_base_hp_start: int = 0  # HP da base no início da onda
+var first_play: bool = true
+var skill_used: bool = false
 
 var grid_offset: Vector2  # offset para centralizar o grid na tela
 
@@ -120,6 +136,10 @@ var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
+
+# Range indicator
+var range_indicator: Line2D
+const RANGE_INDICATOR_SEGMENTS := 64
 
 # Boss alert
 var boss_alert_label: Label
@@ -256,9 +276,19 @@ func _ready() -> void:
 	pathfinder = Pathfinder.new(grid_manager.grid, grid_manager.center)
 	wave_manager = WaveManager.new()
 	projectile_manager = ProjectileManager.new()
+	achievement_manager = AchievementManager.get_instance()
+	perk_manager = PerkManager.get_instance()
+	
+	# Aplicar efeitos dos perks
+	_apply_perk_effects()
 	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
+	
+	# Achievement: primeira partida
+	if first_play:
+		achievement_manager.increment_progress("first_play")
+		first_play = false
 	
 	# ajustar tamanho da janela para caber grid + barra superior
 	var bar_height: float = 44.0
@@ -442,6 +472,7 @@ func _ready() -> void:
 	
 	# Criar menu de skills
 	_create_skills_ui()
+	_create_range_indicator()
 
 	# criar PopupMenu para torres (deve estar em um Control)
 	var menu_container = Control.new()
@@ -458,6 +489,7 @@ func _ready() -> void:
 	tower_menu.add_item("Congelamento", 5)
 	tower_menu.add_item("Fogo", 6)
 	tower_menu.id_pressed.connect(Callable(self, "_on_tower_menu_pressed"))
+	tower_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	menu_container.add_child(tower_menu)
 	$CanvasLayer.add_child(menu_container)
 	
@@ -474,6 +506,7 @@ func _ready() -> void:
 	barracks_menu.add_item("Spawn Rate -0.5s", 3)
 	barracks_menu.add_item("Velocidade Projétil +20", 4)
 	barracks_menu.id_pressed.connect(Callable(self, "_on_barracks_menu_pressed"))
+	barracks_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	barracks_menu_container.add_child(barracks_menu)
 	$CanvasLayer.add_child(barracks_menu_container)
 	
@@ -488,6 +521,7 @@ func _ready() -> void:
 	sniper_menu.add_item("Dano +2", 1)
 	sniper_menu.add_item("Taxa de Tiro +", 2)
 	sniper_menu.id_pressed.connect(Callable(self, "_on_sniper_menu_pressed"))
+	sniper_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	sniper_menu_container.add_child(sniper_menu)
 	$CanvasLayer.add_child(sniper_menu_container)
 	
@@ -503,6 +537,7 @@ func _ready() -> void:
 	aoe_menu.add_item("Taxa de Tiro +", 2)
 	aoe_menu.add_item("Área +20", 3)
 	aoe_menu.id_pressed.connect(Callable(self, "_on_aoe_menu_pressed"))
+	aoe_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	aoe_menu_container.add_child(aoe_menu)
 	$CanvasLayer.add_child(aoe_menu_container)
 	
@@ -518,6 +553,7 @@ func _ready() -> void:
 	shock_menu.add_item("Taxa de Tiro +", 2)
 	shock_menu.add_item("Corrente +1", 3)
 	shock_menu.id_pressed.connect(Callable(self, "_on_shock_menu_pressed"))
+	shock_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	shock_menu_container.add_child(shock_menu)
 	$CanvasLayer.add_child(shock_menu_container)
 	
@@ -534,6 +570,7 @@ func _ready() -> void:
 	slow_menu.add_item("Duração +0.5s", 3)
 	slow_menu.add_item("Taxa de Aplicação +", 4)
 	slow_menu.id_pressed.connect(Callable(self, "_on_slow_menu_pressed"))
+	slow_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	slow_menu_container.add_child(slow_menu)
 	$CanvasLayer.add_child(slow_menu_container)
 	
@@ -549,6 +586,7 @@ func _ready() -> void:
 	boost_menu.add_item("Boost Dano +10%", 2)
 	boost_menu.add_item("Boost Cadência +5%", 3)
 	boost_menu.id_pressed.connect(Callable(self, "_on_boost_menu_pressed"))
+	boost_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	boost_menu_container.add_child(boost_menu)
 	$CanvasLayer.add_child(boost_menu_container)
 
@@ -616,6 +654,20 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if paused or game_over:
 		return
+
+	# Garantir que o range indicator só esteja visível quando um menu de upgrade estiver aberto
+	# Verificar a cada frame para garantir que seja escondido imediatamente quando o menu fechar
+	if range_indicator and range_indicator.visible:
+		if not _is_any_upgrade_menu_visible():
+			_hide_range_indicator()
+			# Resetar índices selecionados também
+			tower_selected_index = -1
+			sniper_selected_index = -1
+			aoe_selected_index = -1
+			shock_selected_index = -1
+			slow_selected_index = -1
+			boost_selected_index = -1
+			barracks_selected_index = -1
 
 	if boss_alert_timer > 0.0:
 		boss_alert_timer -= delta
@@ -979,6 +1031,11 @@ func _input(event: InputEvent) -> void:
 					collected_coin_pos = coin.pos
 					coin.collected = true
 					coin_collected = true
+					# Rastrear achievements de moedas
+					total_coins_collected += coin.value
+					achievement_manager.increment_progress("collect_1000_coins", coin.value)
+					achievement_manager.increment_progress("collect_10000_coins", coin.value)
+					achievement_manager.increment_progress("collect_100000_coins", coin.value)
 					# Criar efeito visual de coleta
 					_create_coin_collect_effect(collected_coin_pos)
 					# Tocar som de coleta de moeda
@@ -1083,6 +1140,9 @@ func _input(event: InputEvent) -> void:
 			if boost_idx != -1:
 				_open_boost_menu(boost_idx, mouse_screen_pos)
 				return
+			
+			# Se clicou fora de qualquer torre, fechar menus e esconder range indicator
+			_close_all_upgrade_menus()
 
 func _draw() -> void:
 	# Não desenhar se ainda estiver carregando
@@ -1773,6 +1833,18 @@ func _draw() -> void:
 	if tower_selected_index >= 0 and tower_selected_index < towers.size():
 		var tt = towers[tower_selected_index]
 		draw_circle(tt.pos, tt.range, Color(0.3,0.6,1.0,0.15))
+	
+	# mostrar range de efeito da slow tower selecionada
+	if slow_selected_index >= 0 and slow_selected_index < slow_towers.size():
+		var st = slow_towers[slow_selected_index]
+		# Círculo preenchido para mostrar o range de efeito (onde afeta inimigos)
+		draw_circle(st.pos, st.range, Color(0.4, 1.0, 0.8, 0.2))
+	
+	# mostrar range de efeito da boost tower selecionada
+	if boost_selected_index >= 0 and boost_selected_index < boost_towers.size():
+		var bt = boost_towers[boost_selected_index]
+		# Círculo preenchido para mostrar o range de efeito (onde afeta outras torres)
+		draw_circle(bt.pos, bt.range, Color(0.6, 0.9, 0.4, 0.2))
 	# hero removido - a tenda é o herói
 
 func _update_upgrade_labels() -> void:
@@ -2232,6 +2304,8 @@ func _handle_collisions() -> void:
 					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
+					# Rastrear achievements de kills
+					_track_enemy_kill(is_boss)
 				if a["pierce"] > 0:
 					a["pierce"] -= 1
 				else:
@@ -2259,6 +2333,8 @@ func _handle_collisions() -> void:
 					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
+					# Rastrear achievements de kills
+					_track_enemy_kill(is_boss)
 				
 				# aplicar efeitos de status
 				var enemy_idx = e.get("idx", -1)
@@ -2381,6 +2457,7 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	tower_selected_index = idx
 	var t = towers[idx]
+	_show_range_indicator(t.pos, t.range, Color(0.3, 0.7, 1.0, 0.65))
 	var dirs_count: int = t.dirs.size()
 	var can_range: bool = hero["coins"] >= GameConstants.TOWER_RANGE_COST
 	var can_rate: bool = hero["coins"] >= GameConstants.TOWER_RATE_COST and t.fire_rate > 0.12
@@ -2451,6 +2528,7 @@ func _on_tower_menu_pressed(id: int) -> void:
 				t.levels["FIRE"] = 1
 				hero["coins"] -= GameConstants.TOWER_FIRE_COST
 	towers[tower_selected_index] = t
+	_hide_range_indicator()
 	tower_selected_index = -1
 
 func _try_shoot(target: Vector2) -> void:
@@ -2471,6 +2549,15 @@ func _jump_10_waves() -> void:
 func _on_wave_started(wave_number: int, is_boss_wave: bool):
 	if ((wave_number + 1) % 5) == 0:
 		_show_boss_warning("ALERTA! Boss chegando na próxima wave!")
+	
+	# Rastrear HP da base no início da onda para achievement de onda perfeita
+	current_wave_base_hp_start = base_hp
+	
+	# Rastrear achievements de ondas
+	achievement_manager.set_progress("wave_10", wave_number)
+	achievement_manager.set_progress("wave_25", wave_number)
+	achievement_manager.set_progress("wave_50", wave_number)
+	achievement_manager.set_progress("wave_100", wave_number)
 
 func _on_buy_tower() -> void:
 	if placing_tower:
@@ -2571,6 +2658,7 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	sniper_selected_index = idx
 	var s = sniper_towers[idx]
+	_show_range_indicator(s.pos, s.range, Color(1.0, 0.4, 0.4, 0.65))
 	var can_dmg: bool = hero["coins"] >= GameConstants.SNIPER_DMG_COST
 	var can_rate: bool = hero["coins"] >= GameConstants.SNIPER_RATE_COST and s.fire_rate > 1.0
 	
@@ -2597,6 +2685,7 @@ func _on_sniper_menu_pressed(id: int) -> void:
 				s.levels["RATE"] += 1
 				hero["coins"] -= GameConstants.SNIPER_RATE_COST
 	sniper_towers[sniper_selected_index] = s
+	_hide_range_indicator()
 	sniper_selected_index = -1
 
 func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
@@ -2604,6 +2693,7 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	aoe_selected_index = idx
 	var a = aoe_towers[idx]
+	_show_range_indicator(a.pos, a.range, Color(1.0, 0.8, 0.3, 0.65))
 	var can_dmg: bool = hero["coins"] >= GameConstants.AOE_DMG_COST
 	var can_rate: bool = hero["coins"] >= GameConstants.AOE_RATE_COST and a.fire_rate > 0.5
 	var can_area: bool = hero["coins"] >= GameConstants.AOE_AREA_COST
@@ -2638,6 +2728,7 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				a.levels["AREA"] += 1
 				hero["coins"] -= GameConstants.AOE_AREA_COST
 	aoe_towers[aoe_selected_index] = a
+	_hide_range_indicator()
 	aoe_selected_index = -1
 
 func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
@@ -2645,6 +2736,7 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	shock_selected_index = idx
 	var s = shock_towers[idx]
+	_show_range_indicator(s.pos, s.range, Color(0.9, 0.5, 1.0, 0.65))
 	var can_dmg: bool = hero["coins"] >= GameConstants.SHOCK_DMG_COST
 	var can_rate: bool = hero["coins"] >= GameConstants.SHOCK_RATE_COST and s.fire_rate > 0.5
 	var can_chain: bool = hero["coins"] >= GameConstants.SHOCK_CHAIN_COST
@@ -2679,6 +2771,7 @@ func _on_shock_menu_pressed(id: int) -> void:
 				s.levels["CHAIN"] += 1
 				hero["coins"] -= GameConstants.SHOCK_CHAIN_COST
 	shock_towers[shock_selected_index] = s
+	_hide_range_indicator()
 	shock_selected_index = -1
 
 func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
@@ -2686,6 +2779,7 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	slow_selected_index = idx
 	var s = slow_towers[idx]
+	_show_range_indicator(s.pos, s.range, Color(0.4, 1.0, 0.8, 0.65))
 	var can_range: bool = hero["coins"] >= GameConstants.SLOW_RANGE_COST
 	var can_amount: bool = hero["coins"] >= GameConstants.SLOW_AMOUNT_COST and s.slow_amount < 0.9
 	var can_duration: bool = hero["coins"] >= GameConstants.SLOW_DURATION_COST
@@ -2728,6 +2822,7 @@ func _on_slow_menu_pressed(id: int) -> void:
 				s.levels["RATE"] += 1
 				hero["coins"] -= GameConstants.SLOW_RATE_COST
 	slow_towers[slow_selected_index] = s
+	_hide_range_indicator()
 	slow_selected_index = -1
 
 func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
@@ -2735,6 +2830,7 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	boost_selected_index = idx
 	var b = boost_towers[idx]
+	_show_range_indicator(b.pos, b.range, Color(0.6, 0.9, 0.4, 0.65))
 	var can_range: bool = hero["coins"] >= GameConstants.BOOST_RANGE_COST
 	var can_dmg: bool = hero["coins"] >= GameConstants.BOOST_DMG_COST
 	var can_rate: bool = hero["coins"] >= GameConstants.BOOST_RATE_COST
@@ -2769,6 +2865,7 @@ func _on_boost_menu_pressed(id: int) -> void:
 				b.levels["RATE"] += 1
 				hero["coins"] -= GameConstants.BOOST_RATE_COST
 	boost_towers[boost_selected_index] = b
+	_hide_range_indicator()
 	boost_selected_index = -1
 
 func _is_inside_base_point(p: Vector2) -> bool:
@@ -2822,6 +2919,8 @@ func _try_place_tower(pos: Vector2) -> void:
 		"levels": { "RANGE": 0, "RATE": 0, "DIRS": 0, "DMG": 0 }
 	})
 	hero["coins"] -= GameConstants.TOWER_COST
+	_track_coin_spent(GameConstants.TOWER_COST)
+	_track_tower_built("tower")
 	placing_tower = false
 
 # Blocos removidos - substituídos por Muralhas
@@ -2870,6 +2969,8 @@ func _try_place_barracks(pos: Vector2) -> void:
 		"levels": { "HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0 }
 	})
 	hero["coins"] -= GameConstants.BARRACKS_COST
+	_track_coin_spent(GameConstants.BARRACKS_COST)
+	_track_tower_built("barracks")
 	placing_barracks = false
 
 # ========== NOVAS TORRES ==========
@@ -2996,6 +3097,8 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 		"levels": {"RANGE": 0, "AMOUNT": 0, "DURATION": 0, "RATE": 0}
 	})
 	hero["coins"] -= GameConstants.SLOW_TOWER_COST
+	_track_coin_spent(GameConstants.SLOW_TOWER_COST)
+	_track_tower_built("slow_tower")
 	placing_slow_tower = false
 
 func _on_buy_aoe_tower() -> void:
@@ -3044,6 +3147,8 @@ func _try_place_aoe_tower(pos: Vector2) -> void:
 		"levels": { "DMG": 0, "RATE": 0, "AREA": 0 }
 	})
 	hero["coins"] -= GameConstants.AOE_TOWER_COST
+	_track_coin_spent(GameConstants.AOE_TOWER_COST)
+	_track_tower_built("aoe_tower")
 	placing_aoe_tower = false
 
 func _on_buy_sniper_tower() -> void:
@@ -3092,6 +3197,8 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		"levels": { "DMG": 0, "RATE": 0 }
 	})
 	hero["coins"] -= GameConstants.SNIPER_TOWER_COST
+	_track_coin_spent(GameConstants.SNIPER_TOWER_COST)
+	_track_tower_built("sniper_tower")
 	placing_sniper_tower = false
 
 func _on_buy_boost_tower() -> void:
@@ -3138,6 +3245,8 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 		"levels": {"RANGE": 0, "DMG": 0, "RATE": 0}
 	})
 	hero["coins"] -= GameConstants.BOOST_TOWER_COST
+	_track_coin_spent(GameConstants.BOOST_TOWER_COST)
+	_track_tower_built("boost_tower")
 	placing_boost_tower = false
 
 func _on_buy_shock_tower() -> void:
@@ -3187,6 +3296,8 @@ func _try_place_shock_tower(pos: Vector2) -> void:
 		"levels": { "DMG": 0, "RATE": 0, "CHAIN": 0 }
 	})
 	hero["coins"] -= GameConstants.SHOCK_TOWER_COST
+	_track_coin_spent(GameConstants.SHOCK_TOWER_COST)
+	_track_tower_built("shock_tower")
 	placing_shock_tower = false
 
 func _on_buy_wall() -> void:
@@ -3616,6 +3727,8 @@ func _update_mines(delta: float) -> void:
 					hero["coins"] += GameConstants.NORMAL_REWARD
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
+					# Rastrear achievements de kills
+					_track_enemy_kill(false)
 				m.triggered = true
 				mines_to_remove.append(i)
 				break
@@ -3723,6 +3836,8 @@ func _update_aoe_towers(delta: float) -> void:
 						hero["coins"] += GameConstants.NORMAL_REWARD
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
+						# Rastrear achievements de kills
+						_track_enemy_kill(false)
 		else:
 			# mover projétil em direção ao alvo
 			proj.pos += dir * move_dist
@@ -3786,6 +3901,8 @@ func _update_sniper_towers(delta: float) -> void:
 						hero["coins"] += GameConstants.NORMAL_REWARD
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
+						# Rastrear achievements de kills
+						_track_enemy_kill(false)
 				# resetar cooldown apenas se encontrou alvo
 				sniper.cooldown = sniper.fire_rate
 			else:
@@ -3854,6 +3971,8 @@ func _update_shock_towers(delta: float) -> void:
 						var is_boss = target.get("is_boss", false)
 						hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
 						_try_drop_coin(target["pos"])
+						# Rastrear achievements de kills
+						_track_enemy_kill(is_boss)
 				
 				# Criar efeito visual de choque (linhas entre alvos)
 				if chain_targets.size() > 1:
@@ -3983,6 +4102,8 @@ func _update_soldiers(delta: float) -> void:
 				hero["coins"] += 40 if is_boss else 2
 				# chance de dropar moeda
 				_try_drop_coin(target_enemy["pos"])
+				# Rastrear achievements de kills
+				_track_enemy_kill(is_boss)
 			
 			# manter soldado na posição do inimigo
 			s.pos = target_enemy["pos"]
@@ -4129,6 +4250,8 @@ func _save_to_slot(slot_name: String, dialog: Window) -> void:
 	if SaveManager.save_game(self, slot_name):
 		save_status_label.text = "Jogo salvo com sucesso no %s!" % slot_name
 		save_status_label.modulate = Color(0.2, 1.0, 0.2)  # Verde
+		# Achievement: salvar jogo
+		achievement_manager.increment_progress("save_game")
 		save_status_label.visible = true
 		dialog.queue_free()
 		await get_tree().create_timer(2.0).timeout
@@ -4343,6 +4466,7 @@ func _reset_build_and_selection_state() -> void:
 		slow_menu.hide()
 	if boost_menu:
 		boost_menu.hide()
+	_hide_range_indicator()
 
 func _try_drop_coin(pos: Vector2) -> void:
 	# chance aleatória de dropar moeda
@@ -5076,10 +5200,93 @@ func _create_skills_ui() -> void:
 	
 	vbox.add_child(skill4_container)
 
+func _create_range_indicator() -> void:
+	if range_indicator and range_indicator.is_inside_tree():
+		range_indicator.queue_free()
+	range_indicator = Line2D.new()
+	range_indicator.name = "RangeIndicator"
+	range_indicator.width = 2.5
+	range_indicator.default_color = Color(0.3, 0.7, 1.0, 0.65)
+	range_indicator.antialiased = true
+	range_indicator.visible = false
+	range_indicator.z_index = 200
+	add_child(range_indicator)
+
+func _set_range_indicator_points(radius: float) -> void:
+	if range_indicator == null:
+		return
+	var pts := PackedVector2Array()
+	for i in range(RANGE_INDICATOR_SEGMENTS + 1):
+		var angle = TAU * float(i) / float(RANGE_INDICATOR_SEGMENTS)
+		pts.append(Vector2(cos(angle), sin(angle)) * radius)
+	range_indicator.points = pts
+
+func _is_any_upgrade_menu_visible() -> bool:
+	return (tower_menu and tower_menu.is_visible()) or \
+		   (sniper_menu and sniper_menu.is_visible()) or \
+		   (aoe_menu and aoe_menu.is_visible()) or \
+		   (shock_menu and shock_menu.is_visible()) or \
+		   (slow_menu and slow_menu.is_visible()) or \
+		   (boost_menu and boost_menu.is_visible()) or \
+		   (barracks_menu and barracks_menu.is_visible())
+
+func _show_range_indicator(world_pos: Vector2, radius: float, color: Color = Color(0.3, 0.7, 1.0, 0.65)) -> void:
+	if radius <= 0.0:
+		_hide_range_indicator()
+		return
+	# Só mostrar se algum menu de upgrade estiver aberto
+	if not _is_any_upgrade_menu_visible():
+		return
+	if range_indicator == null or not range_indicator.is_inside_tree():
+		_create_range_indicator()
+	range_indicator.position = world_pos
+	range_indicator.default_color = color
+	_set_range_indicator_points(radius)
+	range_indicator.visible = true
+
+func _hide_range_indicator() -> void:
+	if range_indicator:
+		range_indicator.visible = false
+
+func _close_all_upgrade_menus() -> void:
+	# Fechar todos os menus
+	if tower_menu:
+		tower_menu.hide()
+	if sniper_menu:
+		sniper_menu.hide()
+	if aoe_menu:
+		aoe_menu.hide()
+	if shock_menu:
+		shock_menu.hide()
+	if slow_menu:
+		slow_menu.hide()
+	if boost_menu:
+		boost_menu.hide()
+	if barracks_menu:
+		barracks_menu.hide()
+	# Esconder range indicator
+	_hide_range_indicator()
+	# Resetar índices selecionados
+	tower_selected_index = -1
+	sniper_selected_index = -1
+	aoe_selected_index = -1
+	shock_selected_index = -1
+	slow_selected_index = -1
+	boost_selected_index = -1
+	barracks_selected_index = -1
+
+func _on_upgrade_menu_closed() -> void:
+	_hide_range_indicator()
+
 func _on_skill_collect_coins() -> void:
 	# Verificar cooldown
 	if skill_collect_coins_cooldown > 0.0:
 		return
+	
+	# Achievement: usar skill
+	if not skill_used:
+		achievement_manager.increment_progress("collect_skill")
+		skill_used = true
 	
 	# Coletar todas as moedas do mapa
 	var total_collected = 0
@@ -5354,3 +5561,58 @@ func _create_death_animation(pos: Vector2) -> void:
 		"alpha": 1.0
 	}
 	enemy_death_animations.append(death_anim)
+
+# ========== ACHIEVEMENTS TRACKING ==========
+
+func _track_enemy_kill(is_boss: bool) -> void:
+	total_kills += 1
+	
+	# Rastrear achievements de kills
+	achievement_manager.increment_progress("first_kill")
+	achievement_manager.increment_progress("kill_100")
+	achievement_manager.increment_progress("kill_1000")
+	achievement_manager.increment_progress("kill_10000")
+	
+	# Rastrear kills de boss
+	if is_boss:
+		total_boss_kills += 1
+		achievement_manager.increment_progress("boss_kill")
+		achievement_manager.increment_progress("boss_kill_10")
+
+func _track_tower_built(tower_type: String) -> void:
+	towers_built += 1
+	tower_types_built[tower_type] = true
+	
+	# Rastrear achievements de torres
+	achievement_manager.increment_progress("build_10_towers")
+	
+	# Verificar se construiu todos os tipos
+	var all_types = ["tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower", "barracks"]
+	var built_count = 0
+	for type in all_types:
+		if tower_types_built.has(type):
+			built_count += 1
+	achievement_manager.set_progress("build_all_tower_types", built_count)
+
+func _track_coin_spent(amount: int) -> void:
+	total_coins_spent += amount
+	achievement_manager.increment_progress("spend_5000_coins", amount)
+
+func _check_perfect_wave() -> void:
+	# Verificar se a onda foi completada sem perder vida na base
+	if base_hp >= current_wave_base_hp_start:
+		perfect_waves += 1
+		achievement_manager.increment_progress("perfect_wave")
+
+func _apply_perk_effects() -> void:
+	var effects = perk_manager.apply_perk_effects(self)
+	
+	# Aplicar efeitos de perks
+	if effects.has("starting_coins"):
+		hero["coins"] += int(effects["starting_coins"])
+	
+	if effects.has("starting_hp"):
+		base_hp += int(effects["starting_hp"])
+	
+	# Outros efeitos serão aplicados durante o jogo conforme necessário
+	# (coin_drop_chance, coin_value, tower_cost_reduction, etc.)
