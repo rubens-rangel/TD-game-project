@@ -52,13 +52,13 @@ static var ALL_PERKS: Dictionary = {
 	# === ECONOMY ===
 	"coin_drop_chance": {
 		"name": "Sorte do Tesouro",
-		"description": "+5% de chance de inimigos droparem moedas",
+		"description": "+2.5% de chance de inimigos droparem moedas por nível",
 		"category": Category.ECONOMY,
 		"cost": 80,
 		"max_level": 4,
 		"icon": "🍀",
 		"effect": "coin_drop_chance",
-		"effect_value": 0.05
+		"effect_value": 0.025  # 2.5% por nível (máximo 10% com 4 níveis)
 	},
 	"coin_value_boost": {
 		"name": "Moedas Valiosas",

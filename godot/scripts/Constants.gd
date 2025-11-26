@@ -38,10 +38,10 @@ const HEALING_STATION_SIZE_GRID := 3
 const MAX_TOWERS := 8
 const MAX_BARRACKS := 2
 const MAX_MINES := 10
-const MAX_SLOW_TOWERS := 6
+const MAX_SLOW_TOWERS := 1
 const MAX_AOE_TOWERS := 5
 const MAX_SNIPER_TOWERS := 2
-const MAX_BOOST_TOWERS := 4
+const MAX_BOOST_TOWERS := 1
 const MAX_SHOCK_TOWERS := 4
 const MAX_WALLS := 15
 const MAX_HEALING_STATIONS := 2
@@ -61,7 +61,7 @@ const BARRACKS_SPAWN_RATE_COST := 20
 const BARRACKS_PROJECTILE_SPEED_COST := 18
 
 # Sniper tower upgrades
-const SNIPER_DMG_COST := 45
+const SNIPER_DMG_COST := 35
 const SNIPER_RATE_COST := 12
 
 # AOE tower upgrades
@@ -98,12 +98,12 @@ const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
 # Hero
-const HERO_START_COINS := 100
+const HERO_START_COINS := 0
 const HERO_BASE_FIRE_RATE := 0.35
 const HERO_BASE_DAMAGE := 1
 
 # Coin drops
-const COIN_DROP_CHANCE := 0.125  # 12.5% de chance de dropar moeda
+const COIN_DROP_CHANCE := 0.10  # 10% de chance base de dropar moeda
 const COIN_MIN_VALUE := 5
 const COIN_MAX_VALUE := 20
 const COIN_LIFETIME := 10.0  # tempo que a moeda fica no chão antes de desaparecer

@@ -1,5 +1,3 @@
-res://scripts/Constants.gd
-res://scripts/Game.gd
-res://scripts/GridManager.gd
 res://scripts/Menu.gd
-res://scripts/managers/SaveManager.gd
+res://scripts/Game.gd
+res://scripts/managers/AchievementManager.gd

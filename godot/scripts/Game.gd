@@ -29,6 +29,12 @@ var perfect_waves: int = 0
 var current_wave_base_hp_start: int = 0  # HP da base no início da onda
 var first_play: bool = true
 var skill_used: bool = false
+var maxed_towers_count: int = 0  # Contador de torres maximizadas
+var walls_built: int = 0  # Contador de muros construídos
+
+# Efeitos de perks aplicados
+var perk_effects: Dictionary = {}  # armazena efeitos dos perks
+var coin_drop_chance: float = GameConstants.COIN_DROP_CHANCE  # chance de drop com perks aplicados
 
 var grid_offset: Vector2  # offset para centralizar o grid na tela
 
@@ -47,6 +53,9 @@ var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Ve
 var base_hp := 100
 var paused := false
 var game_over := false
+
+# Flag para modo admin (testes/debug) - desabilitar em produção
+var isAdmin: bool = true
 var placing_tower := false
 var placing_barracks := false
 var placing_mine := false
@@ -136,6 +145,10 @@ var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
+
+# Menu de admin (testes/debug)
+var admin_menu: PopupMenu
+var admin_menu_button: Button
 
 # Range indicator
 var range_indicator: Line2D
@@ -386,39 +399,8 @@ func _ready() -> void:
 	lbl_right.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 	lbl_right.add_theme_font_size_override("font_size", 16)
 	
-	# Melhorar botão Kill All
-	var btn_kill_all = tb.get_node("BtnKillAll")
-	btn_kill_all.pressed.connect(func(): enemies.clear())
-	var kill_btn_style_normal = StyleBoxFlat.new()
-	kill_btn_style_normal.bg_color = Color(0.6, 0.2, 0.2)
-	kill_btn_style_normal.border_color = Color(0.8, 0.3, 0.3)
-	kill_btn_style_normal.border_width_left = 1
-	kill_btn_style_normal.border_width_top = 1
-	kill_btn_style_normal.border_width_right = 1
-	kill_btn_style_normal.border_width_bottom = 1
-	btn_kill_all.add_theme_stylebox_override("normal", kill_btn_style_normal)
-	
-	var kill_btn_style_hover = StyleBoxFlat.new()
-	kill_btn_style_hover.bg_color = Color(0.7, 0.3, 0.3)
-	kill_btn_style_hover.border_color = Color(0.9, 0.4, 0.4)
-	kill_btn_style_hover.border_width_left = 1
-	kill_btn_style_hover.border_width_top = 1
-	kill_btn_style_hover.border_width_right = 1
-	kill_btn_style_hover.border_width_bottom = 1
-	btn_kill_all.add_theme_stylebox_override("hover", kill_btn_style_hover)
-	
-	btn_kill_all.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-	btn_kill_all.add_theme_font_size_override("font_size", 12)
-	
-	# botão para pular 10 waves (debug)
-	if not tb.has_node("BtnJumpWave10"):
-		var btn_jump = Button.new()
-		btn_jump.name = "BtnJumpWave10"
-		btn_jump.text = "+10 Waves"
-		btn_jump.position = Vector2(600, 8)
-		btn_jump.size = Vector2(100, 28)
-		tb.add_child(btn_jump)
-		btn_jump.pressed.connect(_jump_10_waves)
+	# Menu de Admin (apenas para testes/debug)
+	_create_admin_menu(tb)
 	
 	# top bar fixa: posição X=0 (alinhada à esquerda) e Y=0 (topo), mesma largura do grid
 	tb.position = Vector2(0.0, 0.0)
@@ -520,6 +502,9 @@ func _ready() -> void:
 	sniper_menu.hide_on_checkable_item_selection = true
 	sniper_menu.add_item("Dano +2", 1)
 	sniper_menu.add_item("Taxa de Tiro +", 2)
+	sniper_menu.add_separator()
+	sniper_menu.add_item("Alvo: Boss", 3)
+	sniper_menu.add_item("Alvo: Mais Próximo ao Centro", 4)
 	sniper_menu.id_pressed.connect(Callable(self, "_on_sniper_menu_pressed"))
 	sniper_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	sniper_menu_container.add_child(sniper_menu)
@@ -1036,6 +1021,13 @@ func _input(event: InputEvent) -> void:
 					achievement_manager.increment_progress("collect_1000_coins", coin.value)
 					achievement_manager.increment_progress("collect_10000_coins", coin.value)
 					achievement_manager.increment_progress("collect_100000_coins", coin.value)
+					achievement_manager.increment_progress("collect_1000000_coins", coin.value)
+					
+					# Verificar se tem 10000 ou 50000 moedas ao mesmo tempo
+					if hero["coins"] >= 10000:
+						achievement_manager.set_progress("hold_10000_coins", 1)
+					if hero["coins"] >= 50000:
+						achievement_manager.set_progress("hold_50000_coins", 1)
 					# Criar efeito visual de coleta
 					_create_coin_collect_effect(collected_coin_pos)
 					# Tocar som de coleta de moeda
@@ -2537,6 +2529,85 @@ func _try_shoot(target: Vector2) -> void:
 	arrows.append(_arrow_new(hero["x"], hero["y"], target))
 	hero["cooldown"] = hero["fire_rate"]
 
+func _create_admin_menu(tb: Panel) -> void:
+	# Criar menu de admin apenas se isAdmin estiver ativado
+	if not isAdmin:
+		# Esconder botão Kill All se existir
+		if tb.has_node("BtnKillAll"):
+			tb.get_node("BtnKillAll").visible = false
+		return
+	
+	# Esconder botão Kill All antigo
+	if tb.has_node("BtnKillAll"):
+		tb.get_node("BtnKillAll").visible = false
+	
+	# Remover botão +10 Waves antigo se existir
+	if tb.has_node("BtnJumpWave10"):
+		tb.get_node("BtnJumpWave10").queue_free()
+	
+	# Criar container para o menu de admin
+	var menu_container = Control.new()
+	menu_container.name = "AdminMenuContainer"
+	menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tb.add_child(menu_container)
+	
+	# Criar PopupMenu para admin
+	admin_menu = PopupMenu.new()
+	admin_menu.name = "AdminMenu"
+	admin_menu.add_item("Kill All", 1)
+	admin_menu.add_item("+10 Waves", 2)
+	admin_menu.add_item("+100 Moedas", 3)
+	admin_menu.id_pressed.connect(_on_admin_menu_pressed)
+	menu_container.add_child(admin_menu)
+	
+	# Criar botão que abre o menu
+	admin_menu_button = Button.new()
+	admin_menu_button.name = "BtnAdmin"
+	admin_menu_button.text = "Admin"
+	admin_menu_button.position = Vector2(600, 8)
+	admin_menu_button.size = Vector2(100, 28)
+	
+	# Estilizar botão admin
+	var admin_btn_style_normal = StyleBoxFlat.new()
+	admin_btn_style_normal.bg_color = Color(0.4, 0.2, 0.6)
+	admin_btn_style_normal.border_color = Color(0.6, 0.3, 0.8)
+	admin_btn_style_normal.border_width_left = 1
+	admin_btn_style_normal.border_width_top = 1
+	admin_btn_style_normal.border_width_right = 1
+	admin_btn_style_normal.border_width_bottom = 1
+	admin_menu_button.add_theme_stylebox_override("normal", admin_btn_style_normal)
+	
+	var admin_btn_style_hover = StyleBoxFlat.new()
+	admin_btn_style_hover.bg_color = Color(0.5, 0.3, 0.7)
+	admin_btn_style_hover.border_color = Color(0.7, 0.4, 0.9)
+	admin_btn_style_hover.border_width_left = 1
+	admin_btn_style_hover.border_width_top = 1
+	admin_btn_style_hover.border_width_right = 1
+	admin_btn_style_hover.border_width_bottom = 1
+	admin_menu_button.add_theme_stylebox_override("hover", admin_btn_style_hover)
+	
+	admin_menu_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	admin_menu_button.add_theme_font_size_override("font_size", 12)
+	
+	admin_menu_button.pressed.connect(_on_admin_button_pressed)
+	tb.add_child(admin_menu_button)
+
+func _on_admin_button_pressed() -> void:
+	# Abrir menu de admin na posição do botão
+	var screen_pos = admin_menu_button.global_position + Vector2(0, admin_menu_button.size.y)
+	admin_menu.position = screen_pos
+	admin_menu.popup()
+
+func _on_admin_menu_pressed(id: int) -> void:
+	match id:
+		1:  # Kill All
+			enemies.clear()
+			print("Admin: Todos os inimigos foram eliminados")
+		2:  # +10 Waves
+			_jump_10_waves()
+		3:  # +100 Moedas
+			_add_100_coins()
+
 func _jump_10_waves() -> void:
 	# Pular 10 waves a partir da wave atual
 	var current_wave = wave_manager.wave
@@ -2545,6 +2616,12 @@ func _jump_10_waves() -> void:
 	choosing_upgrade = false
 	benefit_applied = false
 	$CanvasLayer/UpgradeOverlay.visible = false
+	print("Admin: Pulou 10 waves (agora na wave %d)" % wave_manager.wave)
+
+func _add_100_coins() -> void:
+	# Adicionar 100 moedas ao jogador
+	hero["coins"] += 100
+	print("Admin: +100 moedas adicionadas (total: %d)" % hero["coins"])
 
 func _on_wave_started(wave_number: int, is_boss_wave: bool):
 	if ((wave_number + 1) % 5) == 0:
@@ -2558,6 +2635,8 @@ func _on_wave_started(wave_number: int, is_boss_wave: bool):
 	achievement_manager.set_progress("wave_25", wave_number)
 	achievement_manager.set_progress("wave_50", wave_number)
 	achievement_manager.set_progress("wave_100", wave_number)
+	achievement_manager.set_progress("wave_200", wave_number)
+	achievement_manager.set_progress("wave_500", wave_number)
 
 func _on_buy_tower() -> void:
 	if placing_tower:
@@ -2664,6 +2743,9 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	sniper_menu.set_item_text(0, "Dano +2 (%d)" % GameConstants.SNIPER_DMG_COST)
 	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [GameConstants.SNIPER_RATE_COST, s.fire_rate])
+	var target_mode = s.get("target_mode", 0)
+	sniper_menu.set_item_text(3, "Alvo: Boss" + (" ✓" if target_mode == 0 else ""))
+	sniper_menu.set_item_text(4, "Alvo: Mais Próximo ao Centro" + (" ✓" if target_mode == 1 else ""))
 	sniper_menu.set_item_disabled(0, not can_dmg)
 	sniper_menu.set_item_disabled(1, not can_rate)
 	sniper_menu.position = screen_pos
@@ -2684,6 +2766,10 @@ func _on_sniper_menu_pressed(id: int) -> void:
 				s.fire_rate = max(1.0, s.fire_rate - 0.5)
 				s.levels["RATE"] += 1
 				hero["coins"] -= GameConstants.SNIPER_RATE_COST
+		3:  # Alvo: Boss
+			s["target_mode"] = 0
+		4:  # Alvo: Mais Próximo ao Centro
+			s["target_mode"] = 1
 	sniper_towers[sniper_selected_index] = s
 	_hide_range_indicator()
 	sniper_selected_index = -1
@@ -3194,6 +3280,7 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		"cooldown": 0.0,
 		"fire_rate": 5.0,  # cooldown aumentado de 3.0 para 5.0 segundos
 		"pierce": 1,
+		"target_mode": 0,  # 0 = Boss, 1 = Mais próximo ao centro
 		"levels": { "DMG": 0, "RATE": 0 }
 	})
 	hero["coins"] -= GameConstants.SNIPER_TOWER_COST
@@ -3353,6 +3440,7 @@ func _try_place_wall(pos: Vector2) -> void:
 		"max_hp": 20.0
 	})
 	hero["coins"] -= GameConstants.WALL_COST
+	_track_wall_built()
 	placing_wall = false
 
 func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
@@ -3850,16 +3938,47 @@ func _update_sniper_towers(delta: float) -> void:
 	for sniper in sniper_towers:
 		sniper.cooldown = max(0.0, sniper.cooldown - delta)
 		if sniper.cooldown <= 0.0:
-			# encontrar inimigo mais distante no alcance
+			var target_mode = sniper.get("target_mode", 0)  # 0 = Boss, 1 = Mais próximo ao centro
 			var target_enemy = null
 			var target_dist = -1.0
-			for e in enemies:
-				if e["hp"] <= 0 or e["reached"]:
-					continue
-				var dist = sniper.pos.distance_to(e["pos"])
-				if dist <= sniper.range and dist > target_dist:
-					target_enemy = e
-					target_dist = dist
+			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+			
+			if target_mode == 0:
+				# Modo Boss: procurar boss primeiro, se não encontrar, usar comportamento padrão (mais distante)
+				var boss_found = false
+				for e in enemies:
+					if e["hp"] <= 0 or e["reached"]:
+						continue
+					if e.get("is_boss", false):
+						var dist = sniper.pos.distance_to(e["pos"])
+						if dist <= sniper.range:
+							target_enemy = e
+							target_dist = dist
+							boss_found = true
+							break
+				
+				# Se não encontrou boss, procurar inimigo mais distante (comportamento padrão)
+				if not boss_found:
+					for e in enemies:
+						if e["hp"] <= 0 or e["reached"]:
+							continue
+						var dist = sniper.pos.distance_to(e["pos"])
+						if dist <= sniper.range and dist > target_dist:
+							target_enemy = e
+							target_dist = dist
+			else:
+				# Modo Mais Próximo ao Centro: procurar inimigo mais próximo ao centro da base
+				var closest_to_center = INF
+				for e in enemies:
+					if e["hp"] <= 0 or e["reached"]:
+						continue
+					var dist_to_sniper = sniper.pos.distance_to(e["pos"])
+					if dist_to_sniper <= sniper.range:
+						var dist_to_center = e["pos"].distance_to(base_center)
+						if dist_to_center < closest_to_center:
+							target_enemy = e
+							closest_to_center = dist_to_center
+							target_dist = dist_to_sniper
 			if target_enemy != null:
 				# criar efeito visual de linha de tiro
 				var dir = (target_enemy["pos"] - sniper.pos).normalized()
@@ -4469,8 +4588,8 @@ func _reset_build_and_selection_state() -> void:
 	_hide_range_indicator()
 
 func _try_drop_coin(pos: Vector2) -> void:
-	# chance aleatória de dropar moeda
-	if randf() < GameConstants.COIN_DROP_CHANCE:
+	# chance aleatória de dropar moeda (base + perks)
+	if randf() < coin_drop_chance:
 		var coin_value = randi_range(GameConstants.COIN_MIN_VALUE, GameConstants.COIN_MAX_VALUE)
 		dropped_coins.append({
 			"pos": pos,
@@ -4644,7 +4763,7 @@ func _create_tower_shop_ui() -> void:
 	# Configurar posição e tamanho do painel (lado direito da tela)
 	var screen_width = get_viewport().get_visible_rect().size.x
 	var screen_height = get_viewport().get_visible_rect().size.y
-	var panel_width = 280.0  # Aumentado para garantir espaço para o botão completo
+	var panel_width = 350.0  # Aumentado para garantir espaço para o botão completo
 	# Calcular altura necessária: 10 torres * 80px + título 45px + espaçamento 20px = 865px mínimo
 	var total_items_height = 10 * 80 + 20  # 10 itens de 80px + espaçamento
 	var required_height = total_items_height + 45  # +45 para o título
@@ -4845,7 +4964,10 @@ func _create_skills_ui() -> void:
 	# Calcular altura necessária: pode ocupar até o final da tela
 	var panel_height = screen_height - 44.0  # Altura total disponível (tela - top bar)
 	# Posicionar no lado direito, à esquerda do painel de torres
-	var tower_panel_width = 280.0
+	# Pegar a largura atual do menu de torres dinamicamente
+	var tower_panel_width = 350.0  # Deve corresponder à largura do tower_shop_panel (linha 4651)
+	if tower_shop_panel != null:
+		tower_panel_width = tower_shop_panel.size.x
 	# Garantir que não sobreponha: posição = largura_tela - largura_torre - largura_skills - margem
 	var margin = 5.0  # Margem entre os painéis
 	skills_panel.position = Vector2(screen_width - tower_panel_width - panel_width - margin, 44.0)
@@ -5572,12 +5694,15 @@ func _track_enemy_kill(is_boss: bool) -> void:
 	achievement_manager.increment_progress("kill_100")
 	achievement_manager.increment_progress("kill_1000")
 	achievement_manager.increment_progress("kill_10000")
+	achievement_manager.increment_progress("kill_50000")
 	
 	# Rastrear kills de boss
 	if is_boss:
 		total_boss_kills += 1
 		achievement_manager.increment_progress("boss_kill")
 		achievement_manager.increment_progress("boss_kill_10")
+		achievement_manager.increment_progress("boss_kill_50")
+		achievement_manager.increment_progress("boss_kill_100")
 
 func _track_tower_built(tower_type: String) -> void:
 	towers_built += 1
@@ -5585,6 +5710,8 @@ func _track_tower_built(tower_type: String) -> void:
 	
 	# Rastrear achievements de torres
 	achievement_manager.increment_progress("build_10_towers")
+	achievement_manager.increment_progress("build_50_towers")
+	achievement_manager.increment_progress("build_100_towers")
 	
 	# Verificar se construiu todos os tipos
 	var all_types = ["tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower", "barracks"]
@@ -5593,19 +5720,37 @@ func _track_tower_built(tower_type: String) -> void:
 		if tower_types_built.has(type):
 			built_count += 1
 	achievement_manager.set_progress("build_all_tower_types", built_count)
+	
+	# Verificar se construiu todos os tipos de estruturas em uma partida
+	if built_count >= 7:
+		achievement_manager.set_progress("all_tower_types_one_game", 1)
 
 func _track_coin_spent(amount: int) -> void:
 	total_coins_spent += amount
 	achievement_manager.increment_progress("spend_5000_coins", amount)
+	achievement_manager.increment_progress("spend_100000_coins", amount)
+
+func _track_wall_built() -> void:
+	walls_built += 1
+	achievement_manager.set_progress("build_5_walls", walls_built)
+	achievement_manager.set_progress("build_50_walls", walls_built)
 
 func _check_perfect_wave() -> void:
 	# Verificar se a onda foi completada sem perder vida na base
 	if base_hp >= current_wave_base_hp_start:
 		perfect_waves += 1
 		achievement_manager.increment_progress("perfect_wave")
+		achievement_manager.set_progress("perfect_wave_10", perfect_waves)
+		achievement_manager.set_progress("perfect_wave_50", perfect_waves)
+		achievement_manager.set_progress("perfect_wave_100", perfect_waves)
+		
+		# Verificar se sobreviveu 100 waves sem dano
+		if perfect_waves >= 100:
+			achievement_manager.set_progress("survive_100_waves_no_damage", 100)
 
 func _apply_perk_effects() -> void:
 	var effects = perk_manager.apply_perk_effects(self)
+	perk_effects = effects
 	
 	# Aplicar efeitos de perks
 	if effects.has("starting_coins"):
@@ -5614,5 +5759,12 @@ func _apply_perk_effects() -> void:
 	if effects.has("starting_hp"):
 		base_hp += int(effects["starting_hp"])
 	
+	# Aplicar chance de drop de moeda (base 10% + perks)
+	coin_drop_chance = GameConstants.COIN_DROP_CHANCE
+	if effects.has("coin_drop_chance"):
+		coin_drop_chance += effects["coin_drop_chance"]
+		# Limitar a 100% (embora não deva chegar lá)
+		coin_drop_chance = min(coin_drop_chance, 1.0)
+	
 	# Outros efeitos serão aplicados durante o jogo conforme necessário
-	# (coin_drop_chance, coin_value, tower_cost_reduction, etc.)
+	# (coin_value, tower_cost_reduction, etc.)

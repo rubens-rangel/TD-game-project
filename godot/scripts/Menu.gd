@@ -43,8 +43,17 @@ func _ready() -> void:
 	var btn_load = get_node("Panel/VBoxContainer/BtnLoad")
 	var btn_exit = get_node("Panel/VBoxContainer/BtnExit")
 	
+	# Garantir que todos os botões tenham o mesmo tamanho
+	btn_play.custom_minimum_size = Vector2(200, 40)
+	btn_load.custom_minimum_size = Vector2(200, 40)
+	btn_exit.custom_minimum_size = Vector2(200, 40)
+	btn_play.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_load.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_exit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	# Estilo azul marinho
 	var btn_style = StyleBoxFlat.new()
-	btn_style.bg_color = Color(0.3, 0.5, 0.7, 1.0)
+	btn_style.bg_color = Color(0.1, 0.2, 0.4, 1.0)  # Azul marinho
 	btn_style.corner_radius_top_left = 5
 	btn_style.corner_radius_top_right = 5
 	btn_style.corner_radius_bottom_left = 5
@@ -53,27 +62,28 @@ func _ready() -> void:
 	btn_style.border_width_top = 1
 	btn_style.border_width_right = 1
 	btn_style.border_width_bottom = 1
-	btn_style.border_color = Color(0.5, 0.7, 0.9, 1.0)
+	btn_style.border_color = Color(0.2, 0.3, 0.5, 1.0)
 	
 	btn_play.add_theme_stylebox_override("normal", btn_style)
 	btn_load.add_theme_stylebox_override("normal", btn_style)
 	btn_exit.add_theme_stylebox_override("normal", btn_style)
 	
 	var btn_hover_style = btn_style.duplicate()
-	btn_hover_style.bg_color = Color(0.4, 0.6, 0.8, 1.0)
+	btn_hover_style.bg_color = Color(0.15, 0.3, 0.5, 1.0)  # Azul marinho mais claro no hover
 	btn_play.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_load.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_exit.add_theme_stylebox_override("hover", btn_hover_style)
 	
 	var btn_pressed_style = btn_style.duplicate()
-	btn_pressed_style.bg_color = Color(0.2, 0.4, 0.6, 1.0)
+	btn_pressed_style.bg_color = Color(0.05, 0.15, 0.3, 1.0)  # Azul marinho mais escuro no pressed
 	btn_play.add_theme_stylebox_override("pressed", btn_pressed_style)
 	btn_load.add_theme_stylebox_override("pressed", btn_pressed_style)
 	btn_exit.add_theme_stylebox_override("pressed", btn_pressed_style)
 	
-	get_node("Panel/VBoxContainer/BtnPlay").pressed.connect(_on_play)
-	get_node("Panel/VBoxContainer/BtnLoad").pressed.connect(_on_load)
-	get_node("Panel/VBoxContainer/BtnExit").pressed.connect(_on_exit)
+	# Conectar sinais
+	btn_play.pressed.connect(_on_play)
+	btn_load.pressed.connect(_on_load)
+	btn_exit.pressed.connect(_on_exit)
 	
 	# Adicionar botão de Achievements
 	var btn_achievements = Button.new()
@@ -82,7 +92,7 @@ func _ready() -> void:
 	btn_achievements.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_achievements.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	btn_achievements.pressed.connect(_on_achievements)
-	get_node("Panel/VBoxContainer").add_child(btn_achievements)
+	vbox.add_child(btn_achievements)
 	
 	# Adicionar botão de Perks
 	var btn_perks = Button.new()
@@ -91,7 +101,7 @@ func _ready() -> void:
 	btn_perks.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_perks.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	btn_perks.pressed.connect(_on_perks)
-	get_node("Panel/VBoxContainer").add_child(btn_perks)
+	vbox.add_child(btn_perks)
 	
 	# Aplicar estilo aos novos botões
 	btn_achievements.add_theme_stylebox_override("normal", btn_style)
@@ -100,6 +110,9 @@ func _ready() -> void:
 	btn_perks.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_achievements.add_theme_stylebox_override("pressed", btn_pressed_style)
 	btn_perks.add_theme_stylebox_override("pressed", btn_pressed_style)
+	
+	# Mover o botão de sair para o final
+	vbox.move_child(btn_exit, vbox.get_child_count() - 1)
 	
 	# Tentar carregar imagem de fundo, se existir
 	var bg_image = get_node_or_null("BGImage")
@@ -575,7 +588,7 @@ func _show_perks_dialog() -> void:
 	
 	# Barra de pontos disponíveis - melhorada
 	var points_panel = Panel.new()
-	points_panel.custom_minimum_size = Vector2(0, 60)
+	points_panel.custom_minimum_size = Vector2(0, 75)
 	
 	# Estilo do painel de pontos
 	var points_style = StyleBoxFlat.new()
@@ -589,7 +602,14 @@ func _show_perks_dialog() -> void:
 	points_style.border_width_right = 2
 	points_style.border_width_bottom = 2
 	points_style.border_color = Color(0.4, 0.6, 0.9, 1.0)
+	points_style.content_margin_left = 12
+	points_style.content_margin_top = 10
+	points_style.content_margin_right = 12
+	points_style.content_margin_bottom = 10
 	points_panel.add_theme_stylebox_override("panel", points_style)
+	
+	var points_vbox = VBoxContainer.new()
+	points_vbox.add_theme_constant_override("separation", 5)
 	
 	var points_container = HBoxContainer.new()
 	points_container.add_theme_constant_override("separation", 10)
@@ -614,18 +634,25 @@ func _show_perks_dialog() -> void:
 	points_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	points_container.add_child(points_label)
 	
-	# Descrição
+	points_vbox.add_child(points_container)
+	
+	# Descrição - em linha separada para evitar quebra vertical
 	var points_desc = Label.new()
 	points_desc.text = "Use pontos de conquistas para desbloquear melhorias permanentes"
-	points_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	points_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	points_desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	points_desc.add_theme_font_size_override("font_size", 11)
 	points_desc.modulate = Color(0.7, 0.7, 0.7)
 	points_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	points_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	points_container.add_child(points_desc)
+	points_vbox.add_child(points_desc)
 	
-	points_panel.add_child(points_container)
+	points_panel.add_child(points_vbox)
+	
+	# Ajustar layout do VBoxContainer
+	await get_tree().process_frame
+	points_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	points_vbox.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
 	vbox.add_child(points_panel)
 	
 	# Tabs para categorias

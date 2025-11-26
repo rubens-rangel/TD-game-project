@@ -66,6 +66,46 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 100,
 		"icon": "🗡️"
 	},
+	"boss_kill_50": {
+		"name": "Destruidor de Titãs",
+		"description": "Mate 50 bosses",
+		"category": Category.COMBAT,
+		"max_progress": 50,
+		"reward_points": 300,
+		"icon": "⚔️"
+	},
+	"boss_kill_100": {
+		"name": "Aniquilador de Deuses",
+		"description": "Mate 100 bosses",
+		"category": Category.COMBAT,
+		"max_progress": 100,
+		"reward_points": 500,
+		"icon": "🔱"
+	},
+	"kill_50000": {
+		"name": "Máquina de Guerra",
+		"description": "Mate 50000 inimigos",
+		"category": Category.COMBAT,
+		"max_progress": 50000,
+		"reward_points": 500,
+		"icon": "⚙️"
+	},
+	"kill_5_bosses_wave": {
+		"name": "Caos Total",
+		"description": "Mate 5 bosses em uma única wave",
+		"category": Category.COMBAT,
+		"max_progress": 1,
+		"reward_points": 150,
+		"icon": "💥"
+	},
+	"kill_1000_single_wave": {
+		"name": "Genocídio",
+		"description": "Mate 1000 inimigos em uma única wave",
+		"category": Category.COMBAT,
+		"max_progress": 1,
+		"reward_points": 200,
+		"icon": "☠️"
+	},
 	
 	# === ECONOMY ===
 	"collect_1000_coins": {
@@ -100,6 +140,38 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 25,
 		"icon": "💳"
 	},
+	"collect_1000000_coins": {
+		"name": "Bilionário",
+		"description": "Colete 1000000 moedas",
+		"category": Category.ECONOMY,
+		"max_progress": 1000000,
+		"reward_points": 500,
+		"icon": "💵"
+	},
+	"spend_100000_coins": {
+		"name": "Magnata Investidor",
+		"description": "Gaste 100000 moedas em upgrades",
+		"category": Category.ECONOMY,
+		"max_progress": 100000,
+		"reward_points": 300,
+		"icon": "💸"
+	},
+	"hold_10000_coins": {
+		"name": "Tesouro",
+		"description": "Tenha 10000 moedas ao mesmo tempo",
+		"category": Category.ECONOMY,
+		"max_progress": 1,
+		"reward_points": 100,
+		"icon": "🏦"
+	},
+	"hold_50000_coins": {
+		"name": "Banco Central",
+		"description": "Tenha 50000 moedas ao mesmo tempo",
+		"category": Category.ECONOMY,
+		"max_progress": 1,
+		"reward_points": 250,
+		"icon": "🏛️"
+	},
 	
 	# === DEFENSE ===
 	"build_10_towers": {
@@ -133,6 +205,46 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"max_progress": 5,
 		"reward_points": 15,
 		"icon": "🧱"
+	},
+	"build_50_towers": {
+		"name": "Engenheiro Mestre",
+		"description": "Construa 50 torres",
+		"category": Category.DEFENSE,
+		"max_progress": 50,
+		"reward_points": 100,
+		"icon": "🏛️"
+	},
+	"build_100_towers": {
+		"name": "Construtor Épico",
+		"description": "Construa 100 torres",
+		"category": Category.DEFENSE,
+		"max_progress": 100,
+		"reward_points": 250,
+		"icon": "🏗️"
+	},
+	"build_50_walls": {
+		"name": "Muralha da China",
+		"description": "Construa 50 muros",
+		"category": Category.DEFENSE,
+		"max_progress": 50,
+		"reward_points": 150,
+		"icon": "🛡️"
+	},
+	"upgrade_10_towers_max": {
+		"name": "Mestre Perfeccionista",
+		"description": "Maximize 10 torres diferentes",
+		"category": Category.DEFENSE,
+		"max_progress": 10,
+		"reward_points": 200,
+		"icon": "💎"
+	},
+	"build_all_structures": {
+		"name": "Colecionador Completo",
+		"description": "Construa todos os tipos de estruturas (torres, muros, quartéis, minas, etc)",
+		"category": Category.DEFENSE,
+		"max_progress": 1,
+		"reward_points": 100,
+		"icon": "🎯"
 	},
 	
 	# === PROGRESSION ===
@@ -176,6 +288,54 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 20,
 		"icon": "✨"
 	},
+	"wave_200": {
+		"name": "Deus da Guerra",
+		"description": "Alcance a onda 200",
+		"category": Category.PROGRESSION,
+		"max_progress": 200,
+		"reward_points": 500,
+		"icon": "⚡"
+	},
+	"wave_500": {
+		"name": "Transcendente",
+		"description": "Alcance a onda 500",
+		"category": Category.PROGRESSION,
+		"max_progress": 500,
+		"reward_points": 1000,
+		"icon": "🌌"
+	},
+	"perfect_wave_10": {
+		"name": "Mestre da Perfeição",
+		"description": "Complete 10 waves perfeitas",
+		"category": Category.PROGRESSION,
+		"max_progress": 10,
+		"reward_points": 150,
+		"icon": "⭐"
+	},
+	"perfect_wave_50": {
+		"name": "Perfeição Absoluta",
+		"description": "Complete 50 waves perfeitas",
+		"category": Category.PROGRESSION,
+		"max_progress": 50,
+		"reward_points": 400,
+		"icon": "💫"
+	},
+	"perfect_wave_100": {
+		"name": "Imaculado",
+		"description": "Complete 100 waves perfeitas",
+		"category": Category.PROGRESSION,
+		"max_progress": 100,
+		"reward_points": 600,
+		"icon": "✨"
+	},
+	"survive_100_waves_no_damage": {
+		"name": "Invencível",
+		"description": "Sobreviva 100 waves sem perder vida na base",
+		"category": Category.PROGRESSION,
+		"max_progress": 100,
+		"reward_points": 500,
+		"icon": "🛡️"
+	},
 	
 	# === SPECIAL ===
 	"first_play": {
@@ -209,6 +369,78 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"max_progress": 1,
 		"reward_points": 500,
 		"icon": "🏅"
+	},
+	"no_towers_challenge": {
+		"name": "Desafio do Herói",
+		"description": "Complete uma partida sem construir torres (apenas hero)",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 300,
+		"icon": "🦸"
+	},
+	"no_damage_run": {
+		"name": "Flawless Victory",
+		"description": "Complete uma partida sem perder vida na base",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 400,
+		"icon": "💎"
+	},
+	"all_tower_types_one_game": {
+		"name": "Arsenal Completo",
+		"description": "Construa todos os tipos de torres em uma única partida",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 150,
+		"icon": "🎯"
+	},
+	"skill_only_wave": {
+		"name": "Mestre das Habilidades",
+		"description": "Complete uma wave usando apenas skills (sem torres)",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 200,
+		"icon": "🎮"
+	},
+	"speedrun_wave_25": {
+		"name": "Velocista",
+		"description": "Alcance a onda 25 em menos de 30 minutos",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 250,
+		"icon": "⚡"
+	},
+	"minimalist": {
+		"name": "Minimalista",
+		"description": "Complete a onda 20 usando no máximo 5 torres",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 300,
+		"icon": "🎨"
+	},
+	"pacifist": {
+		"name": "Pacifista",
+		"description": "Complete 10 waves sem matar nenhum inimigo (apenas defesa)",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 350,
+		"icon": "🕊️"
+	},
+	"tower_master": {
+		"name": "Mestre das Torres",
+		"description": "Tenha 20 torres maximizadas ao mesmo tempo",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 400,
+		"icon": "🏰"
+	},
+	"economy_master": {
+		"name": "Mestre da Economia",
+		"description": "Ganhe 50000 moedas em uma única partida",
+		"category": Category.SPECIAL,
+		"max_progress": 1,
+		"reward_points": 300,
+		"icon": "💼"
 	}
 }
 
@@ -403,4 +635,5 @@ static func get_instance() -> AchievementManager:
 	if instance == null:
 		instance = AchievementManager.new()
 	return instance
+
 
