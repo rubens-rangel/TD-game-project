@@ -2,10 +2,12 @@ extends RefCounted
 class_name GridManager
 
 const GameConstants = preload("res://scripts/Constants.gd")
+const HERO_AREA_SIZE := 3
 
 var grid: Array = []
 var base_grid: Array = []
 var center: Vector2i
+var hero_area_rect: Rect2i = Rect2i()
 
 func _init():
 	center = Vector2i(int(GameConstants.GRID_COLS / 2), int(GameConstants.GRID_ROWS / 2))
@@ -18,6 +20,21 @@ func _init_base_grid():
 		base_grid.append([])
 		for gx in range(GameConstants.BASE_GRID_SIZE):
 			base_grid[gy].append(0)
+	_mark_hero_area()
+
+func _mark_hero_area():
+	var hero_center = Vector2i(
+		int(GameConstants.BASE_GRID_SIZE / 2),
+		int(GameConstants.BASE_GRID_SIZE / 2)
+	)
+	var half: int = HERO_AREA_SIZE / 2
+	var start = Vector2i(hero_center.x - half, hero_center.y - half)
+	var size = Vector2i(HERO_AREA_SIZE, HERO_AREA_SIZE)
+	hero_area_rect = Rect2i(start, size)
+	for y in range(hero_area_rect.position.y, hero_area_rect.position.y + hero_area_rect.size.y):
+		for x in range(hero_area_rect.position.x, hero_area_rect.position.x + hero_area_rect.size.x):
+			if y >= 0 and y < GameConstants.BASE_GRID_SIZE and x >= 0 and x < GameConstants.BASE_GRID_SIZE:
+				base_grid[y][x] = -1
 
 func _generate_maze() -> Array:
 	var g := []
