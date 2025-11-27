@@ -10,6 +10,8 @@ const SaveManager = preload("res://scripts/managers/SaveManager.gd")
 const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
 const PerkManager = preload("res://scripts/managers/PerkManager.gd")
 
+const HERO_ARROW_SPEED := 260.0
+
 # Managers
 var grid_manager: GridManager
 var pathfinder: Pathfinder
@@ -203,7 +205,6 @@ var hero := {
 
 const HERO_HOME_MAX_LEVEL := 3
 var hero_home_level: int = 1
-var hero_home_coin_bonus: float = 0.0
 var hero_home_panel_data: Dictionary = {}
 var hero_home_upgrade_costs := {
 	2: 1200,
@@ -227,31 +228,23 @@ func _get_hero_home_benefits_text(level: int) -> String:
 		1:
 			return "Nível inicial. Proteção básica da tenda."
 		2:
-			return "• Dano do herói +1\n• Alcance +100\n• Vida da base +40\n• +5% chance de moedas"
+			return "• Dano do herói +15%\n• Alcance +100\n• Vida da base +40"
 		3:
-			return "• Dano do herói +2\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60\n• +5% chance de moedas"
+			return "• Dano do herói +15%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
 		_:
 			return "Nível máximo alcançado"
-
-func _apply_hero_home_coin_bonus_from_scratch() -> void:
-	coin_drop_chance += hero_home_coin_bonus
-	coin_drop_chance = clamp(coin_drop_chance, 0.0, 1.0)
 
 func _apply_hero_home_upgrade_effects(level: int) -> void:
 	match level:
 		2:
-			hero["damage"] += 1
+			hero["damage"] *= 1.15
 			hero["range"] += 100
 			base_hp += 40
-			hero_home_coin_bonus += 0.05
-			coin_drop_chance = min(coin_drop_chance + 0.05, 1.0)
 		3:
-			hero["damage"] += 2
+			hero["damage"] *= 1.15
 			hero["pierce"] += 1
 			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
 			base_hp += 60
-			hero_home_coin_bonus += 0.05
-			coin_drop_chance = min(coin_drop_chance + 0.05, 1.0)
 
 
 func _try_load(path: String) -> Texture2D:
@@ -957,7 +950,11 @@ func _update_tower_shop_ui() -> void:
 	
 	for tower_button_data in tower_buttons:
 		var tower_info = tower_button_data.tower_info
-		var current_count = tower_button_data.tower_info.array.size()
+		var array_name: String = tower_info.get("array_name", "")
+		var array_ref: Array = _get_structure_array(array_name)
+		if array_ref.is_empty() and tower_info.has("array"):
+			array_ref = tower_info.array
+		var current_count = array_ref.size()
 		var can_afford = hero["coins"] >= tower_info.cost
 		var can_buy = can_afford and current_count < tower_info.max
 		
@@ -1022,6 +1019,31 @@ func _update_hero_home_panel_ui() -> void:
 		button.disabled = hero["coins"] < cost
 
 	queue_redraw()
+
+func _get_structure_array(array_name: String) -> Array:
+	match array_name:
+		"towers":
+			return towers
+		"barracks":
+			return barracks
+		"mines":
+			return mines
+		"slow_towers":
+			return slow_towers
+		"aoe_towers":
+			return aoe_towers
+		"sniper_towers":
+			return sniper_towers
+		"boost_towers":
+			return boost_towers
+		"shock_towers":
+			return shock_towers
+		"walls":
+			return walls
+		"healing_stations":
+			return healing_stations
+		_:
+			return []
 
 func _input(event: InputEvent) -> void:
 	# Pausar/despausar com ESC
@@ -2335,7 +2357,7 @@ func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
 	if skill_damage_boost_active:
 		hero_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
 	
-	var a = { "pos": Vector2(x,y), "vel": dir/d * 260.0, "life": 2.0, "radius": 2, "damage": hero_damage, "pierce": hero["pierce"] }
+	var a = { "pos": Vector2(x,y), "vel": dir/d * HERO_ARROW_SPEED, "life": 2.0, "radius": 2, "damage": hero_damage, "pierce": hero["pierce"] }
 	return a
 
 func _arrow_update(a: Dictionary, dt: float) -> void:
@@ -2599,34 +2621,41 @@ func _try_shoot(target: Vector2) -> void:
 	hero["cooldown"] = hero["fire_rate"]
 
 func _calculate_leading_target(enemy: Dictionary, hero_pos: Vector2) -> Vector2:
-	# Calcular posição futura do inimigo para melhorar precisão do tiro
-	var enemy_pos = enemy["pos"]
-	var distance = hero_pos.distance_to(enemy_pos)
+	var enemy_pos: Vector2 = enemy["pos"]
+	var enemy_velocity = _get_enemy_velocity(enemy)
+	var predicted = enemy_pos
+	for i in range(2):
+		var to_pred = predicted - hero_pos
+		var travel_time = to_pred.length() / HERO_ARROW_SPEED
+		predicted = enemy_pos + enemy_velocity * travel_time
 	
-	# Velocidade da flecha
-	var arrow_speed = 260.0
+	if randf() < 0.30:
+		var miss_dir = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
+		if miss_dir.length() > 0.001:
+			miss_dir = miss_dir.normalized()
+			var miss_distance = GameConstants.TILE_SIZE * randf_range(0.6, 1.1)
+			predicted += miss_dir * miss_distance
 	
-	# Tempo que a flecha leva para chegar na posição atual do inimigo
-	var time_to_reach = distance / arrow_speed
-	
-	# Calcular direção do movimento do inimigo
-	var enemy_velocity = Vector2.ZERO
-	if enemy.has("path") and enemy.has("path_index") and enemy["path_index"] < enemy["path"].size():
-		var target_point = enemy["path"][enemy["path_index"]]
-		var dir_to_target = (target_point - enemy_pos)
-		if dir_to_target.length() > 0.1:
-			enemy_velocity = dir_to_target.normalized() * enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
-	else:
-		# Se não tem path, calcular direção para a base
-		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
-		var dir_to_base = (base_center - enemy_pos)
-		if dir_to_base.length() > 0.1:
-			enemy_velocity = dir_to_base.normalized() * enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
-	
-	# Calcular posição futura do inimigo
-	var predicted_pos = enemy_pos + enemy_velocity * time_to_reach * 0.8  # 0.8 é um fator de ajuste para não exagerar
-	
-	return predicted_pos
+	return predicted
+
+func _get_enemy_velocity(enemy: Dictionary) -> Vector2:
+	var speed = enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
+	if speed <= 0.0:
+		return Vector2.ZERO
+	if enemy.has("path") and enemy.has("path_index"):
+		var idx: int = enemy["path_index"]
+		var path: Array = enemy["path"]
+		if idx < path.size():
+			var target_point = path[idx]
+			if target_point is Vector2:
+				var dir = (target_point - enemy["pos"])
+				if dir.length() > 0.01:
+					return dir.normalized() * speed
+	var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+	var to_base = base_center - enemy["pos"]
+	if to_base.length() > 0.01:
+		return to_base.normalized() * speed
+	return Vector2.ZERO
 
 func _create_admin_menu(tb: Panel) -> void:
 	# Criar menu de admin apenas se isAdmin estiver ativado
@@ -4880,13 +4909,9 @@ func _create_tower_shop_ui() -> void:
 	# Configurar posição e tamanho do painel (lado direito da tela)
 	var screen_width = get_viewport().get_visible_rect().size.x
 	var screen_height = get_viewport().get_visible_rect().size.y
-	var panel_width = 350.0  # Aumentado para garantir espaço para o botão completo
-	# Calcular altura necessária: card do herói + 10 torres * 80px + título 45px + espaçamento
+	var panel_width = 380.0  # largura ligeiramente maior para acomodar o card do herói
 	var hero_card_height = 100
-	var total_items_height = hero_card_height + 10 * 80 + 20
-	var required_height = total_items_height + 45  # +45 para o título
-	var panel_height = max(screen_height - 44.0, required_height)  # altura mínima para caber tudo
-	# Posicionar no lado direito (skills ficará à esquerda deste painel)
+	var panel_height = screen_height - 44.0
 	tower_shop_panel.position = Vector2(screen_width - panel_width, 44.0)
 	tower_shop_panel.size = Vector2(panel_width, panel_height)
 	
@@ -4912,28 +4937,35 @@ func _create_tower_shop_ui() -> void:
 	tower_shop_panel.add_child(title_label)
 	
 	# Container para botões de torres (sem scroll - tamanho fixo para mostrar tudo)
+	var scroll = ScrollContainer.new()
+	scroll.name = "TowerScroll"
+	scroll.position = Vector2(10, 45)
+	scroll.size = Vector2(panel_width - 20, panel_height - 45)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tower_shop_panel.add_child(scroll)
+	
 	var vbox = VBoxContainer.new()
 	vbox.name = "TowerButtonsContainer"
-	vbox.position = Vector2(10, 45)
-	vbox.size = Vector2(panel_width - 20, panel_height - 45)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 5)
-	tower_shop_panel.add_child(vbox)
+	scroll.add_child(vbox)
 	
 	# Card da base/Herói
 	_create_hero_home_card(vbox, hero_card_height)
 	
 	# Lista de torres com informações
 	var tower_data = [
-		{"name": "Torre Básica", "cost": GameConstants.TOWER_COST, "icon": tex_tower, "func": "_on_buy_tower", "max": GameConstants.MAX_TOWERS, "array": towers},
-		{"name": "Quartel", "cost": GameConstants.BARRACKS_COST, "icon": tex_barracks, "func": "_on_buy_barracks", "max": GameConstants.MAX_BARRACKS, "array": barracks},
-		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array": mines},
-		{"name": "Slow Tower", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array": slow_towers},
-		{"name": "AOE Tower", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array": aoe_towers},
-		{"name": "Sniper Tower", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array": sniper_towers},
-		{"name": "Boost Tower", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array": boost_towers},
-		{"name": "Shock Tower", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array": shock_towers},
-		{"name": "Muralha", "cost": GameConstants.WALL_COST, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array": walls},
-		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array": healing_stations},
+		{"name": "Torre Básica", "cost": GameConstants.TOWER_COST, "icon": tex_tower, "func": "_on_buy_tower", "max": GameConstants.MAX_TOWERS, "array_name": "towers"},
+		{"name": "Quartel", "cost": GameConstants.BARRACKS_COST, "icon": tex_barracks, "func": "_on_buy_barracks", "max": GameConstants.MAX_BARRACKS, "array_name": "barracks"},
+		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array_name": "mines"},
+		{"name": "Slow Tower", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array_name": "slow_towers"},
+		{"name": "AOE Tower", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array_name": "aoe_towers"},
+		{"name": "Sniper Tower", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
+		{"name": "Boost Tower", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array_name": "boost_towers"},
+		{"name": "Shock Tower", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
+		{"name": "Muralha", "cost": GameConstants.WALL_COST, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},
+		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array_name": "healing_stations"},
 	]
 	
 	# Criar botões para cada torre
@@ -5969,7 +6001,6 @@ func _apply_perk_effects() -> void:
 		coin_drop_chance += effects["coin_drop_chance"]
 		# Limitar a 100% (embora não deva chegar lá)
 		coin_drop_chance = min(coin_drop_chance, 1.0)
-	_apply_hero_home_coin_bonus_from_scratch()
 	
 	# Outros efeitos serão aplicados durante o jogo conforme necessário
 	# (coin_value, tower_cost_reduction, etc.)
