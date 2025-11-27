@@ -3,10 +3,11 @@
 SUGESTOES_MELHORIAS.md::TextFile::-1::1764189398::0::1::::<><><>0<>0<><>::
 TERRENO_MODULAR_VIVO.md::TextFile::-1::1764244528::0::1::::<><><>0<>0<><>::
 ::res://assets/::1764025053
-::res://assets/images/::1764245543
+::res://assets/images/::1764245695
 aoe_tower.png::CompressedTexture2D::7576499118864927443::1762463783::1762463812::1::::<><><>0<>0<>7fc6e9e21d0867841c228c70e30f087e<>res://.godot/imported/aoe_tower.png-9906059a62506fafd41d2b7fa90c5e73.ctex::
 barracks.png::CompressedTexture2D::7541488835324938766::1762464225::1762464251::1::::<><><>0<>0<>fdc08a47dca47fe5e5fac907c4cfe826<>res://.godot/imported/barracks.png-d85680f6e9db21b1bf02aea3416220e3.ctex::
 boost_tower.png::CompressedTexture2D::7595737811097054092::1764011039::1764011062::1::::<><><>0<>0<>0815fae6a31ff5f147b92bb2786eb075<>res://.godot/imported/boost_tower.png-2b0f2d3e59a58dd440b15ade0d70dd0c.ctex::
+castle.png::CompressedTexture2D::4154547587090229541::1764245683::1764245730::1::::<><><>0<>0<>e9a97bb9311b596991ea1408d7cf1ff7<>res://.godot/imported/castle.png-845c3c82761741958cba0d800a86e7e8.ctex::
 coin.png::CompressedTexture2D::5807670015220771635::1763400632::1763400653::1::::<><><>0<>0<>1ab56b6c90c7abd08d960e37a56bfd28<>res://.godot/imported/coin.png-742f433fdb40c23302668963ccede222.ctex::
 ENEMIES_SPECS.md::TextFile::-1::1764000457::0::1::::<><><>0<>0<><>::
 enemy_zombie.png::CompressedTexture2D::1257479954640182178::1762465129::1762465143::1::::<><><>0<>0<>cda63a3be58d4b087d6f5221385f4bb8<>res://.godot/imported/enemy_zombie.png-487eb20c1c85ffc85ff939779179825e.ctex::
@@ -33,7 +34,7 @@ Main.tscn::PackedScene::-1::1764244528::0::1::::<><><>0<>0<><>::res://scripts/Ga
 Menu.tscn::PackedScene::8645702157982717301::1764244528::0::1::::<><><>0<>0<><>::uid://bif2rcjr5a3pi::::res://scripts/Menu.gd
 ::res://scripts/::1764100532
 Constants.gd::GDScript::4896370792011949774::1764244528::0::1::::GameConstants<>RefCounted<><>0<>0<><>::
-Game.gd::GDScript::807216183804962965::1764245443::0::1::::<>Node2D<><>0<>0<><>::
+Game.gd::GDScript::807216183804962965::1764245615::0::1::::<>Node2D<><>0<>0<><>::
 GridManager.gd::GDScript::4582275908054114677::1764244969::0::1::::GridManager<>RefCounted<><>0<>0<><>::
 Menu.gd::GDScript::2959923158631201974::1764244528::0::1::::<>Control<><>0<>0<><>::
 Pathfinder.gd::GDScript::655567533368060027::1764000457::0::1::::Pathfinder<>RefCounted<><>0<>0<><>::

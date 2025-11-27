@@ -38,6 +38,10 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 		"range": game_instance.hero["range"],
 		"levels": game_instance.hero["levels"].duplicate()
 	}
+	save_data["hero_home"] = {
+		"level": game_instance.hero_home_level,
+		"coin_bonus": game_instance.hero_home_coin_bonus
+	}
 	
 	# Torres
 	save_data["towers"] = _serialize_towers(game_instance.towers)
@@ -193,6 +197,10 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.hero["pierce"] = hero_data.get("pierce", 0)
 	game_instance.hero["range"] = hero_data.get("range", 9999.0)
 	game_instance.hero["levels"] = hero_data.get("levels", {"DMG": 0, "FIRERATE": 0, "PIERCE": 0})
+	var hero_home_data = save_data.get("hero_home", {})
+	game_instance.hero_home_level = hero_home_data.get("level", 1)
+	game_instance.hero_home_coin_bonus = hero_home_data.get("coin_bonus", 0.0)
+	game_instance._apply_hero_home_coin_bonus_from_scratch()
 	
 	# Limpar estruturas existentes
 	game_instance.towers.clear()

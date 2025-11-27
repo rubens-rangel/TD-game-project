@@ -119,6 +119,8 @@ var tex_enemy_zombie: Texture2D
 var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_tent: Texture2D  # Base/tenda no centro
+var tex_house: Texture2D
+var tex_castle: Texture2D
 var tex_grass: Texture2D
 var tex_path: Texture2D  # Textura para o caminho (chão onde inimigos andam)
 var tex_wall: Texture2D  # Textura para barreira/cerca (paredes do labirinto)
@@ -198,6 +200,59 @@ var hero := {
 	"damage": GameConstants.HERO_BASE_DAMAGE, "pierce": 0, "range": 9999.0,
 	"levels": { "DMG": 0, "FIRERATE": 0, "PIERCE": 0 }, "coins": GameConstants.HERO_START_COINS,
 }
+
+const HERO_HOME_MAX_LEVEL := 3
+var hero_home_level: int = 1
+var hero_home_coin_bonus: float = 0.0
+var hero_home_panel_data: Dictionary = {}
+var hero_home_upgrade_costs := {
+	2: 1200,
+	3: 3000
+}
+
+func _get_hero_home_texture_for_level(level: int) -> Texture2D:
+	match level:
+		2:
+			return tex_house if tex_house != null else tex_tent
+		3:
+			return tex_castle if tex_castle != null else (tex_house if tex_house != null else tex_tent)
+		_:
+			return tex_tent
+
+func _get_hero_home_upgrade_cost(level: int) -> int:
+	return hero_home_upgrade_costs.get(level, 0)
+
+func _get_hero_home_benefits_text(level: int) -> String:
+	match level:
+		1:
+			return "Nível inicial. Proteção básica da tenda."
+		2:
+			return "• Dano do herói +1\n• Alcance +100\n• Vida da base +40\n• +5% chance de moedas"
+		3:
+			return "• Dano do herói +2\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60\n• +5% chance de moedas"
+		_:
+			return "Nível máximo alcançado"
+
+func _apply_hero_home_coin_bonus_from_scratch() -> void:
+	coin_drop_chance += hero_home_coin_bonus
+	coin_drop_chance = clamp(coin_drop_chance, 0.0, 1.0)
+
+func _apply_hero_home_upgrade_effects(level: int) -> void:
+	match level:
+		2:
+			hero["damage"] += 1
+			hero["range"] += 100
+			base_hp += 40
+			hero_home_coin_bonus += 0.05
+			coin_drop_chance = min(coin_drop_chance + 0.05, 1.0)
+		3:
+			hero["damage"] += 2
+			hero["pierce"] += 1
+			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
+			base_hp += 60
+			hero_home_coin_bonus += 0.05
+			coin_drop_chance = min(coin_drop_chance + 0.05, 1.0)
+
 
 func _try_load(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):
@@ -339,6 +394,8 @@ func _ready() -> void:
 	
 	# Carregar e processar todas as texturas (remover fundo branco)
 	tex_tent = _load_and_process_texture("res://assets/images/tent.png")
+	tex_house = _load_and_process_texture("res://assets/images/house.png")
+	tex_castle = _load_and_process_texture("res://assets/images/castle.png")
 	if tex_tent != null:
 		print("Tenda carregada: ", tex_tent.get_width(), "x", tex_tent.get_height())
 	_update_loading_progress(0.55)
@@ -895,7 +952,7 @@ func _process(delta: float) -> void:
 	_update_tower_shop_ui()
 
 func _update_tower_shop_ui() -> void:
-	if tower_shop_panel == null or tower_buttons.is_empty():
+	if tower_shop_panel == null:
 		return
 	
 	for tower_button_data in tower_buttons:
@@ -933,6 +990,36 @@ func _update_tower_shop_ui() -> void:
 		btn_style.border_width_right = 1
 		btn_style.border_width_bottom = 1
 		tower_button_data.buy_button.add_theme_stylebox_override("normal", btn_style)
+	
+	_update_hero_home_panel_ui()
+
+func _update_hero_home_panel_ui() -> void:
+	if hero_home_panel_data.is_empty():
+		return
+	var icon: TextureRect = hero_home_panel_data.get("icon", null)
+	if icon != null:
+		icon.texture = _get_hero_home_texture_for_level(hero_home_level)
+	var level_label: Label = hero_home_panel_data.get("level_label", null)
+	if level_label == null:
+		return
+	level_label.text = "Nível atual: %d/%d" % [hero_home_level, HERO_HOME_MAX_LEVEL]
+	var cost_label: Label = hero_home_panel_data.get("cost_label", null)
+	var benefit_label: Label = hero_home_panel_data.get("benefit_label", null)
+	var button: Button = hero_home_panel_data.get("button", null)
+	if cost_label == null or benefit_label == null or button == null:
+		return
+	if hero_home_level >= HERO_HOME_MAX_LEVEL:
+		cost_label.text = "Custo: --"
+		benefit_label.text = "Bônus ativos:\n%s" % _get_hero_home_benefits_text(hero_home_level)
+		button.text = "Máximo"
+		button.disabled = true
+	else:
+		var next_level = hero_home_level + 1
+		var cost = _get_hero_home_upgrade_cost(next_level)
+		cost_label.text = "Custo: %d" % cost
+		benefit_label.text = "Próximo nível:\n%s" % _get_hero_home_benefits_text(next_level)
+		button.text = "Evoluir para Nível %d" % next_level
+		button.disabled = hero["coins"] < cost
 
 	queue_redraw()
 
@@ -1210,41 +1297,21 @@ func _draw() -> void:
 		var x = base_left + float(gx) * grid_size_px
 		draw_line(Vector2(x, base_top), Vector2(x, base_bottom), Color(0.3,0.32,0.36,0.5), 1.0)
 	
-	# Desenhar base/tenda no centro exato - reduzir tamanho em 40% (30% anterior + 10% adicional)
+	# Desenhar base/casa do herói ocupando bloco 3x3 (84px se tile=28)
 	var bc = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
-	if tex_tent != null:
-		# Novo scale: 0.63 (0.7 anterior * 0.9) = redução total de ~37% comparado ao original
-		var tent_scale: float = 0.7 * 0.9
-		var tent_size_tiles = 3.0 * tent_scale
-		var tent_size_pixels = tent_size_tiles * float(GameConstants.TILE_SIZE)
-		
-		# Obter dimensões originais da textura
-		var tex_width = float(tex_tent.get_width())
-		var tex_height = float(tex_tent.get_height())
-		
-		# Calcular fator de escala para caber no tamanho reduzido mantendo proporção
-		# Usar a maior dimensão como referência
-		var max_tex_dimension = max(tex_width, tex_height)
-		var scale_factor = tent_size_pixels / max_tex_dimension
-		
-		# Calcular tamanho escalado mantendo proporção
-		var scaled_width = tex_width * scale_factor
-		var scaled_height = tex_height * scale_factor
-		
-		# Posição centralizada no centro da base
-		var s := Vector2(scaled_width, scaled_height)
-		var pos := Vector2(bc.x - s.x/2, bc.y - s.y/2)
-		
-		# Desenhar com transparência preservada
-		# Sem modulate para preservar transparência original da textura
-		# O parâmetro 'false' significa que não estica (mantém proporção)
-		# Sem passar Color como último parâmetro, preserva a transparência original
-		draw_texture_rect(tex_tent, Rect2(pos, s), false)
+	var hero_block_pixels = float(GameConstants.TILE_SIZE) * 1.5
+	var hero_texture = _get_hero_home_texture_for_level(hero_home_level)
+	if hero_texture != null:
+		var hero_rect = Rect2(
+			bc.x - hero_block_pixels * 0.5,
+			bc.y - hero_block_pixels * 0.5,
+			hero_block_pixels,
+			hero_block_pixels
+		)
+		draw_texture_rect(hero_texture, hero_rect, false)
 	else:
-		# Fallback: desenhar retângulo simples (também reduzido em 30%)
-		var tent_scale: float = 0.7 * 0.9
-		var tent_half: float = 3.0 * tent_scale * float(GameConstants.TILE_SIZE) / 2.0
-		draw_rect(Rect2(bc.x - tent_half, bc.y - tent_half, 3.0 * tent_scale * GameConstants.TILE_SIZE, 3.0 * tent_scale * GameConstants.TILE_SIZE), Color(0.9,0.7,0.2))
+		var half = hero_block_pixels / 2.0
+		draw_rect(Rect2(bc.x - half, bc.y - half, hero_block_pixels, hero_block_pixels), Color(0.9,0.7,0.2))
 	# enemies
 	for e in enemies:
 		# barra de vida melhorada (não mostrar se está morrendo)
@@ -2654,6 +2721,22 @@ func _add_100_coins() -> void:
 	# Adicionar 100 moedas ao jogador
 	hero["coins"] += 100
 	print("Admin: +100 moedas adicionadas (total: %d)" % hero["coins"])
+
+func _on_upgrade_hero_home() -> void:
+	if hero_home_level >= HERO_HOME_MAX_LEVEL:
+		return
+	var next_level = hero_home_level + 1
+	var cost = _get_hero_home_upgrade_cost(next_level)
+	if cost <= 0:
+		return
+	if hero["coins"] < cost:
+		return
+	hero["coins"] -= cost
+	_track_coin_spent(cost)
+	hero_home_level = next_level
+	_apply_hero_home_upgrade_effects(next_level)
+	_update_hero_home_panel_ui()
+	queue_redraw()
 
 func _on_wave_started(wave_number: int, is_boss_wave: bool):
 	if ((wave_number + 1) % 5) == 0:
@@ -4798,8 +4881,9 @@ func _create_tower_shop_ui() -> void:
 	var screen_width = get_viewport().get_visible_rect().size.x
 	var screen_height = get_viewport().get_visible_rect().size.y
 	var panel_width = 350.0  # Aumentado para garantir espaço para o botão completo
-	# Calcular altura necessária: 10 torres * 80px + título 45px + espaçamento 20px = 865px mínimo
-	var total_items_height = 10 * 80 + 20  # 10 itens de 80px + espaçamento
+	# Calcular altura necessária: card do herói + 10 torres * 80px + título 45px + espaçamento
+	var hero_card_height = 100
+	var total_items_height = hero_card_height + 10 * 80 + 20
 	var required_height = total_items_height + 45  # +45 para o título
 	var panel_height = max(screen_height - 44.0, required_height)  # altura mínima para caber tudo
 	# Posicionar no lado direito (skills ficará à esquerda deste painel)
@@ -4834,6 +4918,9 @@ func _create_tower_shop_ui() -> void:
 	vbox.size = Vector2(panel_width - 20, panel_height - 45)
 	vbox.add_theme_constant_override("separation", 5)
 	tower_shop_panel.add_child(vbox)
+	
+	# Card da base/Herói
+	_create_hero_home_card(vbox, hero_card_height)
 	
 	# Lista de torres com informações
 	var tower_data = [
@@ -4976,6 +5063,89 @@ func _create_tower_shop_ui() -> void:
 	tooltip_label.add_theme_stylebox_override("normal", tooltip_style)
 	tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	tower_shop_panel.add_child(tooltip_label)
+
+func _create_hero_home_card(vbox: VBoxContainer, card_height: float) -> void:
+	hero_home_panel_data = {}
+	var panel = PanelContainer.new()
+	panel.custom_minimum_size = Vector2(tower_shop_panel.size.x - 20, card_height)
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.25, 0.22, 0.28, 0.9)
+	panel_style.border_color = Color(0.6, 0.5, 0.8)
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+	vbox.add_child(panel)
+	
+	var content = VBoxContainer.new()
+	content.add_theme_constant_override("separation", 4)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.add_child(content)
+	
+	var title = Label.new()
+	title.text = "Base do Herói"
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", Color(1.0, 0.92, 0.4))
+	content.add_child(title)
+	
+	var info_hbox = HBoxContainer.new()
+	info_hbox.add_theme_constant_override("separation", 10)
+	content.add_child(info_hbox)
+	
+	var hero_icon_size = 45.0  # mesmo padrão dos ícones das torres
+	var icon_wrapper = Control.new()
+	icon_wrapper.custom_minimum_size = Vector2(hero_icon_size, hero_icon_size)
+	icon_wrapper.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon_wrapper.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info_hbox.add_child(icon_wrapper)
+	
+	var icon = TextureRect.new()
+	icon.custom_minimum_size = Vector2(hero_icon_size, hero_icon_size)
+	icon.size = Vector2(hero_icon_size, hero_icon_size)
+	icon.ignore_texture_size = true
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_wrapper.add_child(icon)
+	
+	var text_box = VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_hbox.add_child(text_box)
+	
+	var level_label = Label.new()
+	level_label.add_theme_font_size_override("font_size", 14)
+	text_box.add_child(level_label)
+	
+	var benefit_label = Label.new()
+	benefit_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	benefit_label.add_theme_font_size_override("font_size", 12)
+	benefit_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.95))
+	text_box.add_child(benefit_label)
+	
+	var cost_label = Label.new()
+	cost_label.add_theme_font_size_override("font_size", 12)
+	cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	text_box.add_child(cost_label)
+	
+	var button = Button.new()
+	button.text = "Evoluir"
+	button.custom_minimum_size = Vector2(120, 36)
+	button.pressed.connect(_on_upgrade_hero_home)
+	info_hbox.add_child(button)
+	
+	hero_home_panel_data = {
+		"panel": panel,
+		"icon": icon,
+		"level_label": level_label,
+		"benefit_label": benefit_label,
+		"cost_label": cost_label,
+		"button": button
+	}
+	
+	_update_hero_home_panel_ui()
 
 func _create_skills_ui() -> void:
 	# Criar painel lateral para skills (lado esquerdo)
@@ -5799,6 +5969,7 @@ func _apply_perk_effects() -> void:
 		coin_drop_chance += effects["coin_drop_chance"]
 		# Limitar a 100% (embora não deva chegar lá)
 		coin_drop_chance = min(coin_drop_chance, 1.0)
+	_apply_hero_home_coin_bonus_from_scratch()
 	
 	# Outros efeitos serão aplicados durante o jogo conforme necessário
 	# (coin_value, tower_cost_reduction, etc.)
