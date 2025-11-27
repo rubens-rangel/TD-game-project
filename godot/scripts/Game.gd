@@ -2529,6 +2529,36 @@ func _try_shoot(target: Vector2) -> void:
 	arrows.append(_arrow_new(hero["x"], hero["y"], target))
 	hero["cooldown"] = hero["fire_rate"]
 
+func _calculate_leading_target(enemy: Dictionary, hero_pos: Vector2) -> Vector2:
+	# Calcular posição futura do inimigo para melhorar precisão do tiro
+	var enemy_pos = enemy["pos"]
+	var distance = hero_pos.distance_to(enemy_pos)
+	
+	# Velocidade da flecha
+	var arrow_speed = 260.0
+	
+	# Tempo que a flecha leva para chegar na posição atual do inimigo
+	var time_to_reach = distance / arrow_speed
+	
+	# Calcular direção do movimento do inimigo
+	var enemy_velocity = Vector2.ZERO
+	if enemy.has("path") and enemy.has("path_index") and enemy["path_index"] < enemy["path"].size():
+		var target_point = enemy["path"][enemy["path_index"]]
+		var dir_to_target = (target_point - enemy_pos)
+		if dir_to_target.length() > 0.1:
+			enemy_velocity = dir_to_target.normalized() * enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
+	else:
+		# Se não tem path, calcular direção para a base
+		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+		var dir_to_base = (base_center - enemy_pos)
+		if dir_to_base.length() > 0.1:
+			enemy_velocity = dir_to_base.normalized() * enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
+	
+	# Calcular posição futura do inimigo
+	var predicted_pos = enemy_pos + enemy_velocity * time_to_reach * 0.7  # 0.7 é um fator de ajuste para não exagerar
+	
+	return predicted_pos
+
 func _create_admin_menu(tb: Panel) -> void:
 	# Criar menu de admin apenas se isAdmin estiver ativado
 	if not isAdmin:
@@ -3678,7 +3708,9 @@ func _physics_process(delta: float) -> void:
 				closest_enemy = e
 		
 		if closest_enemy != null:
-			_try_shoot(closest_enemy["pos"])
+			var hero_pos = Vector2(hero["x"], hero["y"])
+			var predicted_target = _calculate_leading_target(closest_enemy, hero_pos)
+			_try_shoot(predicted_target)
 	
 	# torres: 1 tiro por direção no intervalo configurado (fire_rate)
 	for t in towers:

@@ -505,3 +505,4 @@ func apply_weather_event(weather: WeatherEvent, duration: float):
 **Nota**: Este sistema adiciona profundidade estratégica significativa ao jogo, incentivando planejamento de longo prazo e adaptação a eventos climáticos dinâmicos.
 
 
+

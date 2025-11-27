@@ -90,22 +90,6 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 500,
 		"icon": "⚙️"
 	},
-	"kill_5_bosses_wave": {
-		"name": "Caos Total",
-		"description": "Mate 5 bosses em uma única wave",
-		"category": Category.COMBAT,
-		"max_progress": 1,
-		"reward_points": 150,
-		"icon": "💥"
-	},
-	"kill_1000_single_wave": {
-		"name": "Genocídio",
-		"description": "Mate 1000 inimigos em uma única wave",
-		"category": Category.COMBAT,
-		"max_progress": 1,
-		"reward_points": 200,
-		"icon": "☠️"
-	},
 	
 	# === ECONOMY ===
 	"collect_1000_coins": {
