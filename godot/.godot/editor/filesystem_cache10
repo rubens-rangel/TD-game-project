@@ -3,7 +3,7 @@
 SUGESTOES_MELHORIAS.md::TextFile::-1::1764189398::0::1::::<><><>0<>0<><>::
 TERRENO_MODULAR_VIVO.md::TextFile::-1::1764244528::0::1::::<><><>0<>0<><>::
 ::res://assets/::1764025053
-::res://assets/images/::1764072361
+::res://assets/images/::1764245543
 aoe_tower.png::CompressedTexture2D::7576499118864927443::1762463783::1762463812::1::::<><><>0<>0<>7fc6e9e21d0867841c228c70e30f087e<>res://.godot/imported/aoe_tower.png-9906059a62506fafd41d2b7fa90c5e73.ctex::
 barracks.png::CompressedTexture2D::7541488835324938766::1762464225::1762464251::1::::<><><>0<>0<>fdc08a47dca47fe5e5fac907c4cfe826<>res://.godot/imported/barracks.png-d85680f6e9db21b1bf02aea3416220e3.ctex::
 boost_tower.png::CompressedTexture2D::7595737811097054092::1764011039::1764011062::1::::<><><>0<>0<>0815fae6a31ff5f147b92bb2786eb075<>res://.godot/imported/boost_tower.png-2b0f2d3e59a58dd440b15ade0d70dd0c.ctex::
@@ -11,6 +11,7 @@ coin.png::CompressedTexture2D::5807670015220771635::1763400632::1763400653::1:::
 ENEMIES_SPECS.md::TextFile::-1::1764000457::0::1::::<><><>0<>0<><>::
 enemy_zombie.png::CompressedTexture2D::1257479954640182178::1762465129::1762465143::1::::<><><>0<>0<>cda63a3be58d4b087d6f5221385f4bb8<>res://.godot/imported/enemy_zombie.png-487eb20c1c85ffc85ff939779179825e.ctex::
 healing_station.png::CompressedTexture2D::2994848420777288601::1762464473::1762464496::1::::<><><>0<>0<>cbb82878e2c36114c122616d6266e79c<>res://.godot/imported/healing_station.png-ce99dee92aad38f92847a00aa2b8609b.ctex::
+house.png::CompressedTexture2D::4050632537838862880::1764245528::1764245571::1::::<><><>0<>0<>9b6a851b6d624a1a194ef7abf15127a2<>res://.godot/imported/house.png-ef300ba6e6c19490d004f7d86aace4ca.ctex::
 menu_background.png::CompressedTexture2D::6922876249658777968::1762447756::1764025074::1::::<><><>0<>0<>832c78b91aa8324dcfe0de962bb9d62c<>res://.godot/imported/menu_background.png-f64e89e1fa6fbecea6149f323dd67638.ctex::
 mine.png::CompressedTexture2D::1029581433995286509::1764011230::1764011250::1::::<><><>0<>0<>d229b8b103cbd18e5ae7c6c46d9eaf38<>res://.godot/imported/mine.png-a5a4663d3215806c36bc12c14dd1f799.ctex::
 mineracao.png::CompressedTexture2D::5222386453604241168::1764011178::1764011250::1::::<><><>0<>0<>4514ee68e062b057e993cc1d5ba507fe<>res://.godot/imported/mineracao.png-280f2d15c7b41ad26cab58acadbf0c05.ctex::
@@ -32,15 +33,15 @@ Main.tscn::PackedScene::-1::1764244528::0::1::::<><><>0<>0<><>::res://scripts/Ga
 Menu.tscn::PackedScene::8645702157982717301::1764244528::0::1::::<><><>0<>0<><>::uid://bif2rcjr5a3pi::::res://scripts/Menu.gd
 ::res://scripts/::1764100532
 Constants.gd::GDScript::4896370792011949774::1764244528::0::1::::GameConstants<>RefCounted<><>0<>0<><>::
-Game.gd::GDScript::807216183804962965::1764244528::0::1::::<>Node2D<><>0<>0<><>::
-GridManager.gd::GDScript::4582275908054114677::1764244528::0::1::::GridManager<>RefCounted<><>0<>0<><>::
+Game.gd::GDScript::807216183804962965::1764245443::0::1::::<>Node2D<><>0<>0<><>::
+GridManager.gd::GDScript::4582275908054114677::1764244969::0::1::::GridManager<>RefCounted<><>0<>0<><>::
 Menu.gd::GDScript::2959923158631201974::1764244528::0::1::::<>Control<><>0<>0<><>::
 Pathfinder.gd::GDScript::655567533368060027::1764000457::0::1::::Pathfinder<>RefCounted<><>0<>0<><>::
 ProjectileManager.gd::GDScript::3222176340695259074::1762437265::0::1::::ProjectileManager<>RefCounted<><>0<>0<><>::
 REFACTORING_GUIDE.md::TextFile::-1::1764000457::0::1::::<><><>0<>0<><>::
 WaveManager.gd::GDScript::820183367342066971::1762437805::0::1::::WaveManager<>RefCounted<><>0<>0<><>::
 ::res://scripts/managers/::1764098184
-AchievementManager.gd::GDScript::7279695492519897990::1764244528::0::1::::AchievementManager<>RefCounted<><>0<>0<><>::
+AchievementManager.gd::GDScript::7279695492519897990::1764244793::0::1::::AchievementManager<>RefCounted<><>0<>0<><>::
 CoinManager.gd::GDScript::8217870001968736878::1764000457::0::1::::CoinManager<>RefCounted<><>0<>0<><>::
 CombatManager.gd::GDScript::702755420822741407::1764000457::0::1::::CombatManager<>RefCounted<><>0<>0<><>::
 EffectsManager.gd::GDScript::8880506438752700667::1764000457::0::1::::EffectsManager<>RefCounted<><>0<>0<><>::

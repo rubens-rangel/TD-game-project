@@ -138,13 +138,13 @@ func world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	var base_start_col = center.x - base_half_size
 	var base_start_row = center.y - base_half_size
 	
-	# Converter posição do mundo para coordenadas de tile do grid principal
-	var tile_col = int(floor(world_pos.x / GameConstants.TILE_SIZE))
-	var tile_row = int(floor(world_pos.y / GameConstants.TILE_SIZE))
+	# Converter posição do mundo para coordenadas de tile do grid principal (utilizar valores float para precisão)
+	var tile_col = world_pos.x / GameConstants.TILE_SIZE
+	var tile_row = world_pos.y / GameConstants.TILE_SIZE
 	
 	# Calcular posição relativa dentro da base (0 a BASE_SIZE_TILES)
-	var relative_col = float(tile_col - base_start_col)
-	var relative_row = float(tile_row - base_start_row)
+	var relative_col = tile_col - float(base_start_col)
+	var relative_row = tile_row - float(base_start_row)
 	
 	# Converter para coordenadas do grid interno (15x15)
 	# grid_size_tiles = BASE_SIZE_TILES / BASE_GRID_SIZE = 7 / 15 = 0.466...

@@ -1210,11 +1210,12 @@ func _draw() -> void:
 		var x = base_left + float(gx) * grid_size_px
 		draw_line(Vector2(x, base_top), Vector2(x, base_bottom), Color(0.3,0.32,0.36,0.5), 1.0)
 	
-	# Desenhar base/tenda no centro exato - TAMANHO REDUZIDO EM 30%
+	# Desenhar base/tenda no centro exato - reduzir tamanho em 40% (30% anterior + 10% adicional)
 	var bc = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 	if tex_tent != null:
-		# Tamanho reduzido em 30%: 3x3 tiles * 0.7 = 2.1x2.1 tiles
-		var tent_size_tiles = 3.0 * 0.7  # reduzir 30%
+		# Novo scale: 0.63 (0.7 anterior * 0.9) = redução total de ~37% comparado ao original
+		var tent_scale: float = 0.7 * 0.9
+		var tent_size_tiles = 3.0 * tent_scale
 		var tent_size_pixels = tent_size_tiles * float(GameConstants.TILE_SIZE)
 		
 		# Obter dimensões originais da textura
@@ -1241,8 +1242,9 @@ func _draw() -> void:
 		draw_texture_rect(tex_tent, Rect2(pos, s), false)
 	else:
 		# Fallback: desenhar retângulo simples (também reduzido em 30%)
-		var tent_half := 3.0 * 0.7 * float(GameConstants.TILE_SIZE) / 2.0
-		draw_rect(Rect2(bc.x - tent_half, bc.y - tent_half, 3.0 * 0.7 * GameConstants.TILE_SIZE, 3.0 * 0.7 * GameConstants.TILE_SIZE), Color(0.9,0.7,0.2))
+		var tent_scale: float = 0.7 * 0.9
+		var tent_half: float = 3.0 * tent_scale * float(GameConstants.TILE_SIZE) / 2.0
+		draw_rect(Rect2(bc.x - tent_half, bc.y - tent_half, 3.0 * tent_scale * GameConstants.TILE_SIZE, 3.0 * tent_scale * GameConstants.TILE_SIZE), Color(0.9,0.7,0.2))
 	# enemies
 	for e in enemies:
 		# barra de vida melhorada (não mostrar se está morrendo)
@@ -2555,7 +2557,7 @@ func _calculate_leading_target(enemy: Dictionary, hero_pos: Vector2) -> Vector2:
 			enemy_velocity = dir_to_base.normalized() * enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
 	
 	# Calcular posição futura do inimigo
-	var predicted_pos = enemy_pos + enemy_velocity * time_to_reach * 0.7  # 0.7 é um fator de ajuste para não exagerar
+	var predicted_pos = enemy_pos + enemy_velocity * time_to_reach * 0.8  # 0.8 é um fator de ajuste para não exagerar
 	
 	return predicted_pos
 
