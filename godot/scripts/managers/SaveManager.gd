@@ -1,6 +1,8 @@
 extends RefCounted
 class_name SaveManager
 
+const GameConstants = preload("res://scripts/Constants.gd")
+
 const MAX_SLOTS = 10
 const AUTO_SAVE_SLOT = "autosave"
 
@@ -473,6 +475,10 @@ static func _serialize_mines(mines: Array) -> Array:
 			"pos_x": m.pos.x,
 			"pos_y": m.pos.y,
 			"damage": m.damage,
+			"explosion_radius": m.get("explosion_radius", GameConstants.MINE_EXPLOSION_RADIUS),
+			"slow_duration": m.get("slow_duration", GameConstants.MINE_SLOW_DURATION),
+			"slow_amount": m.get("slow_amount", GameConstants.MINE_SLOW_AMOUNT),
+			"trigger_radius": m.get("trigger_radius", GameConstants.MINE_TRIGGER_RADIUS),
 			"triggered": m.triggered
 		})
 	return result
@@ -485,6 +491,10 @@ static func _deserialize_mines(data: Array) -> Array:
 			"grid_y": m.grid_y,
 			"pos": Vector2(m.pos_x, m.pos_y),
 			"damage": m.damage,
+			"explosion_radius": m.get("explosion_radius", GameConstants.MINE_EXPLOSION_RADIUS),
+			"slow_duration": m.get("slow_duration", GameConstants.MINE_SLOW_DURATION),
+			"slow_amount": m.get("slow_amount", GameConstants.MINE_SLOW_AMOUNT),
+			"trigger_radius": m.get("trigger_radius", GameConstants.MINE_TRIGGER_RADIUS),
 			"triggered": m.triggered
 		})
 	return result

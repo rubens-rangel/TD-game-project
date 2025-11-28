@@ -71,7 +71,8 @@ var placing_healing_station := false
 
 var towers: Array = []
 var barracks: Array = []  # quartéis - cada quartel: {grid_x: int, grid_y: int, pos: Vector2, soldier_spawn_cd: float, soldiers: Array}
-var mines: Array = []  # minas: {grid_x: int, grid_y: int, pos: Vector2, damage: float, triggered: bool}
+var mines: Array = []  # minas: {grid_x: int, grid_y: int, pos: Vector2, damage: float, explosion_radius: float, slow_duration: float, slow_amount: float, trigger_radius: float, triggered: bool}
+var mine_tiles: Dictionary = {}  # "col_row" -> true para evitar minas duplicadas no mesmo tile
 var slow_towers: Array = []  # slow towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, slow_amount: float, cooldown: float, fire_rate: float}
 var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, aoe_radius: float, cooldown: float, fire_rate: float}
 var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
@@ -191,16 +192,20 @@ func _wave_factor() -> float:
 var choosing_upgrade := false
 var benefit_applied := false
 var upgrade_options := [
-	{"label": "+1 Dano", "code": "DMG"},
-	{"label": "+Cadência", "code": "FIRERATE"},
-	{"label": "+1 Perfuração", "code": "PIERCE"},
+	{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
+	{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
+	{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
+	{"label": "Crítico", "code": "CRIT", "max_level": 8, "description": "Chance de causar dano crítico (2% por nível, máx 16%)"},
 ]
 
 # hero
 var hero := {
 	"x": 0.0, "y": 0.0, "cooldown": 0.0, "fire_rate": GameConstants.HERO_BASE_FIRE_RATE,
 	"damage": GameConstants.HERO_BASE_DAMAGE, "pierce": 0, "range": 9999.0,
-	"levels": { "DMG": 0, "FIRERATE": 0, "PIERCE": 0 }, "coins": GameConstants.HERO_START_COINS,
+	"levels": { "DMG": 0, "FIRERATE": 0, "PIERCE": 0, "CRIT": 0 }, 
+	"coins": GameConstants.HERO_START_COINS,
+	"crit_chance": 0.0,  # Chance de crítico (0.0 a 1.0)
+	"crit_multiplier": 2.0,  # Multiplicador de dano crítico
 }
 
 const HERO_HOME_MAX_LEVEL := 3
@@ -629,6 +634,7 @@ func _ready() -> void:
 	ov.get_node("Panel/Btn1").pressed.connect(func(): _apply_benefit(0))
 	ov.get_node("Panel/Btn2").pressed.connect(func(): _apply_benefit(1))
 	ov.get_node("Panel/Btn3").pressed.connect(func(): _apply_benefit(2))
+	ov.get_node("Panel/Btn4").pressed.connect(func(): _apply_benefit(3))
 	ov.get_node("Panel/BtnResume").pressed.connect(func(): _resume_after_upgrade())
 
 	# wire Pause overlay
@@ -903,12 +909,25 @@ func _process(delta: float) -> void:
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
 			var pool := [
-				{"label": "+1 Dano", "code": "DMG"},
-				{"label": "+Cadência", "code": "FIRERATE"},
-				{"label": "+1 Perfuração", "code": "PIERCE"},
+				{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
+				{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
+				{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
+				{"label": "Crítico", "code": "CRIT", "max_level": 8, "description": "Chance de causar dano crítico (2% por nível, máx 16%)"},
 			]
-			pool.shuffle()
-			upgrade_options = pool.slice(0, 3)
+			# Filtrar apenas upgrades que não atingiram o limite
+			var available_upgrades = []
+			for upgrade in pool:
+				var current_level = hero["levels"].get(upgrade["code"], 0)
+				if current_level < upgrade["max_level"]:
+					available_upgrades.append(upgrade)
+			
+			# Se não houver upgrades disponíveis, usar todos (caso raro)
+			if available_upgrades.is_empty():
+				available_upgrades = pool
+			
+			available_upgrades.shuffle()
+			# Mostrar TODOS os upgrades disponíveis (não limitar a 3)
+			upgrade_options = available_upgrades
 			# Auto-save quando a wave termina (antes do upgrade overlay)
 			_auto_save_after_wave()
 			choosing_upgrade = true
@@ -936,7 +955,7 @@ func _process(delta: float) -> void:
 	# UI
 	var tb = $CanvasLayer/HUD/TopBar
 	var is_boss_wave := wave_manager.is_boss_wave()
-	var wave_text = "Wave %d (CHEFE!)" % wave_manager.wave if is_boss_wave else "Wave %d" % wave_manager.wave
+	var wave_text = "Onda %d (CHEFE!)" % wave_manager.wave if is_boss_wave else "Onda %d" % wave_manager.wave
 	tb.get_node("LblLeft").text = "%s  Inimigos %d" % [wave_text, enemies.size()]
 	tb.get_node("LblCenter").text = "Moedas %d" % [int(hero["coins"])]
 	tb.get_node("LblRight").text = "Vida %d" % [base_hp]
@@ -1105,6 +1124,11 @@ func _input(event: InputEvent) -> void:
 			var shock_idx := _find_shock_tower_at(world_pos, 20.0)
 			if shock_idx != -1:
 				_start_drag_tower("shock_tower", shock_idx, world_pos)
+				return
+			
+			var mine_idx := _find_mine_at(world_pos, 12.0)
+			if mine_idx != -1:
+				_start_drag_tower("mine", mine_idx, world_pos)
 				return
 		
 		# Continuar com lógica normal se não iniciou drag
@@ -1773,24 +1797,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
-			elif placing_mine:
-				var can_place = grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.MINE_SIZE_GRID, 4) and not _is_on_path(preview_mouse_pos) and not _is_in_center_area(preview_mouse_pos)
-				if can_place:
-					if tex_mine != null:
-						var mine_size = 16.0
-						var mine_rect = Rect2(preview_world_pos.x - mine_size/2, preview_world_pos.y - mine_size/2, mine_size, mine_size)
-						draw_texture_rect(tex_mine, mine_rect, false, Color(1, 1, 1, 0.5))
-					else:
-						draw_circle(preview_world_pos, 8, Color(0.8,0.2,0.2,0.5))
-					draw_circle(preview_world_pos, 8, Color(0.5,0.1,0.1), false, 2.0)
-				else:
-					if tex_mine != null:
-						var mine_size = 16.0
-						var mine_rect = Rect2(preview_world_pos.x - mine_size/2, preview_world_pos.y - mine_size/2, mine_size, mine_size)
-						draw_texture_rect(tex_mine, mine_rect, false, Color(1, 0.3, 0.3, 0.5))
-					else:
-						draw_circle(preview_world_pos, 8, Color(0.9,0.3,0.3,0.5))
-					draw_circle(preview_world_pos, 8, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_slow_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5):
 					var preview_size := grid_size_px * GameConstants.SLOW_TOWER_SIZE_GRID
@@ -1808,6 +1815,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_aoe_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6):
 					var preview_size := grid_size_px * GameConstants.AOE_TOWER_SIZE_GRID
@@ -1825,6 +1833,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_sniper_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7):
 					var preview_size := grid_size_px * GameConstants.SNIPER_TOWER_SIZE_GRID
@@ -1842,6 +1851,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_boost_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8):
 					var preview_size := grid_size_px * GameConstants.BOOST_TOWER_SIZE_GRID
@@ -1859,6 +1869,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_shock_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9):
 					var preview_size := grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
@@ -1876,6 +1887,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_wall:
 				var can_place = grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.WALL_SIZE_GRID, 9) and not _is_on_path(preview_mouse_pos) and not _is_in_center_area(preview_mouse_pos)
 				if can_place:
@@ -1894,6 +1906,7 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
 			elif placing_healing_station:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID, 10):
 					var preview_size := grid_size_px * GameConstants.HEALING_STATION_SIZE_GRID
@@ -1911,6 +1924,25 @@ func _draw() -> void:
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+		
+		if placing_mine:
+			var tile = _world_to_tile_coords(preview_mouse_pos)
+			var preview_pos = grid_manager.tile_center(clamp(tile.x, 0, GameConstants.GRID_COLS - 1), clamp(tile.y, 0, GameConstants.GRID_ROWS - 1))
+			var can_place = _is_tile_within_bounds(tile) and _is_walkable_tile(tile) and not grid_manager.is_inside_base_point(preview_mouse_pos) and not _is_in_center_area(preview_mouse_pos) and not _is_mine_tile_occupied(tile)
+			var mine_size = 16.0
+			var mine_rect = Rect2(preview_pos.x - mine_size/2, preview_pos.y - mine_size/2, mine_size, mine_size)
+			if can_place:
+				if tex_mine != null:
+					draw_texture_rect(tex_mine, mine_rect, false, Color(1, 1, 1, 0.5))
+				else:
+					draw_circle(preview_pos, 8, Color(0.8,0.2,0.2,0.5))
+				draw_circle(preview_pos, 10, Color(0.5,0.1,0.1,0.3), false, 2.0)
+			else:
+				if tex_mine != null:
+					draw_texture_rect(tex_mine, mine_rect, false, Color(1, 0.3, 0.3, 0.5))
+				else:
+					draw_circle(preview_pos, 8, Color(0.9,0.3,0.3,0.5))
+				draw_circle(preview_pos, 10, Color(0.8,0.2,0.2), false, 2.0)
 	
 	# mostrar alcance da torre selecionada
 	if tower_selected_index >= 0 and tower_selected_index < towers.size():
@@ -1932,30 +1964,196 @@ func _draw() -> void:
 
 func _update_upgrade_labels() -> void:
 	var ov = $CanvasLayer/UpgradeOverlay
-	if upgrade_options.size() >= 1:
-		ov.get_node("Panel/Btn1").text = upgrade_options[0]["label"]
-	if upgrade_options.size() >= 2:
-		ov.get_node("Panel/Btn2").text = upgrade_options[1]["label"]
-	if upgrade_options.size() >= 3:
-		ov.get_node("Panel/Btn3").text = upgrade_options[2]["label"]
+	
+	# Criar fundo escuro se não existir
+	if not ov.has_node("DarkBackground"):
+		var dark_bg = ColorRect.new()
+		dark_bg.name = "DarkBackground"
+		dark_bg.color = Color(0, 0, 0, 0.7)
+		dark_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+		dark_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE  # não bloquear clique nos botões
+		ov.add_child(dark_bg)
+		dark_bg.z_index = -1
+	
+	# Estilizar o painel principal (seguindo estilo do tower_shop_panel)
+	var panel = ov.get_node("Panel") as Panel
+	if panel:
+		var panel_style = StyleBoxFlat.new()
+		panel_style.bg_color = Color(0.15, 0.15, 0.2, 0.95)  # Similar ao tower shop
+		panel_style.border_color = Color(0.3, 0.3, 0.4)  # Borda mais sutil
+		panel_style.border_width_left = 2
+		panel_style.border_width_top = 2
+		panel_style.border_width_right = 2
+		panel_style.border_width_bottom = 2
+		panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Atualizar título
+	var title = ov.get_node("Panel/Title") as Label
+	if title:
+		title.text = "Escolha um Benefício"
+		title.add_theme_font_size_override("font_size", 22)
+		title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))  # Dourado consistente
+	
+	# Atualizar botão Resume
+	var resume_btn = ov.get_node("Panel/BtnResume") as Button
+	if resume_btn:
+		resume_btn.text = "Continuar"
+		resume_btn.disabled = not benefit_applied  # Desabilitar se nenhum benefício foi selecionado
+		var resume_style = StyleBoxFlat.new()
+		if benefit_applied:
+			resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
+			resume_style.border_color = Color(0.3, 0.8, 0.3)
+		else:
+			resume_style.bg_color = Color(0.3, 0.3, 0.3, 0.5)
+			resume_style.border_color = Color(0.5, 0.5, 0.5, 0.5)
+		resume_style.border_width_left = 2
+		resume_style.border_width_top = 2
+		resume_style.border_width_right = 2
+		resume_style.border_width_bottom = 2
+		resume_btn.add_theme_stylebox_override("normal", resume_style)
+		var resume_hover = resume_style.duplicate()
+		if benefit_applied:
+			resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		resume_btn.add_theme_stylebox_override("hover", resume_hover)
+	
+	# Atualizar botões e estilos (suporta até 4 botões)
+	for i in range(4):
+		var btn = ov.get_node("Panel/Btn" + str(i + 1)) as Button
+		if btn and i < upgrade_options.size():
+			var upgrade = upgrade_options[i]
+			var code = upgrade["code"]
+			var current_level = hero["levels"].get(code, 0)
+			var max_level = upgrade.get("max_level", 999)
+			var description = upgrade.get("description", "")
+			
+			# Texto do botão com nível atual
+			btn.text = "%s (Nível %d/%d)" % [upgrade["label"], current_level, max_level]
+			btn.tooltip_text = description
+			
+			# Verificar se atingiu o limite
+			if current_level >= max_level:
+				btn.disabled = true
+				btn.text = "%s (MÁXIMO)" % upgrade["label"]
+				# Estilo para botão desabilitado
+				var disabled_style = StyleBoxFlat.new()
+				disabled_style.bg_color = Color(0.3, 0.3, 0.3, 0.5)
+				disabled_style.border_color = Color(0.5, 0.5, 0.5, 0.5)
+				disabled_style.border_width_left = 2
+				disabled_style.border_width_top = 2
+				disabled_style.border_width_right = 2
+				disabled_style.border_width_bottom = 2
+				btn.add_theme_stylebox_override("disabled", disabled_style)
+			else:
+				# Botões devem estar habilitados inicialmente, só desabilitar DEPOIS de selecionar
+				btn.disabled = false
+				
+				# Estilos coloridos para cada tipo de upgrade (mais sutis e consistentes)
+				var btn_style = StyleBoxFlat.new()
+				match code:
+					"DMG":
+						btn_style.bg_color = Color(0.3, 0.15, 0.15, 0.9)
+						btn_style.border_color = Color(0.6, 0.3, 0.3)
+					"FIRERATE":
+						btn_style.bg_color = Color(0.15, 0.25, 0.35, 0.9)
+						btn_style.border_color = Color(0.3, 0.5, 0.7)
+					"PIERCE":
+						btn_style.bg_color = Color(0.3, 0.15, 0.35, 0.9)
+						btn_style.border_color = Color(0.5, 0.3, 0.7)
+					"CRIT":
+						btn_style.bg_color = Color(0.35, 0.3, 0.15, 0.9)
+						btn_style.border_color = Color(0.7, 0.6, 0.3)
+					_:
+						btn_style.bg_color = Color(0.25, 0.25, 0.25, 0.9)
+						btn_style.border_color = Color(0.4, 0.4, 0.4)
+				
+				btn_style.border_width_left = 2
+				btn_style.border_width_top = 2
+				btn_style.border_width_right = 2
+				btn_style.border_width_bottom = 2
+				btn.add_theme_stylebox_override("normal", btn_style)
+				
+				# Estilo hover (mais claro)
+				var hover_style = btn_style.duplicate()
+				hover_style.bg_color = hover_style.bg_color.lightened(0.15)
+				btn.add_theme_stylebox_override("hover", hover_style)
+				
+				# Estilo pressed
+				var pressed_style = btn_style.duplicate()
+				pressed_style.bg_color = pressed_style.bg_color.darkened(0.1)
+				btn.add_theme_stylebox_override("pressed", pressed_style)
+				
+				# Fonte maior para melhor legibilidade
+				btn.add_theme_font_size_override("font_size", 16)
+				btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+		else:
+			btn.visible = false
 
 func _apply_benefit(i: int) -> void:
 	if benefit_applied:
 		return
 	if upgrade_options.is_empty() or i < 0 or i >= upgrade_options.size():
 		return
-	var code: String = upgrade_options[i]["code"]
+	
+	var upgrade = upgrade_options[i]
+	var code: String = upgrade["code"]
+	var current_level = hero["levels"].get(code, 0)
+	var max_level = upgrade.get("max_level", 999)
+	
+	# Verificar se atingiu o limite
+	if current_level >= max_level:
+		return
+	
+	# Aplicar upgrade
 	match code:
 		"DMG":
 			hero["levels"]["DMG"] += 1
 			hero["damage"] += 1
 		"FIRERATE":
 			hero["levels"]["FIRERATE"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
+			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)  # Reduz tempo entre tiros
 		"PIERCE":
 			hero["levels"]["PIERCE"] += 1
 			hero["pierce"] += 1
+		"CRIT":
+			hero["levels"]["CRIT"] += 1
+			hero["crit_chance"] = min(0.16, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 16%
+	
 	benefit_applied = true
+	
+	# Desabilitar todos os botões de upgrade após seleção
+	var ov = $CanvasLayer/UpgradeOverlay
+	for j in range(4):
+		var btn = ov.get_node("Panel/Btn" + str(j + 1)) as Button
+		if btn:
+			if j == i:
+				# Destacar o botão selecionado
+				btn.text = "%s (Nível %d/%d) ✓" % [upgrade["label"], current_level + 1, max_level]
+				var selected_style = StyleBoxFlat.new()
+				selected_style.bg_color = Color(0.2, 0.4, 0.2, 0.9)
+				selected_style.border_color = Color(0.3, 0.8, 0.3)
+				selected_style.border_width_left = 3
+				selected_style.border_width_top = 3
+				selected_style.border_width_right = 3
+				selected_style.border_width_bottom = 3
+				btn.add_theme_stylebox_override("normal", selected_style)
+			else:
+				btn.disabled = true
+	
+	# Habilitar botão de continuar
+	var resume_btn = ov.get_node("Panel/BtnResume") as Button
+	if resume_btn:
+		resume_btn.disabled = false
+		var resume_style = StyleBoxFlat.new()
+		resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
+		resume_style.border_color = Color(0.3, 0.8, 0.3)
+		resume_style.border_width_left = 2
+		resume_style.border_width_top = 2
+		resume_style.border_width_right = 2
+		resume_style.border_width_bottom = 2
+		resume_btn.add_theme_stylebox_override("normal", resume_style)
+		var resume_hover = resume_style.duplicate()
+		resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 
 func _resume_after_upgrade() -> void:
 	if not benefit_applied:
@@ -2205,7 +2403,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				game_over = true
 				paused = true
 				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
 			return
 		# Limitar movimento para não ultrapassar o alvo
 		var move_dist = e["speed"] * dt
@@ -2236,7 +2434,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				game_over = true
 				paused = true
 				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
 			return
 		# Limitar movimento para não ultrapassar o alvo
 		var move_dist = e["speed"] * dt
@@ -2305,7 +2503,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				game_over = true
 				paused = true
 				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
 			return
 		# Garantir que não ultrapasse o tamanho do array
 		if e["path_index"] >= e["path"].size():
@@ -2328,7 +2526,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				game_over = true
 				paused = true
 				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
 			return
 		if e["path_index"] >= e["path"].size():
 			e["path_index"] = e["path"].size() - 1
@@ -2346,7 +2544,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				game_over = true
 				paused = true
 				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
 			return
 
 func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
@@ -2357,7 +2555,23 @@ func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
 	if skill_damage_boost_active:
 		hero_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
 	
-	var a = { "pos": Vector2(x,y), "vel": dir/d * HERO_ARROW_SPEED, "life": 2.0, "radius": 2, "damage": hero_damage, "pierce": hero["pierce"] }
+	# Velocidade da flecha (fixa)
+	var arrow_speed = HERO_ARROW_SPEED
+	
+	# Verificar crítico
+	var is_crit = randf() < hero.get("crit_chance", 0.0)
+	if is_crit:
+		hero_damage *= hero.get("crit_multiplier", 2.0)
+	
+	var a = { 
+		"pos": Vector2(x,y), 
+		"vel": dir/d * arrow_speed, 
+		"life": 2.0, 
+		"radius": 2, 
+		"damage": hero_damage, 
+		"pierce": hero["pierce"],
+		"is_crit": is_crit
+	}
 	return a
 
 func _arrow_update(a: Dictionary, dt: float) -> void:
@@ -2373,9 +2587,10 @@ func _handle_collisions() -> void:
 				continue
 			if a["pos"].distance_to(e["pos"]) < (a["radius"] + e["radius"]):
 				var old_hp = e["hp"]
-				e["hp"] -= a["damage"]
-				# Criar indicador de dano
-				_create_damage_number(e["pos"], a["damage"], false)
+				var damage = a["damage"]
+				e["hp"] -= damage
+				# Criar indicador de dano (amarelo se crítico)
+				_create_damage_number(e["pos"], damage, a.get("is_crit", false))
 				if e["hp"] <= 0:
 					e["hp"] = 0
 					e["dying"] = true
@@ -2633,7 +2848,7 @@ func _calculate_leading_target(enemy: Dictionary, hero_pos: Vector2) -> Vector2:
 		var miss_dir = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
 		if miss_dir.length() > 0.001:
 			miss_dir = miss_dir.normalized()
-			var miss_distance = GameConstants.TILE_SIZE * randf_range(0.6, 1.1)
+			var miss_distance = GameConstants.TILE_SIZE * randf_range(1.2, 2.5)  # Aumentado desvio aleatório
 			predicted += miss_dir * miss_distance
 	
 	return predicted
@@ -2656,6 +2871,14 @@ func _get_enemy_velocity(enemy: Dictionary) -> Vector2:
 	if to_base.length() > 0.01:
 		return to_base.normalized() * speed
 	return Vector2.ZERO
+
+func _find_mine_at(world_pos: Vector2, radius: float = 12.0) -> int:
+	for i in range(mines.size()):
+		var tile = Vector2i(int(mines[i].grid_x), int(mines[i].grid_y))
+		var tile_center = grid_manager.tile_center(tile.x, tile.y)
+		if world_pos.distance_to(tile_center) <= radius:
+			return i
+	return -1
 
 func _create_admin_menu(tb: Panel) -> void:
 	# Criar menu de admin apenas se isAdmin estiver ativado
@@ -2691,7 +2914,7 @@ func _create_admin_menu(tb: Panel) -> void:
 	# Criar botão que abre o menu
 	admin_menu_button = Button.new()
 	admin_menu_button.name = "BtnAdmin"
-	admin_menu_button.text = "Admin"
+	admin_menu_button.text = "Admin"  # Mantém "Admin" (termo técnico)
 	admin_menu_button.position = Vector2(600, 8)
 	admin_menu_button.size = Vector2(100, 28)
 	
@@ -3243,6 +3466,43 @@ func _is_in_center_area(world_pos: Vector2) -> bool:
 	var center_radius = GameConstants.TILE_SIZE * 2.0  # 2 tiles de raio
 	return dist < center_radius
 
+func _world_to_tile_coords(world_pos: Vector2) -> Vector2i:
+	return Vector2i(
+		int(floor(world_pos.x / GameConstants.TILE_SIZE)),
+		int(floor(world_pos.y / GameConstants.TILE_SIZE))
+	)
+
+func _is_tile_within_bounds(tile: Vector2i) -> bool:
+	return tile.x >= 0 and tile.x < GameConstants.GRID_COLS and tile.y >= 0 and tile.y < GameConstants.GRID_ROWS
+
+func _is_walkable_tile(tile: Vector2i) -> bool:
+	if not _is_tile_within_bounds(tile):
+		return false
+	if grid_manager.grid.size() <= tile.y or grid_manager.grid[tile.y].size() <= tile.x:
+		return false
+	return grid_manager.grid[tile.y][tile.x] == 0
+
+func _mine_tile_key(tile: Vector2i) -> String:
+	return "%d_%d" % [tile.x, tile.y]
+
+func _is_mine_tile_occupied(tile: Vector2i) -> bool:
+	return mine_tiles.has(_mine_tile_key(tile))
+
+func _register_mine_tile(tile: Vector2i) -> void:
+	mine_tiles[_mine_tile_key(tile)] = true
+
+func _unregister_mine_tile(tile: Vector2i) -> void:
+	var key = _mine_tile_key(tile)
+	if mine_tiles.has(key):
+		mine_tiles.erase(key)
+
+func _rebuild_mine_tiles() -> void:
+	mine_tiles.clear()
+	for mine in mines:
+		if mine is Dictionary and mine.has("grid_x") and mine.has("grid_y"):
+			var tile = Vector2i(int(mine["grid_x"]), int(mine["grid_y"]))
+			mine_tiles[_mine_tile_key(tile)] = true
+
 func _try_place_mine(pos: Vector2) -> void:
 	if hero["coins"] < GameConstants.MINE_COST:
 		placing_mine = false
@@ -3250,34 +3510,36 @@ func _try_place_mine(pos: Vector2) -> void:
 	if mines.size() >= GameConstants.MAX_MINES:
 		placing_mine = false
 		return
-	if not grid_manager.is_inside_base_point(pos):
+	
+	# Mina deve ficar no labirinto (fora da base) e em tiles caminháveis
+	if grid_manager.is_inside_base_point(pos):
 		placing_mine = false
 		return
 	
-	# Verificar se está em um caminho (não permitir)
-	if _is_on_path(pos):
+	var tile = _world_to_tile_coords(pos)
+	if not _is_walkable_tile(tile):
 		placing_mine = false
 		return
-	
-	# Verificar se está no centro (não permitir)
 	if _is_in_center_area(pos):
 		placing_mine = false
 		return
-	
-	var grid_coord = grid_manager.world_to_base_grid(pos)
-	if not grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.MINE_SIZE_GRID, 4):
+	if _is_mine_tile_occupied(tile):
 		placing_mine = false
 		return
-	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.MINE_SIZE_GRID, 4)
-	pathfinder.invalidate_cache()
-	var mine_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	
+	var mine_world_pos = grid_manager.tile_center(tile.x, tile.y)
 	mines.append({
 		"pos": mine_world_pos,
-		"grid_x": grid_coord.x,
-		"grid_y": grid_coord.y,
-		"damage": 5.0,
+		"grid_x": tile.x,
+		"grid_y": tile.y,
+		"damage": GameConstants.MINE_DAMAGE,
+		"explosion_radius": GameConstants.MINE_EXPLOSION_RADIUS,
+		"slow_duration": GameConstants.MINE_SLOW_DURATION,
+		"slow_amount": GameConstants.MINE_SLOW_AMOUNT,
+		"trigger_radius": GameConstants.MINE_TRIGGER_RADIUS,
 		"triggered": false
 	})
+	_register_mine_tile(tile)
 	hero["coins"] -= GameConstants.MINE_COST
 	placing_mine = false
 
@@ -3944,34 +4206,59 @@ func _update_mines(delta: float) -> void:
 		if m.triggered:
 			mines_to_remove.append(i)
 			continue
+		var trigger_radius = m.get("trigger_radius", GameConstants.MINE_TRIGGER_RADIUS)
 		# verificar se algum inimigo passou pela mina
 		for e in enemies:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
 			var dist = m.pos.distance_to(e["pos"])
-			if dist < 15.0:  # raio de ativação
-				# ativar mina
-				e["hp"] -= m.damage
-				_create_damage_number(e["pos"], m.damage, false)
-				if e["hp"] <= 0:
-					e["hp"] = 0
-					e["dying"] = true
-					e["dying_time"] = 0.0
-					_create_death_animation(e["pos"])
-					hero["coins"] += GameConstants.NORMAL_REWARD
-					# chance de dropar moeda
-					_try_drop_coin(e["pos"])
-					# Rastrear achievements de kills
-					_track_enemy_kill(false)
+			if dist <= trigger_radius:
 				m.triggered = true
+				_detonate_mine(m)
 				mines_to_remove.append(i)
 				break
 	# remover minas ativadas (em ordem reversa para não quebrar índices)
 	mines_to_remove.reverse()
 	for idx in mines_to_remove:
 		if idx < mines.size():
-			grid_manager.clear_grid_area(mines[idx].grid_x, mines[idx].grid_y, GameConstants.MINE_SIZE_GRID)
+			var tile = Vector2i(int(mines[idx].grid_x), int(mines[idx].grid_y))
+			_unregister_mine_tile(tile)
 			mines.remove_at(idx)
+
+func _detonate_mine(mine: Dictionary) -> void:
+	var explosion_damage = mine.get("damage", GameConstants.MINE_DAMAGE)
+	var explosion_radius = mine.get("explosion_radius", GameConstants.MINE_EXPLOSION_RADIUS)
+	var slow_duration = mine.get("slow_duration", GameConstants.MINE_SLOW_DURATION)
+	var slow_amount = mine.get("slow_amount", GameConstants.MINE_SLOW_AMOUNT)
+	
+	aoe_effects.append({
+		"pos": mine.pos,
+		"radius": explosion_radius,
+		"time": 0.0,
+		"max_time": 0.35
+	})
+	
+	for e in enemies:
+		if e["hp"] <= 0 or e["reached"]:
+			continue
+		var dist = mine.pos.distance_to(e["pos"])
+		if dist <= explosion_radius:
+			e["hp"] -= explosion_damage
+			_create_damage_number(e["pos"], explosion_damage, false)
+			var enemy_idx = e.get("idx", -1)
+			if enemy_idx >= 0:
+				if not enemy_effects.has(enemy_idx):
+					enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0 }
+				enemy_effects[enemy_idx].slow_time = max(enemy_effects[enemy_idx].get("slow_time", 0.0), slow_duration)
+				enemy_effects[enemy_idx].slow_amount = max(enemy_effects[enemy_idx].get("slow_amount", 0.0), slow_amount)
+			if e["hp"] <= 0:
+				e["hp"] = 0
+				e["dying"] = true
+				e["dying_time"] = 0.0
+				_create_death_animation(e["pos"])
+				hero["coins"] += GameConstants.NORMAL_REWARD
+				_try_drop_coin(e["pos"])
+				_track_enemy_kill(e.get("is_boss", false))
 
 func _update_slow_towers(delta: float) -> void:
 	for st in slow_towers:
@@ -4453,14 +4740,14 @@ func _show_save_slot_dialog() -> void:
 		slot_button.custom_minimum_size = Vector2(460, 60)
 		slot_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		
-		var button_text = "Slot %d" % i
+		var button_text = "Posição %d" % i
 		if has_save:
 			var wave = slot_info.get("wave", 0)
 			var coins = slot_info.get("coins", 0)
 			var save_time = slot_info.get("save_time", "Desconhecido")
-			button_text = "Slot %d (Wave: %d | Moedas: %d)\n%s" % [i, wave, coins, save_time]
+			button_text = "Posição %d (Onda: %d | Moedas: %d)\n%s" % [i, wave, coins, save_time]
 		else:
-			button_text = "Slot %d (Vazio)" % i
+			button_text = "Posição %d (Vazio)" % i
 		
 		slot_button.text = button_text
 		
@@ -4579,7 +4866,7 @@ func _show_load_slot_dialog() -> void:
 			# Formatar nome do slot
 			var display_name = ""
 			if is_autosave:
-				display_name = "Auto-save"
+				display_name = "Salvamento Automático"
 			elif slot_name.begins_with("slot"):
 				var slot_num = slot_name.substr(4)
 				display_name = "Slot %s" % slot_num
@@ -4587,7 +4874,7 @@ func _show_load_slot_dialog() -> void:
 				display_name = slot_name
 			
 			# Texto do botão
-			var button_text = "%s\nWave: %d | Moedas: %d | Vida: %d\n%s" % [display_name, wave, coins, base_hp, save_time]
+			var button_text = "%s\nOnda: %d | Moedas: %d | Vida: %d\n%s" % [display_name, wave, coins, base_hp, save_time]
 			slot_button.text = button_text
 			
 			# Estilizar botão
@@ -4653,7 +4940,7 @@ func _load_from_slot(slot_name: String, dialog: Window) -> void:
 			await get_tree().create_timer(2.0).timeout
 			save_status_label.visible = false
 	else:
-		save_status_label.text = "Slot não encontrado!"
+		save_status_label.text = "Posição não encontrada!"
 		save_status_label.modulate = Color(1.0, 0.8, 0.2)  # Amarelo
 		save_status_label.visible = true
 		dialog.queue_free()
@@ -4673,6 +4960,7 @@ func _auto_save_after_wave() -> void:
 
 func _apply_loaded_game_state() -> void:
 	_rebuild_base_grid_from_structures()
+	_rebuild_mine_tiles()
 	pathfinder.invalidate_cache()
 	_reset_build_and_selection_state()
 
@@ -4682,7 +4970,6 @@ func _rebuild_base_grid_from_structures() -> void:
 	grid_manager.reset_base_grid()
 	_occupy_structures_in_grid(towers, GameConstants.TOWER_SIZE_GRID, 1)
 	_occupy_structures_in_grid(barracks, GameConstants.BARRACKS_SIZE_GRID, 3)
-	_occupy_structures_in_grid(mines, GameConstants.MINE_SIZE_GRID, 4)
 	_occupy_structures_in_grid(slow_towers, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 	_occupy_structures_in_grid(aoe_towers, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	_occupy_structures_in_grid(sniper_towers, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)

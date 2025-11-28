@@ -2,3 +2,4 @@ res://scripts/Game.gd
 res://scripts/GridManager.gd
 res://scripts/managers/AchievementManager.gd
 res://scripts/managers/SaveManager.gd
+res://scripts/Constants.gd

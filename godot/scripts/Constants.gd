@@ -13,7 +13,7 @@ const BASE_GRID_SIZE := 15
 # Costs
 const TOWER_COST := 10
 const BARRACKS_COST := 20
-const MINE_COST := 15
+const MINE_COST := 10
 const SLOW_TOWER_COST := 25
 const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
@@ -21,6 +21,12 @@ const BOOST_TOWER_COST := 35
 const SHOCK_TOWER_COST := 40
 const WALL_COST := 10
 const HEALING_STATION_COST := 50
+
+const MINE_DAMAGE := 75.0  # Dano alto
+const MINE_TRIGGER_RADIUS := 18.0
+const MINE_EXPLOSION_RADIUS := 60.0
+const MINE_SLOW_DURATION := 1.5
+const MINE_SLOW_AMOUNT := 0.4
 
 # Sizes
 const TOWER_SIZE_GRID := 3
@@ -99,7 +105,7 @@ const NORMAL_REWARD := 2
 
 # Hero
 const HERO_START_COINS := 0
-const HERO_BASE_FIRE_RATE := 0.35
+const HERO_BASE_FIRE_RATE := 1.0 
 const HERO_BASE_DAMAGE := 1
 
 # Coin drops
