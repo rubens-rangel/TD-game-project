@@ -566,5 +566,3 @@ static func _merge_levels(source: Dictionary, defaults: Dictionary) -> Dictionar
 	for key in source.keys():
 		result[key] = source[key]
 	return result
-
-

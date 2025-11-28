@@ -129,4 +129,3 @@ const SKILL_COLLECT_COINS_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_DAMAGE_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SPEED_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SLOW_ALL_COOLDOWN := 60.0  # segundos de cooldown
-

@@ -1,6 +1,5 @@
 extends Node2D
 
-# Pré-carregar classes
 const GridManager = preload("res://scripts/GridManager.gd")
 const Pathfinder = preload("res://scripts/Pathfinder.gd")
 const WaveManager = preload("res://scripts/WaveManager.gd")
@@ -9,16 +8,21 @@ const GameConstants = preload("res://scripts/Constants.gd")
 const SaveManager = preload("res://scripts/managers/SaveManager.gd")
 const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
 const PerkManager = preload("res://scripts/managers/PerkManager.gd")
+const ResourceManager = preload("res://scripts/managers/ResourceManager.gd")
+const EffectsManager = preload("res://scripts/managers/EffectsManager.gd")
+const CoinManager = preload("res://scripts/managers/CoinManager.gd")
 
 const HERO_ARROW_SPEED := 260.0
 
-# Managers
 var grid_manager: GridManager
 var pathfinder: Pathfinder
 var wave_manager: WaveManager
 var projectile_manager: ProjectileManager
 var achievement_manager: AchievementManager
 var perk_manager: PerkManager
+var resource_manager: ResourceManager
+var effects_manager: EffectsManager
+var coin_manager: CoinManager
 
 # Estatísticas para achievements
 var total_kills: int = 0
@@ -337,7 +341,6 @@ func _ready() -> void:
 	# Criar tela de carregamento primeiro
 	_create_loading_screen()
 	
-	# Inicializar managers
 	grid_manager = GridManager.new()
 	pathfinder = Pathfinder.new(grid_manager.grid, grid_manager.center)
 	wave_manager = WaveManager.new()
@@ -345,7 +348,6 @@ func _ready() -> void:
 	achievement_manager = AchievementManager.get_instance()
 	perk_manager = PerkManager.get_instance()
 	
-	# Aplicar efeitos dos perks
 	_apply_perk_effects()
 	
 	# Conectar signal do wave_manager
@@ -375,54 +377,37 @@ func _ready() -> void:
 	hero["x"] = p.x
 	hero["y"] = p.y
 
-	# Atualizar progresso de carregamento
+	resource_manager = ResourceManager.new()
+	effects_manager = EffectsManager.new()
+	coin_manager = CoinManager.new(effects_manager)
+	
+	resource_manager.loading_progress_updated.connect(_on_resource_loading_progress)
+	coin_manager.coin_collected.connect(_on_coin_collected)
+	
 	_update_loading_progress(0.1)
+	resource_manager.load_all_textures()
 	
-	# tentar carregar assets Kenney se existirem
 	tex_hero = _try_load("res://assets/images/hero.png")
-	_update_loading_progress(0.15)
-	
-	# Carregar e processar sprites dos monstros (remover fundo branco)
-	tex_enemy_zombie = _load_and_process_texture("res://assets/images/enemy_zombie.png")
-	_update_loading_progress(0.25)
-	tex_enemy_humanoid = _load_and_process_texture("res://assets/images/enemy_humanoid.png")
-	_update_loading_progress(0.35)
-	tex_enemy_robot = _load_and_process_texture("res://assets/images/enemy_robot.png")
-	_update_loading_progress(0.45)
-	
-	# Carregar e processar todas as texturas (remover fundo branco)
-	tex_tent = _load_and_process_texture("res://assets/images/tent.png")
-	tex_house = _load_and_process_texture("res://assets/images/house.png")
-	tex_castle = _load_and_process_texture("res://assets/images/castle.png")
-	if tex_tent != null:
-		print("Tenda carregada: ", tex_tent.get_width(), "x", tex_tent.get_height())
-	_update_loading_progress(0.55)
-	
-	tex_grass = _try_load("res://assets/images/grass.png")
-	tex_path = _try_load("res://assets/images/path.png")  # Textura do caminho
-	tex_wall = _try_load("res://assets/images/wall.png")  # Textura da barreira/cerca (terreno)
-	_update_loading_progress(0.65)
-	
-	# Texturas das torres e estruturas - todas processadas para remover fundo branco
-	print("=== Carregando texturas de torres ===")
-	tex_tower = _load_and_process_texture("res://assets/images/tower.png")
-	_update_loading_progress(0.70)
-	tex_slow_tower = _load_and_process_texture("res://assets/images/slow_tower.png")
-	_update_loading_progress(0.75)
-	tex_aoe_tower = _load_and_process_texture("res://assets/images/aoe_tower.png")
-	_update_loading_progress(0.80)
-	tex_sniper_tower = _load_and_process_texture("res://assets/images/sniper_tower.png")
-	_update_loading_progress(0.85)
-	tex_boost_tower = _load_and_process_texture("res://assets/images/boost_tower.png")
-	_update_loading_progress(0.87)
-	tex_shock_tower = _load_and_process_texture("res://assets/images/shock_tower.jpg")
-	_update_loading_progress(0.90)
-	tex_barracks = _load_and_process_texture("res://assets/images/barracks.png")
-	tex_mine = _load_and_process_texture("res://assets/images/mine.png")
-	tex_wall_structure = _load_and_process_texture("res://assets/images/wall_structure.png")
-	tex_healing_station = _load_and_process_texture("res://assets/images/healing_station.png")
-	tex_coin = _load_and_process_texture("res://assets/images/coin.png")  # Carregar e processar moeda (remover fundo branco)
-	_update_loading_progress(1.0)
+	tex_enemy_zombie = resource_manager.get_texture("enemy_zombie")
+	tex_enemy_humanoid = resource_manager.get_texture("enemy_humanoid")
+	tex_enemy_robot = resource_manager.get_texture("enemy_robot")
+	tex_tent = resource_manager.get_texture("tent")
+	tex_house = resource_manager.get_texture("house")
+	tex_castle = resource_manager.get_texture("castle")
+	tex_grass = resource_manager.get_texture("grass")
+	tex_path = resource_manager.get_texture("path")
+	tex_wall = resource_manager.get_texture("wall")
+	tex_tower = resource_manager.get_texture("tower")
+	tex_slow_tower = resource_manager.get_texture("slow_tower")
+	tex_aoe_tower = resource_manager.get_texture("aoe_tower")
+	tex_sniper_tower = resource_manager.get_texture("sniper_tower")
+	tex_boost_tower = resource_manager.get_texture("boost_tower")
+	tex_shock_tower = resource_manager.get_texture("shock_tower")
+	tex_barracks = resource_manager.get_texture("barracks")
+	tex_mine = resource_manager.get_texture("mine")
+	tex_wall_structure = resource_manager.get_texture("wall_structure")
+	tex_healing_station = resource_manager.get_texture("healing_station")
+	tex_coin = resource_manager.get_texture("coin")
 	
 	# Aguardar um pouco antes de esconder a tela de carregamento
 	await get_tree().create_timer(0.3).timeout
@@ -778,36 +763,11 @@ func _process(delta: float) -> void:
 			new_tb.append(b)
 	tower_bullets = new_tb
 	
-	# atualizar efeitos visuais
-	var new_aoe_effects: Array = []
-	for effect in aoe_effects:
-		effect.time += delta
-		if effect.time < effect.max_time:
-			new_aoe_effects.append(effect)
-	aoe_effects = new_aoe_effects
-	
-	var new_sniper_effects: Array = []
-	for effect in sniper_effects:
-		effect.time += delta
-		if effect.time < effect.max_time:
-			new_sniper_effects.append(effect)
-	sniper_effects = new_sniper_effects
-	
-	# atualizar efeitos de coleta de moedas
-	var new_coin_effects: Array = []
-	for effect in coin_collect_effects:
-		effect.time += delta
-		# atualizar partículas
-		var new_particles: Array = []
-		for particle in effect.particles:
-			particle.time += delta
-			particle.pos += particle.vel * delta
-			if particle.time < particle.max_time:
-				new_particles.append(particle)
-		effect.particles = new_particles
-		if effect.time < effect.max_time or effect.particles.size() > 0:
-			new_coin_effects.append(effect)
-	coin_collect_effects = new_coin_effects
+	if effects_manager:
+		effects_manager.update_effects(delta)
+		aoe_effects = effects_manager.get_aoe_effects()
+		sniper_effects = effects_manager.get_sniper_effects()
+		coin_collect_effects = effects_manager.get_coin_collect_effects()
 	
 	# atualizar indicadores de dano flutuantes
 	var new_damage_numbers: Array = []
@@ -838,15 +798,9 @@ func _process(delta: float) -> void:
 			new_shock_effects.append(effect)
 	shock_effects = new_shock_effects
 	
-	# atualizar moedas dropadas
-	var new_dropped_coins: Array = []
-	for coin in dropped_coins:
-		if coin.collected:
-			continue
-		coin.lifetime += delta
-		if coin.lifetime < coin.max_lifetime:
-			new_dropped_coins.append(coin)
-	dropped_coins = new_dropped_coins
+	if coin_manager:
+		coin_manager.update_coins(delta)
+		dropped_coins = coin_manager.get_dropped_coins()
 	# remover inimigos mortos/que chegaram na base e limpar efeitos
 	var alive: Array = []
 	var new_enemy_effects: Dictionary = {}
@@ -1137,39 +1091,20 @@ func _input(event: InputEvent) -> void:
 			var screen_pos = event.position
 			var world_pos = to_local(screen_pos)
 			
-			# verificar se clicou em uma moeda dropada
-			var coin_collected = false
-			var collected_coin_pos: Vector2 = Vector2.ZERO
-			for coin in dropped_coins:
-				if coin.collected:
-					continue
-				var dist = world_pos.distance_to(coin.pos)
-				if dist < 20.0:  # raio de coleta da moeda (aumentado para facilitar coleta)
-					hero["coins"] += coin.value
-					collected_coin_pos = coin.pos
-					coin.collected = true
-					coin_collected = true
-					# Rastrear achievements de moedas
-					total_coins_collected += coin.value
-					achievement_manager.increment_progress("collect_1000_coins", coin.value)
-					achievement_manager.increment_progress("collect_10000_coins", coin.value)
-					achievement_manager.increment_progress("collect_100000_coins", coin.value)
-					achievement_manager.increment_progress("collect_1000000_coins", coin.value)
-					
-					# Verificar se tem 10000 ou 50000 moedas ao mesmo tempo
+			if coin_manager:
+				var coin_value = coin_manager.try_collect_coin(world_pos)
+				if coin_value > 0:
+					achievement_manager.increment_progress("collect_1000_coins", coin_value)
+					achievement_manager.increment_progress("collect_10000_coins", coin_value)
+					achievement_manager.increment_progress("collect_100000_coins", coin_value)
+					achievement_manager.increment_progress("collect_1000000_coins", coin_value)
 					if hero["coins"] >= 10000:
 						achievement_manager.set_progress("hold_10000_coins", 1)
 					if hero["coins"] >= 50000:
 						achievement_manager.set_progress("hold_50000_coins", 1)
-					# Criar efeito visual de coleta
-					_create_coin_collect_effect(collected_coin_pos)
-					# Tocar som de coleta de moeda
 					_play_coin_sound()
-					break
-			
-			if coin_collected:
-				queue_redraw()
-				return
+					queue_redraw()
+					return
 			
 			if placing_tower:
 				_try_place_tower(world_pos)
@@ -4231,12 +4166,8 @@ func _detonate_mine(mine: Dictionary) -> void:
 	var slow_duration = mine.get("slow_duration", GameConstants.MINE_SLOW_DURATION)
 	var slow_amount = mine.get("slow_amount", GameConstants.MINE_SLOW_AMOUNT)
 	
-	aoe_effects.append({
-		"pos": mine.pos,
-		"radius": explosion_radius,
-		"time": 0.0,
-		"max_time": 0.35
-	})
+	if effects_manager:
+		effects_manager.create_aoe_effect(mine.pos, explosion_radius, 0.35)
 	
 	for e in enemies:
 		if e["hp"] <= 0 or e["reached"]:
@@ -4335,12 +4266,8 @@ func _update_aoe_towers(delta: float) -> void:
 		
 		if move_dist >= dist_to_target:
 			# projétil chegou ao alvo - criar explosão
-			aoe_effects.append({
-				"pos": proj.target,
-				"time": 0.0,
-				"max_time": 0.3,
-				"radius": proj.radius
-			})
+			if effects_manager:
+				effects_manager.create_aoe_effect(proj.target, proj.radius, 0.3)
 			# causar dano em área
 			for e in enemies:
 				if e["hp"] <= 0 or e["reached"]:
@@ -4416,12 +4343,8 @@ func _update_sniper_towers(delta: float) -> void:
 				# criar efeito visual de linha de tiro
 				var dir = (target_enemy["pos"] - sniper.pos).normalized()
 				var hit_pos = target_enemy["pos"]
-				sniper_effects.append({
-					"start": sniper.pos,
-					"end": hit_pos,
-					"time": 0.0,
-					"max_time": 0.15
-				})
+				if effects_manager:
+					effects_manager.create_sniper_effect(sniper.pos, hit_pos, 0.15)
 				# causar dano com pierce - ordenar inimigos por distância ao longo da linha
 				var enemies_in_line: Array = []
 				for e in enemies:
@@ -5021,16 +4944,8 @@ func _reset_build_and_selection_state() -> void:
 	_hide_range_indicator()
 
 func _try_drop_coin(pos: Vector2) -> void:
-	# chance aleatória de dropar moeda (base + perks)
-	if randf() < coin_drop_chance:
-		var coin_value = randi_range(GameConstants.COIN_MIN_VALUE, GameConstants.COIN_MAX_VALUE)
-		dropped_coins.append({
-			"pos": pos,
-			"value": coin_value,
-			"lifetime": 0.0,
-			"max_lifetime": GameConstants.COIN_LIFETIME,
-			"collected": false
-		})
+	if coin_manager:
+		coin_manager.try_drop_coin(pos)
 
 func _create_loading_screen() -> void:
 	# Criar tela de carregamento
@@ -5126,29 +5041,8 @@ func _hide_loading_screen() -> void:
 		loading_screen = null
 
 func _create_coin_collect_effect(pos: Vector2) -> void:
-	# Criar efeito visual de coleta de moeda (amarelo/dourado)
-	var effect = {
-		"pos": pos,
-		"time": 0.0,
-		"max_time": 0.5,  # duração do efeito em segundos
-		"particles": []
-	}
-	
-	# Criar partículas que voam para fora (estrelas/brilhos)
-	var particle_count = 12
-	for i in range(particle_count):
-		var angle = (TAU / particle_count) * i  # distribuir uniformemente em círculo
-		var speed = randf_range(80.0, 150.0)
-		var vel = Vector2(cos(angle), sin(angle)) * speed
-		var particle = {
-			"pos": pos,
-			"vel": vel,
-			"time": 0.0,
-			"max_time": randf_range(0.3, 0.6)
-		}
-		effect.particles.append(particle)
-	
-	coin_collect_effects.append(effect)
+	if effects_manager:
+		effects_manager.create_coin_collect_effect(pos)
 
 func _play_coin_sound() -> void:
 	# Tocar som de coleta de moeda
@@ -5933,22 +5827,15 @@ func _on_skill_collect_coins() -> void:
 		achievement_manager.increment_progress("collect_skill")
 		skill_used = true
 	
-	# Coletar todas as moedas do mapa
 	var total_collected = 0
-	for coin in dropped_coins:
-		if not coin.collected:
-			hero["coins"] += coin.value
-			total_collected += coin.value
-			coin.collected = true
-			# Criar efeito visual de coleta
-			_play_coin_sound()
-	
-	# Remover moedas coletadas
-	var new_coins: Array = []
-	for coin in dropped_coins:
-		if not coin.collected:
-			new_coins.append(coin)
-	dropped_coins = new_coins
+	if coin_manager:
+		for coin in coin_manager.get_dropped_coins():
+			if not coin.collected:
+				var value = coin.value
+				coin.collected = true
+				hero["coins"] += value
+				total_collected += value
+				_play_coin_sound()
 	
 	# Ativar cooldown
 	skill_collect_coins_cooldown = GameConstants.SKILL_COLLECT_COINS_COOLDOWN
@@ -6289,5 +6176,9 @@ func _apply_perk_effects() -> void:
 		# Limitar a 100% (embora não deva chegar lá)
 		coin_drop_chance = min(coin_drop_chance, 1.0)
 	
-	# Outros efeitos serão aplicados durante o jogo conforme necessário
-	# (coin_value, tower_cost_reduction, etc.)
+func _on_resource_loading_progress(progress: float) -> void:
+	_update_loading_progress(progress)
+
+func _on_coin_collected(value: int) -> void:
+	hero["coins"] += value
+	total_coins_collected += value

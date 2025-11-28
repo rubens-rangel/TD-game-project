@@ -53,11 +53,16 @@ func load_all_textures() -> void:
 	textures["boost_tower"] = load_texture("res://assets/images/boost_tower.png", true)
 	_update_progress(0.85)
 	
+	textures["shock_tower"] = load_texture("res://assets/images/shock_tower.jpg", true)
+	_update_progress(0.9)
+	
 	textures["barracks"] = load_texture("res://assets/images/barracks.png", true)
 	textures["mine"] = load_texture("res://assets/images/mine.png", true)
 	textures["wall_structure"] = load_texture("res://assets/images/wall_structure.png", true)
 	textures["healing_station"] = load_texture("res://assets/images/healing_station.png", true)
 	textures["coin"] = load_texture("res://assets/images/coin.png", true)
+	textures["house"] = load_texture("res://assets/images/house.png", true)
+	textures["castle"] = load_texture("res://assets/images/castle.png", true)
 	_update_progress(1.0)
 
 func _update_progress(progress: float) -> void:
