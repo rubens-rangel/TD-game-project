@@ -11,18 +11,26 @@ func _init(p_grid: Array, p_center: Vector2i):
 	grid = p_grid
 	center = p_center
 
+var wall_tiles: Dictionary = {}  # "col_row" -> true para rastrear muralhas no labirinto
+
+func set_wall_tiles(walls: Dictionary) -> void:
+	wall_tiles = walls
+
 func is_walkable(c: int, r: int, base_grid: Array) -> bool:
 	if not (r >= 0 and r < GameConstants.GRID_ROWS and c >= 0 and c < GameConstants.GRID_COLS):
 		return false
 	if grid[r][c] != 0:
 		return false
 	
-	# verificar se tem bloco nessa posição usando o grid da base
+	var wall_key = "%d_%d" % [c, r]
+	if wall_tiles.has(wall_key):
+		return false
+	
 	var check_pos = _tile_center(c, r)
 	var grid_coord = _world_to_base_grid(check_pos)
 	if grid_coord.x >= 0 and grid_coord.x < GameConstants.BASE_GRID_SIZE and grid_coord.y >= 0 and grid_coord.y < GameConstants.BASE_GRID_SIZE:
 		if base_grid.size() > grid_coord.y and base_grid[grid_coord.y].size() > grid_coord.x:
-			if base_grid[grid_coord.y][grid_coord.x] == 2:  # 2 = bloco
+			if base_grid[grid_coord.y][grid_coord.x] == 2:
 				return false
 	return true
 

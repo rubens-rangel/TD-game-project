@@ -37,6 +37,7 @@ var first_play: bool = true
 var skill_used: bool = false
 var maxed_towers_count: int = 0  # Contador de torres maximizadas
 var walls_built: int = 0  # Contador de muros construídos
+var global_tower_damage_boost: float = 1.0  # Multiplicador global de dano para todas as torres
 
 # Efeitos de perks aplicados
 var perk_effects: Dictionary = {}  # armazena efeitos dos perks
@@ -77,6 +78,7 @@ var towers: Array = []
 var barracks: Array = []  # quartéis - cada quartel: {grid_x: int, grid_y: int, pos: Vector2, soldier_spawn_cd: float, soldiers: Array}
 var mines: Array = []  # minas: {grid_x: int, grid_y: int, pos: Vector2, damage: float, explosion_radius: float, slow_duration: float, slow_amount: float, trigger_radius: float, triggered: bool}
 var mine_tiles: Dictionary = {}  # "col_row" -> true para evitar minas duplicadas no mesmo tile
+var wall_tiles: Dictionary = {}  # "col_row" -> true para rastrear tiles ocupados por muralhas no labirinto
 var slow_towers: Array = []  # slow towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, slow_amount: float, cooldown: float, fire_rate: float}
 var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, aoe_radius: float, cooldown: float, fire_rate: float}
 var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
@@ -111,7 +113,7 @@ var boost_selected_index := -1
 
 # Drag and drop state
 var dragging_tower := false
-var dragged_tower_type := ""  # "tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower"
+var dragged_tower_type := ""  # "tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower", "mine", "wall", "barracks"
 var dragged_tower_index := -1
 var drag_start_pos: Vector2 = Vector2.ZERO
 var drag_offset: Vector2 = Vector2.ZERO
@@ -155,6 +157,12 @@ var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
 
+# Sistema de tooltips
+var game_tooltip: Control  # Tooltip global para elementos do jogo
+var tooltip_text: String = ""
+var tooltip_timer: float = 0.0
+const TOOLTIP_DELAY: float = 0.5  # Delay antes de mostrar tooltip
+
 # Menu de admin (testes/debug)
 var admin_menu: PopupMenu
 var admin_menu_button: Button
@@ -192,6 +200,35 @@ var skill_buttons: Dictionary = {}  # Armazenar referências aos botões para at
 func _wave_factor() -> float:
 	return wave_manager.wave_factor()
 
+# ========== FUNÇÕES DE BALANCEAMENTO ==========
+
+# Calcula recompensa escalada de inimigo normal baseada na wave
+func get_enemy_reward() -> int:
+	"""Calcula recompensa de inimigo normal baseada na wave atual"""
+	var scale = pow(GameConstants.REWARD_SCALE, max(0, wave_manager.wave - 1))
+	return int(GameConstants.NORMAL_REWARD * scale)
+
+# Calcula recompensa de boss baseada na wave
+func get_boss_reward() -> int:
+	"""Calcula recompensa de boss baseada na wave atual"""
+	return get_enemy_reward() * GameConstants.BOSS_REWARD_MULTIPLIER
+
+# Calcula custo progressivo de upgrade
+func get_upgrade_cost(base_cost: int, current_level: int) -> int:
+	"""Calcula custo de upgrade com escala progressiva"""
+	return int(base_cost * pow(GameConstants.UPGRADE_COST_MULTIPLIER, current_level))
+
+# Calcula bonus de completion de wave
+func get_wave_completion_bonus() -> int:
+	"""Calcula bonus de moedas por completar uma wave"""
+	return GameConstants.WAVE_COMPLETION_BONUS_BASE + (wave_manager.wave * GameConstants.WAVE_COMPLETION_BONUS_PER_WAVE)
+
+# Calcula custo de torre escalado com wave
+func get_tower_cost(base_cost: int) -> int:
+	"""Calcula custo de torre baseado na wave atual (cresce 2% por wave)"""
+	var wave_scale = pow(1.02, max(0, wave_manager.wave - 1))  # 2% por wave
+	return int(base_cost * wave_scale)
+
 # upgrades overlay state
 var choosing_upgrade := false
 var benefit_applied := false
@@ -199,14 +236,15 @@ var upgrade_options := [
 	{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
 	{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
 	{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
-	{"label": "Crítico", "code": "CRIT", "max_level": 8, "description": "Chance de causar dano crítico (2% por nível, máx 16%)"},
+	{"label": "Chance Crítico", "code": "CRIT_CHANCE", "max_level": 10, "description": "Aumenta chance de crítico (2% por nível, máx 20%)"},
+	{"label": "Dano Crítico", "code": "CRIT_DMG", "max_level": 10, "description": "Aumenta multiplicador de dano crítico (+0.2 por nível)"},
 ]
 
 # hero
 var hero := {
 	"x": 0.0, "y": 0.0, "cooldown": 0.0, "fire_rate": GameConstants.HERO_BASE_FIRE_RATE,
 	"damage": GameConstants.HERO_BASE_DAMAGE, "pierce": 0, "range": 9999.0,
-	"levels": { "DMG": 0, "FIRERATE": 0, "PIERCE": 0, "CRIT": 0 }, 
+	"levels": { "DMG": 0, "FIRERATE": 0, "PIERCE": 0, "CRIT_CHANCE": 0, "CRIT_DMG": 0 }, 
 	"coins": GameConstants.HERO_START_COINS,
 	"crit_chance": 0.0,  # Chance de crítico (0.0 a 1.0)
 	"crit_multiplier": 2.0,  # Multiplicador de dano crítico
@@ -237,20 +275,20 @@ func _get_hero_home_benefits_text(level: int) -> String:
 		1:
 			return "Nível inicial. Proteção básica da tenda."
 		2:
-			return "• Dano do herói +15%\n• Alcance +100\n• Vida da base +40"
+			return "• Dano Global das Torres +10%\n• Alcance +100\n• Vida da base +40"
 		3:
-			return "• Dano do herói +15%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
+			return "• Dano Global das Torres +10%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
 		_:
 			return "Nível máximo alcançado"
 
 func _apply_hero_home_upgrade_effects(level: int) -> void:
 	match level:
 		2:
-			hero["damage"] *= 1.15
+			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres
 			hero["range"] += 100
 			base_hp += 40
 		3:
-			hero["damage"] *= 1.15
+			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres (acumulativo)
 			hero["pierce"] += 1
 			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
 			base_hp += 60
@@ -492,6 +530,9 @@ func _ready() -> void:
 	# Criar UI melhorada - Menu lateral de torres
 	_create_tower_shop_ui()
 	
+	# Criar tooltip global para elementos do jogo
+	_create_game_tooltip()
+	
 	# Criar menu de skills
 	_create_skills_ui()
 	_create_range_indicator()
@@ -678,6 +719,9 @@ func _ready() -> void:
 	set_physics_process(true)
 
 func _process(delta: float) -> void:
+	# Atualizar tooltips (sempre, mesmo quando pausado)
+	_update_game_tooltip(delta)
+	
 	if paused or game_over:
 		return
 
@@ -866,7 +910,8 @@ func _process(delta: float) -> void:
 				{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
 				{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
 				{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
-				{"label": "Crítico", "code": "CRIT", "max_level": 8, "description": "Chance de causar dano crítico (2% por nível, máx 16%)"},
+				{"label": "Chance Crítico", "code": "CRIT_CHANCE", "max_level": 10, "description": "Aumenta chance de crítico (2% por nível, máx 20%)"},
+				{"label": "Dano Crítico", "code": "CRIT_DMG", "max_level": 10, "description": "Aumenta multiplicador de dano crítico (+0.2 por nível)"},
 			]
 			# Filtrar apenas upgrades que não atingiram o limite
 			var available_upgrades = []
@@ -884,6 +929,10 @@ func _process(delta: float) -> void:
 			upgrade_options = available_upgrades
 			# Auto-save quando a wave termina (antes do upgrade overlay)
 			_auto_save_after_wave()
+			# Bonus por completar wave
+			var wave_bonus = get_wave_completion_bonus()
+			hero["coins"] += wave_bonus
+			_track_coin_collected(wave_bonus)
 			choosing_upgrade = true
 			benefit_applied = false
 			$CanvasLayer/UpgradeOverlay.visible = true
@@ -928,7 +977,36 @@ func _update_tower_shop_ui() -> void:
 		if array_ref.is_empty() and tower_info.has("array"):
 			array_ref = tower_info.array
 		var current_count = array_ref.size()
-		var can_afford = hero["coins"] >= tower_info.cost
+		
+		# Atualizar custo do Constants (caso tenha sido alterado)
+		var current_cost = tower_info.cost
+		# Atualizar custo dinamicamente do Constants baseado no nome (com escala de wave)
+		match tower_info.name:
+			"Torre Básica":
+				current_cost = get_tower_cost(GameConstants.TOWER_COST)
+			"Quartel":
+				current_cost = get_tower_cost(GameConstants.BARRACKS_COST)
+			"Mina":
+				current_cost = GameConstants.MINE_COST  # Minas não escalam
+			"Slow Tower":
+				current_cost = get_tower_cost(GameConstants.SLOW_TOWER_COST)
+			"AOE Tower":
+				current_cost = get_tower_cost(GameConstants.AOE_TOWER_COST)
+			"Sniper Tower":
+				current_cost = get_tower_cost(GameConstants.SNIPER_TOWER_COST)
+			"Boost Tower":
+				current_cost = get_tower_cost(GameConstants.BOOST_TOWER_COST)
+			"Shock Tower":
+				current_cost = get_tower_cost(GameConstants.SHOCK_TOWER_COST)
+			"Muralha":
+				current_cost = GameConstants.WALL_COST
+			"Estação de Cura":
+				current_cost = GameConstants.HEALING_STATION_COST
+		
+		# Atualizar o custo no tower_info para uso posterior
+		tower_info.cost = current_cost
+		
+		var can_afford = hero["coins"] >= current_cost
 		var can_buy = can_afford and current_count < tower_info.max
 		
 		# Atualizar label de limite
@@ -937,6 +1015,9 @@ func _update_tower_shop_ui() -> void:
 			tower_button_data.limit_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 		else:
 			tower_button_data.limit_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		
+		# Atualizar texto do custo
+		tower_button_data.cost_label.text = "%d moedas" % current_cost
 		
 		# Atualizar cor do custo
 		if can_afford:
@@ -1084,6 +1165,11 @@ func _input(event: InputEvent) -> void:
 			if mine_idx != -1:
 				_start_drag_tower("mine", mine_idx, world_pos)
 				return
+			
+			var wall_idx := _find_wall_at(world_pos, 15.0)
+			if wall_idx != -1:
+				_start_drag_tower("wall", wall_idx, world_pos)
+				return
 		
 		# Continuar com lógica normal se não iniciou drag
 		if not dragging_tower and not choosing_upgrade:
@@ -1173,7 +1259,11 @@ func _input(event: InputEvent) -> void:
 			# verificar quartéis
 			var barracks_idx := _find_barracks_at(mouse_world_pos, 20.0)
 			if barracks_idx != -1:
-				_open_barracks_menu(barracks_idx, mouse_screen_pos)
+				# Shift+Click para arrastar, clique normal para menu
+				if event.is_shift_pressed():
+					_start_drag_tower("barracks", barracks_idx, mouse_world_pos)
+				else:
+					_open_barracks_menu(barracks_idx, mouse_screen_pos)
 				return
 			# verificar sniper towers
 			var sniper_idx := _find_sniper_tower_at(mouse_world_pos, 20.0)
@@ -1213,14 +1303,11 @@ func _draw() -> void:
 	if grid_manager.grid.is_empty() or grid_manager.grid.size() < GameConstants.GRID_ROWS:
 		return
 	
-	# fundo - desenhar ocupando exatamente o tamanho do grid (mais escuro)
 	var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
 	var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
-	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.02, 0.03, 0.05))
+	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.05, 0.06, 0.08))
+	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.4))
 	
-	# Overlay escuro para escurecer ainda mais a tela (aumentado para escurecer mais)
-	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.7))
-	# draw grid - alinhado perfeitamente aos tiles
 	for r in range(GameConstants.GRID_ROWS):
 		if grid_manager.grid.size() <= r or grid_manager.grid[r].size() < GameConstants.GRID_COLS:
 			continue
@@ -1229,26 +1316,24 @@ func _draw() -> void:
 			var tile_y := float(r * GameConstants.TILE_SIZE)
 			var tile_rect := Rect2(tile_x, tile_y, GameConstants.TILE_SIZE, GameConstants.TILE_SIZE)
 			
-			if grid_manager.grid[r][c] == 0:  # Caminho (chão)
+			if grid_manager.grid[r][c] == 0:
 				if tex_path != null:
-					# Usar textura do caminho
 					draw_texture_rect(tex_path, tile_rect, false)
 				elif tex_grass != null:
-					# Fallback para grama antiga
 					draw_texture_rect(tex_grass, tile_rect, true)
 				else:
-					# Cor padrão do chão (mais escura)
-					draw_rect(tile_rect, Color(0.12,0.13,0.16))
-			else:  # Barreira/cerca (parede)
+					var path_color = Color(0.16, 0.14, 0.12)
+					draw_rect(tile_rect, path_color)
+					draw_rect(tile_rect, Color(0.20, 0.18, 0.16), false, 1.0)
+			else:
 				if tex_wall != null:
-					# Usar textura da barreira
 					draw_texture_rect(tex_wall, tile_rect, false)
 				else:
-					# Cor padrão da parede (mais escura)
-					draw_rect(tile_rect, Color(0.20,0.22,0.28))
-	
-	# Camada escura por cima do labirinto para escurecer
-	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.4))
+					var wall_base = Color(0.24, 0.22, 0.20)
+					var wall_shadow = Color(0.16, 0.14, 0.12)
+					draw_rect(tile_rect, wall_base)
+					draw_rect(Rect2(tile_x + 1, tile_y + 1, GameConstants.TILE_SIZE - 2, GameConstants.TILE_SIZE - 2), wall_shadow)
+					draw_rect(tile_rect, Color(0.28, 0.26, 0.24), false, 1.5)
 	
 	# base com transparência moderada - usar coordenadas exatas do grid
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)  # 3
@@ -1262,7 +1347,10 @@ func _draw() -> void:
 	var base_height_px = float(GameConstants.BASE_SIZE_TILES) * GameConstants.TILE_SIZE
 	
 	var base_rect := Rect2(base_left_px, base_top_px, base_width_px, base_height_px)
-	draw_rect(base_rect, Color(0.2,0.24,0.28,0.6))  # transparência moderada
+	var base_color = Color(0.28, 0.32, 0.38, 0.5)
+	var base_glow = Color(0.38, 0.42, 0.48, 0.5)
+	draw_rect(base_rect, base_color)
+	draw_rect(base_rect, base_glow, false, 2.0)
 	
 	# desenhar grid da base com transparência - alinhado perfeitamente aos tiles
 	var grid_size_px: float = base_width_px / float(GameConstants.BASE_GRID_SIZE)
@@ -1271,12 +1359,13 @@ func _draw() -> void:
 	var base_right: float = base_left_px + base_width_px
 	var base_bottom: float = base_top_px + base_height_px
 	
+	var grid_color = Color(0.4, 0.42, 0.45, 0.4)
 	for gy in range(GameConstants.BASE_GRID_SIZE + 1):
 		var y = base_top + float(gy) * grid_size_px
-		draw_line(Vector2(base_left, y), Vector2(base_right, y), Color(0.3,0.32,0.36,0.5), 1.0)
+		draw_line(Vector2(base_left, y), Vector2(base_right, y), grid_color, 0.5)
 	for gx in range(GameConstants.BASE_GRID_SIZE + 1):
 		var x = base_left + float(gx) * grid_size_px
-		draw_line(Vector2(x, base_top), Vector2(x, base_bottom), Color(0.3,0.32,0.36,0.5), 1.0)
+		draw_line(Vector2(x, base_top), Vector2(x, base_bottom), grid_color, 0.5)
 	
 	# Desenhar base/casa do herói ocupando bloco 3x3 (84px se tile=28)
 	var bc = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
@@ -1450,11 +1539,18 @@ func _draw() -> void:
 			"shock_tower":
 				preview_size = grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
 				preview_tex = tex_shock_tower
+			"mine":
+				preview_size = 16.0
+				preview_tex = tex_mine
 		
 		# Verificar se a posição é válida
 		var grid_coord = grid_manager.world_to_base_grid(preview_pos)
 		var can_place = false
-		if grid_manager.is_inside_base_point(preview_pos):
+		if dragged_tower_type == "mine":
+			# Lógica especial para minas (fora da base)
+			var tile = _world_to_tile_coords(preview_pos)
+			can_place = _is_tile_within_bounds(tile) and _is_walkable_tile(tile) and not grid_manager.is_inside_base_point(preview_pos) and not _is_in_center_area(preview_pos) and not _is_mine_tile_occupied(tile)
+		elif grid_manager.is_inside_base_point(preview_pos):
 			match dragged_tower_type:
 				"tower":
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
@@ -1469,21 +1565,23 @@ func _draw() -> void:
 				"shock_tower":
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 		
-		var preview_rect = Rect2(preview_pos.x - preview_size/2, preview_pos.y - preview_size/2, preview_size, preview_size)
-		if can_place:
-			# Posição válida - verde semi-transparente
-			if preview_tex != null:
-				draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+		# Não renderizar preview para minas aqui (já tem renderização separada)
+		if dragged_tower_type != "mine":
+			var preview_rect = Rect2(preview_pos.x - preview_size/2, preview_pos.y - preview_size/2, preview_size, preview_size)
+			if can_place:
+				# Posição válida - verde semi-transparente
+				if preview_tex != null:
+					draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+				else:
+					draw_rect(preview_rect, Color(0.7, 0.9, 0.7, 0.7))
+				draw_rect(preview_rect, Color(0.5, 0.8, 0.5), false, 2.0)
 			else:
-				draw_rect(preview_rect, Color(0.7, 0.9, 0.7, 0.7))
-			draw_rect(preview_rect, Color(0.5, 0.8, 0.5), false, 2.0)
-		else:
-			# Posição inválida - vermelho semi-transparente
-			if preview_tex != null:
-				draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
-			else:
-				draw_rect(preview_rect, Color(0.9, 0.3, 0.3, 0.7))
-			draw_rect(preview_rect, Color(0.8, 0.2, 0.2), false, 2.0)
+				# Posição inválida - vermelho semi-transparente
+				if preview_tex != null:
+					draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
+				else:
+					draw_rect(preview_rect, Color(0.9, 0.3, 0.3, 0.7))
+				draw_rect(preview_rect, Color(0.8, 0.2, 0.2), false, 2.0)
 	
 	# towers (3x3 no grid)
 	for i in range(towers.size()):
@@ -1499,7 +1597,11 @@ func _draw() -> void:
 			draw_rect(r, Color(0.7,0.7,0.8))
 			draw_rect(r, Color(0.5,0.5,0.6), false, 2.0)  # borda
 	# barracks (3x3 no grid)
-	for br in barracks:
+	for i in range(barracks.size()):
+		# Não desenhar o quartel que está sendo arrastado
+		if dragging_tower and dragged_tower_type == "barracks" and i == dragged_tower_index:
+			continue
+		var br = barracks[i]
 		var barracks_size := grid_size_px * GameConstants.BARRACKS_SIZE_GRID
 		var br_rect := Rect2(br.pos.x - barracks_size/2, br.pos.y - barracks_size/2, barracks_size, barracks_size)
 		if tex_barracks != null:
@@ -1508,7 +1610,11 @@ func _draw() -> void:
 			draw_rect(br_rect, Color(0.4,0.5,0.6))
 			draw_rect(br_rect, Color(0.3,0.4,0.5), false, 2.0)  # borda
 	# minas
-	for m in mines:
+	for i in range(mines.size()):
+		# Não desenhar a mina que está sendo arrastada
+		if dragging_tower and dragged_tower_type == "mine" and i == dragged_tower_index:
+			continue
+		var m = mines[i]
 		if not m.triggered:
 			if tex_mine != null:
 				var mine_size = 16.0
@@ -1577,10 +1683,16 @@ func _draw() -> void:
 		else:
 			draw_rect(shock_rect, Color(0.5,0.3,0.9))  # roxo para torre de choque
 			draw_rect(shock_rect, Color(0.4,0.2,0.8), false, 2.0)
-	# walls
-	for w in walls:
+	for i in range(walls.size()):
+		if dragging_tower and dragged_tower_type == "wall" and i == dragged_tower_index:
+			continue
+		var w = walls[i]
 		if w.hp > 0:
-			var wall_size := grid_size_px * GameConstants.WALL_SIZE_GRID
+			var wall_size: float
+			if grid_manager.is_inside_base_point(w.pos):
+				wall_size = grid_size_px * GameConstants.WALL_SIZE_GRID
+			else:
+				wall_size = float(GameConstants.TILE_SIZE) * 1.1
 			var wall_rect := Rect2(w.pos.x - wall_size/2, w.pos.y - wall_size/2, wall_size, wall_size)
 			if tex_wall_structure != null:
 				# Aplicar transparência baseada no HP
@@ -1592,6 +1704,61 @@ func _draw() -> void:
 				var wall_color = Color(0.6,0.4,0.2) * hp_ratio + Color(0.3,0.2,0.1) * (1.0 - hp_ratio)
 				draw_rect(wall_rect, wall_color)
 				draw_rect(wall_rect, Color(0.4,0.3,0.2), false, 2.0)
+	
+	# Desenhar mina sendo arrastada (fora do match principal)
+	if dragging_tower and dragged_tower_type == "mine" and dragged_tower_index >= 0 and dragged_tower_index < mines.size():
+		var m = mines[dragged_tower_index]
+		var mine_size = 16.0
+		var drag_pos = drag_current_pos - drag_offset
+		var tile = _world_to_tile_coords(drag_pos)
+		var can_place = _is_tile_within_bounds(tile) and _is_walkable_tile(tile) and not grid_manager.is_inside_base_point(drag_pos) and not _is_in_center_area(drag_pos) and not _is_mine_tile_occupied(tile)
+		var mine_rect := Rect2(drag_pos.x - mine_size/2, drag_pos.y - mine_size/2, mine_size, mine_size)
+		if can_place:
+			if tex_mine != null:
+				draw_texture_rect(tex_mine, mine_rect, false, Color(1, 1, 1, 0.7))
+			else:
+				draw_circle(drag_pos, 8, Color(0.7, 0.9, 0.7, 0.7))
+			draw_rect(mine_rect, Color(0.5, 0.8, 0.5), false, 2.0)
+		else:
+			if tex_mine != null:
+				draw_texture_rect(tex_mine, mine_rect, false, Color(1, 0.3, 0.3, 0.7))
+			else:
+				draw_circle(drag_pos, 8, Color(0.9, 0.3, 0.3, 0.7))
+			draw_rect(mine_rect, Color(0.8, 0.2, 0.2), false, 2.0)
+	
+	# Desenhar muralha sendo arrastada
+	if dragging_tower and dragged_tower_type == "wall" and dragged_tower_index >= 0 and dragged_tower_index < walls.size():
+		var w = walls[dragged_tower_index]
+		var wall_size = float(GameConstants.TILE_SIZE) * 1.1
+		var drag_pos = drag_current_pos - drag_offset
+		var wall_rect := Rect2(drag_pos.x - wall_size/2, drag_pos.y - wall_size/2, wall_size, wall_size)
+		if tex_wall_structure != null:
+			draw_texture_rect(tex_wall_structure, wall_rect, false, Color(1, 1, 1, 0.7))
+		else:
+			draw_rect(wall_rect, Color(0.6,0.4,0.2,0.7))
+			draw_rect(wall_rect, Color(0.4,0.3,0.2), false, 2.0)
+	
+	# Desenhar quartel sendo arrastado
+	if dragging_tower and dragged_tower_type == "barracks" and dragged_tower_index >= 0 and dragged_tower_index < barracks.size():
+		var b = barracks[dragged_tower_index]
+		var barracks_size := grid_size_px * GameConstants.BARRACKS_SIZE_GRID
+		var drag_pos = drag_current_pos - drag_offset
+		var new_grid_coord = grid_manager.world_to_base_grid(drag_pos)
+		var can_place = grid_manager.is_inside_base_point(drag_pos) and grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3)
+		var barracks_rect := Rect2(drag_pos.x - barracks_size/2, drag_pos.y - barracks_size/2, barracks_size, barracks_size)
+		if can_place:
+			if tex_barracks != null:
+				draw_texture_rect(tex_barracks, barracks_rect, false, Color(1, 1, 1, 0.7))
+			else:
+				draw_rect(barracks_rect, Color(0.4,0.5,0.6,0.7))
+			draw_rect(barracks_rect, Color(0.3,0.4,0.5), false, 2.0)
+		else:
+			if tex_barracks != null:
+				draw_texture_rect(tex_barracks, barracks_rect, false, Color(1, 0.3, 0.3, 0.7))
+			else:
+				draw_rect(barracks_rect, Color(0.9,0.3,0.3,0.7))
+			draw_rect(barracks_rect, Color(0.8,0.2,0.2), false, 2.0)
+	
 	# healing stations
 	for hs in healing_stations:
 		var hs_size := grid_size_px * GameConstants.HEALING_STATION_SIZE_GRID
@@ -1823,25 +1990,6 @@ func _draw() -> void:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
 			
-			elif placing_wall:
-				var can_place = grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.WALL_SIZE_GRID, 9) and not _is_on_path(preview_mouse_pos) and not _is_in_center_area(preview_mouse_pos)
-				if can_place:
-					var preview_size := grid_size_px * GameConstants.WALL_SIZE_GRID
-					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
-					if tex_wall_structure != null:
-						draw_texture_rect(tex_wall_structure, preview_rect, false, Color(1, 1, 1, 0.5))
-					else:
-						draw_rect(preview_rect, Color(0.6,0.4,0.2,0.5))
-					draw_rect(preview_rect, Color(0.4,0.3,0.2), false, 2.0)
-				else:
-					var preview_size := grid_size_px * GameConstants.WALL_SIZE_GRID
-					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
-					if tex_wall_structure != null:
-						draw_texture_rect(tex_wall_structure, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
-					else:
-						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
-					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
-			
 			elif placing_healing_station:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID, 10):
 					var preview_size := grid_size_px * GameConstants.HEALING_STATION_SIZE_GRID
@@ -1878,6 +2026,25 @@ func _draw() -> void:
 				else:
 					draw_circle(preview_pos, 8, Color(0.9,0.3,0.3,0.5))
 				draw_circle(preview_pos, 10, Color(0.8,0.2,0.2), false, 2.0)
+	
+		if placing_wall:
+			var tile = _world_to_tile_coords(preview_mouse_pos)
+			var preview_pos = grid_manager.tile_center(clamp(tile.x, 0, GameConstants.GRID_COLS - 1), clamp(tile.y, 0, GameConstants.GRID_ROWS - 1))
+			var can_place = _is_on_path(preview_mouse_pos) and not grid_manager.is_inside_base_point(preview_mouse_pos) and not _is_wall_tile_occupied(tile)
+			var wall_size = 30.8
+			var wall_rect = Rect2(preview_pos.x - wall_size/2, preview_pos.y - wall_size/2, wall_size, wall_size)
+			if can_place:
+				if tex_wall_structure != null:
+					draw_texture_rect(tex_wall_structure, wall_rect, false, Color(1, 1, 1, 0.5))
+				else:
+					draw_rect(wall_rect, Color(0.6,0.4,0.2,0.5))
+				draw_rect(Rect2(preview_pos.x - wall_size/2 - 2, preview_pos.y - wall_size/2 - 2, wall_size + 4, wall_size + 4), Color(0.5,0.3,0.2,0.3), false, 2.0)
+			else:
+				if tex_wall_structure != null:
+					draw_texture_rect(tex_wall_structure, wall_rect, false, Color(1, 0.3, 0.3, 0.5))
+				else:
+					draw_rect(wall_rect, Color(0.9,0.3,0.3,0.5))
+				draw_rect(Rect2(preview_pos.x - wall_size/2 - 2, preview_pos.y - wall_size/2 - 2, wall_size + 4, wall_size + 4), Color(0.8,0.2,0.2), false, 2.0)
 	
 	# mostrar alcance da torre selecionada
 	if tower_selected_index >= 0 and tower_selected_index < towers.size():
@@ -1929,11 +2096,21 @@ func _update_upgrade_labels() -> void:
 		title.add_theme_font_size_override("font_size", 22)
 		title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))  # Dourado consistente
 	
+	# Ajustar tamanho do painel baseado no número de upgrades
+	if panel:
+		var num_upgrades = upgrade_options.size()
+		var panel_height = 100 + (num_upgrades * 60) + 50  # Título + botões + resume
+		panel.size.y = panel_height
+		panel.position.y = -panel_height / 2
+	
 	# Atualizar botão Resume
 	var resume_btn = ov.get_node("Panel/BtnResume") as Button
 	if resume_btn:
 		resume_btn.text = "Continuar"
 		resume_btn.disabled = not benefit_applied  # Desabilitar se nenhum benefício foi selecionado
+		# Posicionar o botão Resume abaixo de todos os botões de upgrade
+		var resume_y = 60 + (upgrade_options.size() * 60) + 10
+		resume_btn.position = Vector2(180, resume_y)
 		var resume_style = StyleBoxFlat.new()
 		if benefit_applied:
 			resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
@@ -1951,9 +2128,24 @@ func _update_upgrade_labels() -> void:
 			resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 	
-	# Atualizar botões e estilos (suporta até 4 botões)
-	for i in range(4):
-		var btn = ov.get_node("Panel/Btn" + str(i + 1)) as Button
+	# Criar botões dinamicamente se necessário (suporta até 10 botões)
+	if not panel:
+		return  # Se não há painel, não pode continuar
+	# Iterar sobre todos os upgrades disponíveis
+	for i in range(upgrade_options.size()):
+		var btn_name = "Btn" + str(i + 1)
+		var btn = panel.get_node_or_null(btn_name) as Button
+		
+		# Criar botão se não existir
+		if btn == null and i < upgrade_options.size():
+			btn = Button.new()
+			btn.name = btn_name
+			panel.add_child(btn)
+			# Posicionar botão (60px de altura cada, começando em y=60, com 10px de espaçamento)
+			btn.position = Vector2(30, 60 + i * 60)
+			btn.size = Vector2(440, 50)
+			btn.pressed.connect(func(): _apply_benefit(i))
+		
 		if btn and i < upgrade_options.size():
 			var upgrade = upgrade_options[i]
 			var code = upgrade["code"]
@@ -1994,9 +2186,12 @@ func _update_upgrade_labels() -> void:
 					"PIERCE":
 						btn_style.bg_color = Color(0.3, 0.15, 0.35, 0.9)
 						btn_style.border_color = Color(0.5, 0.3, 0.7)
-					"CRIT":
+					"CRIT_CHANCE":
 						btn_style.bg_color = Color(0.35, 0.3, 0.15, 0.9)
 						btn_style.border_color = Color(0.7, 0.6, 0.3)
+					"CRIT_DMG":
+						btn_style.bg_color = Color(0.4, 0.25, 0.1, 0.9)
+						btn_style.border_color = Color(0.8, 0.5, 0.2)
 					_:
 						btn_style.bg_color = Color(0.25, 0.25, 0.25, 0.9)
 						btn_style.border_color = Color(0.4, 0.4, 0.4)
@@ -2020,7 +2215,13 @@ func _update_upgrade_labels() -> void:
 				# Fonte maior para melhor legibilidade
 				btn.add_theme_font_size_override("font_size", 16)
 				btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-		else:
+				btn.visible = true
+	
+	# Esconder botões extras que não são necessários (acima do número de upgrades)
+	for i in range(upgrade_options.size(), 10):
+		var btn_name = "Btn" + str(i + 1)
+		var btn = panel.get_node_or_null(btn_name) as Button
+		if btn:
 			btn.visible = false
 
 func _apply_benefit(i: int) -> void:
@@ -2049,9 +2250,12 @@ func _apply_benefit(i: int) -> void:
 		"PIERCE":
 			hero["levels"]["PIERCE"] += 1
 			hero["pierce"] += 1
-		"CRIT":
-			hero["levels"]["CRIT"] += 1
-			hero["crit_chance"] = min(0.16, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 16%
+		"CRIT_CHANCE":
+			hero["levels"]["CRIT_CHANCE"] += 1
+			hero["crit_chance"] = min(0.20, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 20%
+		"CRIT_DMG":
+			hero["levels"]["CRIT_DMG"] += 1
+			hero["crit_multiplier"] += 0.2  # +0.2 por nível
 	
 	benefit_applied = true
 	
@@ -2110,12 +2314,15 @@ func _resume_after_upgrade() -> void:
 func _is_walkable(c: int, r: int) -> bool:
 	return pathfinder.is_walkable(c, r, grid_manager.base_grid)
 
-func _bfs_path(from_c: int, from_r: int) -> Array:
-	# Limpar cache periodicamente para evitar caminhos inválidos em waves altas
-	# (a cada 10 waves ou quando há muitos inimigos)
+func _bfs_path(from_c: int, from_r: int, consider_walls: bool = false) -> Array:
 	if wave_manager.wave > 0 and (wave_manager.wave % 10 == 0 or enemies.size() > 50):
 		pathfinder.invalidate_cache()
 	
+	# Apenas considerar muralhas se especificado (após colisão)
+	if consider_walls:
+		pathfinder.set_wall_tiles(wall_tiles)
+	else:
+		pathfinder.set_wall_tiles({})  # Caminho inicial não considera muralhas
 	var path = pathfinder.find_path(from_c, from_r, grid_manager.base_grid)
 	
 	# Validar o caminho retornado
@@ -2413,16 +2620,71 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
 		return
 	
+	# Verificar colisão com muralhas
+	var enemy_tile = _world_to_tile_coords(e["pos"])
+	var wall_collision_radius = 14.0  # Raio de colisão com muralha
+	var hit_wall = null
+	var hit_wall_idx = -1
+	
+	for i in range(walls.size()):
+		var w = walls[i]
+		if w.hp > 0 and not grid_manager.is_inside_base_point(w.pos):
+			var dist_to_wall = e["pos"].distance_to(w.pos)
+			if dist_to_wall < wall_collision_radius:
+				hit_wall = w
+				hit_wall_idx = i
+				break
+	
+	if hit_wall != null:
+		# Inimigo colidiu com muralha - verificar se há caminho alternativo
+		var new_path = _bfs_path(enemy_tile.x, enemy_tile.y, true)
+		if not new_path.is_empty():
+			# Há caminho alternativo - recalcular
+			var path_copy = []
+			for p in new_path:
+				if p is Vector2i:
+					path_copy.append(grid_manager.tile_center(p.x, p.y))
+				elif p is Vector2:
+					path_copy.append(p)
+			e["path"] = path_copy
+			e["path_index"] = 0
+			if e["path"].size() > 0:
+				targ = e["path"][0]
+			else:
+				return
+		else:
+			# Caminho completamente bloqueado - explodir a muralha que o inimigo está tocando
+			if effects_manager:
+				effects_manager.create_aoe_effect(hit_wall.pos, 40.0, 0.5)
+			
+			# Remover muralha
+			var tile = Vector2i(hit_wall.grid_x, hit_wall.grid_y)
+			_unregister_wall_tile(tile)
+			walls.remove_at(hit_wall_idx)
+			pathfinder.invalidate_cache()
+			
+			# Recalcular caminho após explosão
+			var path_after_explosion = _bfs_path(enemy_tile.x, enemy_tile.y, true)
+			if not path_after_explosion.is_empty():
+				var path_copy = []
+				for p in path_after_explosion:
+					if p is Vector2i:
+						path_copy.append(grid_manager.tile_center(p.x, p.y))
+					elif p is Vector2:
+						path_copy.append(p)
+				e["path"] = path_copy
+				e["path_index"] = 0
+				if e["path"].size() > 0:
+					targ = e["path"][0]
+				else:
+					return
+	
 	var v2 = targ - e["pos"]
 	var d2 = max(v2.length(), 0.0001)
 	
-	# Calcular distância de movimento baseada na velocidade
 	var move_dist = e["speed"] * dt
-	
-	# Ajustar threshold de proximidade baseado na velocidade (maior velocidade = maior threshold)
 	var proximity_threshold = max(2.0, move_dist * 1.5)
 	
-	# Se está muito próximo do alvo, avançar para o próximo ponto
 	if d2 < proximity_threshold:
 		# Mover para exatamente o ponto do caminho antes de avançar
 		e["pos"] = targ
@@ -2533,8 +2795,8 @@ func _handle_collisions() -> void:
 					# Criar animação de morte
 					_create_death_animation(e["pos"])
 					var is_boss = e.get("is_boss", false)
-					# chefe dá 20x mais moedas (40 vs 2)
-					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
+					# chefe dá 20x mais moedas (recompensas escaladas com wave)
+					hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
 					# Rastrear achievements de kills
@@ -2562,8 +2824,8 @@ func _handle_collisions() -> void:
 					# Criar animação de morte
 					_create_death_animation(e["pos"])
 					var is_boss = e.get("is_boss", false)
-					# chefe dá 20x mais moedas (40 vs 2)
-					hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
+					# chefe dá 20x mais moedas (recompensas escaladas com wave)
+					hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
 					# Rastrear achievements de kills
@@ -2643,6 +2905,12 @@ func _start_drag_tower(tower_type: String, tower_idx: int, mouse_pos: Vector2) -
 			tower_pos = boost_towers[tower_idx].pos
 		"shock_tower":
 			tower_pos = shock_towers[tower_idx].pos
+		"mine":
+			tower_pos = mines[tower_idx].pos
+		"wall":
+			tower_pos = walls[tower_idx].pos
+		"barracks":
+			tower_pos = barracks[tower_idx].pos
 	
 	drag_start_pos = tower_pos
 	drag_offset = mouse_pos - tower_pos
@@ -2670,6 +2938,12 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			moved = _try_move_boost_tower(dragged_tower_index, new_pos)
 		"shock_tower":
 			moved = _try_move_shock_tower(dragged_tower_index, new_pos)
+		"mine":
+			moved = _try_move_mine(dragged_tower_index, new_pos)
+		"wall":
+			moved = _try_move_wall(dragged_tower_index, new_pos)
+		"barracks":
+			moved = _try_move_barracks(dragged_tower_index, new_pos)
 	
 	# Se não conseguiu mover, restaurar grid na posição original
 	if not moved:
@@ -2692,19 +2966,31 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var t = towers[idx]
 	_show_range_indicator(t.pos, t.range, Color(0.3, 0.7, 1.0, 0.65))
 	var dirs_count: int = t.dirs.size()
-	var can_range: bool = hero["coins"] >= GameConstants.TOWER_RANGE_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.TOWER_RATE_COST and t.fire_rate > 0.12
-	var can_dirs: bool = hero["coins"] >= GameConstants.TOWER_DIRS_COST and dirs_count < 4
-	var can_dmg: bool = hero["coins"] >= GameConstants.TOWER_DMG_COST
-	var can_freeze: bool = hero["coins"] >= GameConstants.TOWER_FREEZE_COST and not t.get("has_freeze", false)
-	var can_fire: bool = hero["coins"] >= GameConstants.TOWER_FIRE_COST and not t.get("has_fire", false)
 	
-	tower_menu.set_item_text(0, "Alcance +60 (%d)" % GameConstants.TOWER_RANGE_COST)
-	tower_menu.set_item_text(1, "Cadencias + (%d)" % GameConstants.TOWER_RATE_COST)
-	tower_menu.set_item_text(2, "+4 Direcoes (%d)" % GameConstants.TOWER_DIRS_COST)
-	tower_menu.set_item_text(3, "Dano +0.5 (%d)" % GameConstants.TOWER_DMG_COST)
-	tower_menu.set_item_text(4, "Congelamento (%d)" % GameConstants.TOWER_FREEZE_COST)
-	tower_menu.set_item_text(5, "Fogo (%d)" % GameConstants.TOWER_FIRE_COST)
+	# Calcular custos progressivos
+	var range_level = t.levels.get("RANGE", 0)
+	var rate_level = t.levels.get("RATE", 0)
+	var dmg_level = t.levels.get("DMG", 0)
+	var range_cost = get_upgrade_cost(GameConstants.TOWER_RANGE_COST, range_level)
+	var rate_cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
+	var dirs_cost = GameConstants.TOWER_DIRS_COST  # One-time upgrade
+	var dmg_cost = get_upgrade_cost(GameConstants.TOWER_DMG_COST, dmg_level)
+	var freeze_cost = GameConstants.TOWER_FREEZE_COST  # One-time upgrade
+	var fire_cost = GameConstants.TOWER_FIRE_COST  # One-time upgrade
+	
+	var can_range: bool = hero["coins"] >= range_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.12
+	var can_dirs: bool = hero["coins"] >= dirs_cost and dirs_count < 4
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_freeze: bool = hero["coins"] >= freeze_cost and not t.get("has_freeze", false)
+	var can_fire: bool = hero["coins"] >= fire_cost and not t.get("has_fire", false)
+	
+	tower_menu.set_item_text(0, "Alcance +60 (%d)" % range_cost)
+	tower_menu.set_item_text(1, "Cadencias + (%d)" % rate_cost)
+	tower_menu.set_item_text(2, "+4 Direcoes (%d)" % dirs_cost)
+	tower_menu.set_item_text(3, "Dano +0.5 (%d)" % dmg_cost)
+	tower_menu.set_item_text(4, "Congelamento (%d)" % freeze_cost)
+	tower_menu.set_item_text(5, "Fogo (%d)" % fire_cost)
 	tower_menu.set_item_disabled(0, not can_range)
 	tower_menu.set_item_disabled(1, not can_rate)
 	tower_menu.set_item_disabled(2, not can_dirs)
@@ -2718,17 +3004,27 @@ func _on_tower_menu_pressed(id: int) -> void:
 	if tower_selected_index < 0 or tower_selected_index >= towers.size():
 		return
 	var t = towers[tower_selected_index]
+	
+	# Calcular custos progressivos
+	var range_level = t.levels.get("RANGE", 0)
+	var rate_level = t.levels.get("RATE", 0)
+	var dmg_level = t.levels.get("DMG", 0)
+	
 	match id:
 		1:  # Alcance
-			if hero["coins"] >= GameConstants.TOWER_RANGE_COST:
+			var cost = get_upgrade_cost(GameConstants.TOWER_RANGE_COST, range_level)
+			if hero["coins"] >= cost:
 				t.range += 60.0
 				t.levels["RANGE"] += 1
-				hero["coins"] -= GameConstants.TOWER_RANGE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Cadência (reduz tempo entre tiros)
-			if hero["coins"] >= GameConstants.TOWER_RATE_COST and t.fire_rate > 0.12:
+			var cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
+			if hero["coins"] >= cost and t.fire_rate > 0.12:
 				t.fire_rate = max(0.1, t.fire_rate - 0.05)
 				t.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.TOWER_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # +4 Direções
 			if hero["coins"] >= GameConstants.TOWER_DIRS_COST and t.dirs.size() < 4:
 				# adiciona 4 direções cardinais se ainda não tem
@@ -2745,21 +3041,26 @@ func _on_tower_menu_pressed(id: int) -> void:
 				t.dirs = t.dirs + new_dirs
 				t.levels["DIRS"] += 1
 				hero["coins"] -= GameConstants.TOWER_DIRS_COST
+				_track_coin_spent(GameConstants.TOWER_DIRS_COST)
 		4:  # Dano
-			if hero["coins"] >= GameConstants.TOWER_DMG_COST:
+			var cost = get_upgrade_cost(GameConstants.TOWER_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				t.damage += 0.5
 				t.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.TOWER_DMG_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		5:  # Congelamento
 			if hero["coins"] >= GameConstants.TOWER_FREEZE_COST and not t.get("has_freeze", false):
 				t["has_freeze"] = true
 				t.levels["FREEZE"] = 1
 				hero["coins"] -= GameConstants.TOWER_FREEZE_COST
+				_track_coin_spent(GameConstants.TOWER_FREEZE_COST)
 		6:  # Fogo
 			if hero["coins"] >= GameConstants.TOWER_FIRE_COST and not t.get("has_fire", false):
 				t["has_fire"] = true
 				t.levels["FIRE"] = 1
 				hero["coins"] -= GameConstants.TOWER_FIRE_COST
+				_track_coin_spent(GameConstants.TOWER_FIRE_COST)
 	towers[tower_selected_index] = t
 	_hide_range_indicator()
 	tower_selected_index = -1
@@ -2813,6 +3114,13 @@ func _find_mine_at(world_pos: Vector2, radius: float = 12.0) -> int:
 		var tile_center = grid_manager.tile_center(tile.x, tile.y)
 		if world_pos.distance_to(tile_center) <= radius:
 			return i
+	return -1
+
+func _find_wall_at(world_pos: Vector2, radius: float = 15.0) -> int:
+	for i in range(walls.size()):
+		if walls[i].hp > 0:
+			if world_pos.distance_to(walls[i].pos) <= radius:
+				return i
 	return -1
 
 func _create_admin_menu(tb: Panel) -> void:
@@ -2943,7 +3251,8 @@ func _on_wave_started(wave_number: int, is_boss_wave: bool):
 func _on_buy_tower() -> void:
 	if placing_tower:
 		return
-	if hero["coins"] < GameConstants.TOWER_COST:
+	var tower_cost_check = get_tower_cost(GameConstants.TOWER_COST)
+	if hero["coins"] < tower_cost_check:
 		return
 	if towers.size() >= GameConstants.MAX_TOWERS:
 		return  # limite de torres atingido
@@ -2955,7 +3264,8 @@ func _on_buy_tower() -> void:
 func _on_buy_barracks() -> void:
 	if placing_barracks:
 		return
-	if hero["coins"] < GameConstants.BARRACKS_COST:
+	var barracks_cost_check = get_tower_cost(GameConstants.BARRACKS_COST)
+	if hero["coins"] < barracks_cost_check:
 		return
 	if barracks.size() >= GameConstants.MAX_BARRACKS:
 		return  # limite de quartéis atingido
@@ -2990,15 +3300,26 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	barracks_selected_index = idx
 	var b = barracks[idx]
-	var can_dmg: bool = hero["coins"] >= GameConstants.BARRACKS_DMG_COST
-	var can_hold: bool = hero["coins"] >= GameConstants.BARRACKS_HOLD_COST
-	var can_spawn_rate: bool = hero["coins"] >= GameConstants.BARRACKS_SPAWN_RATE_COST and b.soldier_spawn_rate > 1.0
-	var can_projectile_speed: bool = hero["coins"] >= GameConstants.BARRACKS_PROJECTILE_SPEED_COST
 	
-	barracks_menu.set_item_text(0, "Dano +0.2 (%d)" % GameConstants.BARRACKS_DMG_COST)
-	barracks_menu.set_item_text(1, "Tempo Hold +1s (%d)" % GameConstants.BARRACKS_HOLD_COST)
-	barracks_menu.set_item_text(2, "Spawn Rate -0.5s (%d) [%.1fs]" % [GameConstants.BARRACKS_SPAWN_RATE_COST, b.soldier_spawn_rate])
-	barracks_menu.set_item_text(3, "Velocidade Projétil +20 (%d) [%.0f]" % [GameConstants.BARRACKS_PROJECTILE_SPEED_COST, b.projectile_speed])
+	# Calcular custos progressivos
+	var dmg_level = b.levels.get("DMG", 0)
+	var hold_level = b.levels.get("HOLD", 0)
+	var spawn_rate_level = b.levels.get("SPAWN_RATE", 0)
+	var projectile_speed_level = b.levels.get("PROJECTILE_SPEED", 0)
+	var dmg_cost = get_upgrade_cost(GameConstants.BARRACKS_DMG_COST, dmg_level)
+	var hold_cost = get_upgrade_cost(GameConstants.BARRACKS_HOLD_COST, hold_level)
+	var spawn_rate_cost = get_upgrade_cost(GameConstants.BARRACKS_SPAWN_RATE_COST, spawn_rate_level)
+	var projectile_speed_cost = get_upgrade_cost(GameConstants.BARRACKS_PROJECTILE_SPEED_COST, projectile_speed_level)
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_hold: bool = hero["coins"] >= hold_cost
+	var can_spawn_rate: bool = hero["coins"] >= spawn_rate_cost and b.soldier_spawn_rate > 1.0
+	var can_projectile_speed: bool = hero["coins"] >= projectile_speed_cost
+	
+	barracks_menu.set_item_text(0, "Dano +0.2 (%d)" % dmg_cost)
+	barracks_menu.set_item_text(1, "Tempo Hold +1s (%d)" % hold_cost)
+	barracks_menu.set_item_text(2, "Spawn Rate -0.5s (%d) [%.1fs]" % [spawn_rate_cost, b.soldier_spawn_rate])
+	barracks_menu.set_item_text(3, "Velocidade Projétil +20 (%d) [%.0f]" % [projectile_speed_cost, b.projectile_speed])
 	barracks_menu.set_item_disabled(0, not can_dmg)
 	barracks_menu.set_item_disabled(1, not can_hold)
 	barracks_menu.set_item_disabled(2, not can_spawn_rate)
@@ -3010,27 +3331,40 @@ func _on_barracks_menu_pressed(id: int) -> void:
 	if barracks_selected_index < 0 or barracks_selected_index >= barracks.size():
 		return
 	var b = barracks[barracks_selected_index]
+	var dmg_level = b.levels.get("DMG", 0)
+	var hold_level = b.levels.get("HOLD", 0)
+	var spawn_rate_level = b.levels.get("SPAWN_RATE", 0)
+	var projectile_speed_level = b.levels.get("PROJECTILE_SPEED", 0)
+	
 	match id:
 		1:  # Dano
-			if hero["coins"] >= GameConstants.BARRACKS_DMG_COST:
+			var cost = get_upgrade_cost(GameConstants.BARRACKS_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				b.damage += 0.2
 				b.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.BARRACKS_DMG_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Tempo Hold
-			if hero["coins"] >= GameConstants.BARRACKS_HOLD_COST:
+			var cost = get_upgrade_cost(GameConstants.BARRACKS_HOLD_COST, hold_level)
+			if hero["coins"] >= cost:
 				b.hold_time += 1.0
 				b.levels["HOLD"] += 1
-				hero["coins"] -= GameConstants.BARRACKS_HOLD_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # Spawn Rate
-			if hero["coins"] >= GameConstants.BARRACKS_SPAWN_RATE_COST and b.soldier_spawn_rate > 1.0:
+			var cost = get_upgrade_cost(GameConstants.BARRACKS_SPAWN_RATE_COST, spawn_rate_level)
+			if hero["coins"] >= cost and b.soldier_spawn_rate > 1.0:
 				b.soldier_spawn_rate = max(1.0, b.soldier_spawn_rate - 0.5)
 				b.levels["SPAWN_RATE"] += 1
-				hero["coins"] -= GameConstants.BARRACKS_SPAWN_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		4:  # Velocidade Projétil
-			if hero["coins"] >= GameConstants.BARRACKS_PROJECTILE_SPEED_COST:
+			var cost = get_upgrade_cost(GameConstants.BARRACKS_PROJECTILE_SPEED_COST, projectile_speed_level)
+			if hero["coins"] >= cost:
 				b.projectile_speed += 20.0
 				b.levels["PROJECTILE_SPEED"] += 1
-				hero["coins"] -= GameConstants.BARRACKS_PROJECTILE_SPEED_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 	barracks[barracks_selected_index] = b
 	barracks_selected_index = -1
 
@@ -3040,11 +3374,18 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	sniper_selected_index = idx
 	var s = sniper_towers[idx]
 	_show_range_indicator(s.pos, s.range, Color(1.0, 0.4, 0.4, 0.65))
-	var can_dmg: bool = hero["coins"] >= GameConstants.SNIPER_DMG_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.SNIPER_RATE_COST and s.fire_rate > 1.0
 	
-	sniper_menu.set_item_text(0, "Dano +2 (%d)" % GameConstants.SNIPER_DMG_COST)
-	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [GameConstants.SNIPER_RATE_COST, s.fire_rate])
+	# Calcular custos progressivos
+	var dmg_level = s.levels.get("DMG", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	var dmg_cost = get_upgrade_cost(GameConstants.SNIPER_DMG_COST, dmg_level)
+	var rate_cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 1.0
+	
+	sniper_menu.set_item_text(0, "Dano +2 (%d)" % dmg_cost)
+	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
 	var target_mode = s.get("target_mode", 0)
 	sniper_menu.set_item_text(3, "Alvo: Boss" + (" ✓" if target_mode == 0 else ""))
 	sniper_menu.set_item_text(4, "Alvo: Mais Próximo ao Centro" + (" ✓" if target_mode == 1 else ""))
@@ -3057,17 +3398,24 @@ func _on_sniper_menu_pressed(id: int) -> void:
 	if sniper_selected_index < 0 or sniper_selected_index >= sniper_towers.size():
 		return
 	var s = sniper_towers[sniper_selected_index]
+	var dmg_level = s.levels.get("DMG", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	
 	match id:
 		1:  # Dano
-			if hero["coins"] >= GameConstants.SNIPER_DMG_COST:
+			var cost = get_upgrade_cost(GameConstants.SNIPER_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				s.damage += 2.0
 				s.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.SNIPER_DMG_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
-			if hero["coins"] >= GameConstants.SNIPER_RATE_COST and s.fire_rate > 1.0:
+			var cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
+			if hero["coins"] >= cost and s.fire_rate > 1.0:
 				s.fire_rate = max(1.0, s.fire_rate - 0.5)
 				s.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.SNIPER_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # Alvo: Boss
 			s["target_mode"] = 0
 		4:  # Alvo: Mais Próximo ao Centro
@@ -3082,13 +3430,22 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	aoe_selected_index = idx
 	var a = aoe_towers[idx]
 	_show_range_indicator(a.pos, a.range, Color(1.0, 0.8, 0.3, 0.65))
-	var can_dmg: bool = hero["coins"] >= GameConstants.AOE_DMG_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.AOE_RATE_COST and a.fire_rate > 0.5
-	var can_area: bool = hero["coins"] >= GameConstants.AOE_AREA_COST
 	
-	aoe_menu.set_item_text(0, "Dano +1 (%d)" % GameConstants.AOE_DMG_COST)
-	aoe_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [GameConstants.AOE_RATE_COST, a.fire_rate])
-	aoe_menu.set_item_text(2, "Área +20 (%d) [%.0f]" % [GameConstants.AOE_AREA_COST, a.aoe_radius])
+	# Calcular custos progressivos
+	var dmg_level = a.levels.get("DMG", 0)
+	var rate_level = a.levels.get("RATE", 0)
+	var area_level = a.levels.get("AREA", 0)
+	var dmg_cost = get_upgrade_cost(GameConstants.AOE_DMG_COST, dmg_level)
+	var rate_cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
+	var area_cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and a.fire_rate > 0.5
+	var can_area: bool = hero["coins"] >= area_cost
+	
+	aoe_menu.set_item_text(0, "Dano +1 (%d)" % dmg_cost)
+	aoe_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, a.fire_rate])
+	aoe_menu.set_item_text(2, "Área +20 (%d) [%.0f]" % [area_cost, a.aoe_radius])
 	aoe_menu.set_item_disabled(0, not can_dmg)
 	aoe_menu.set_item_disabled(1, not can_rate)
 	aoe_menu.set_item_disabled(2, not can_area)
@@ -3099,22 +3456,32 @@ func _on_aoe_menu_pressed(id: int) -> void:
 	if aoe_selected_index < 0 or aoe_selected_index >= aoe_towers.size():
 		return
 	var a = aoe_towers[aoe_selected_index]
+	var dmg_level = a.levels.get("DMG", 0)
+	var rate_level = a.levels.get("RATE", 0)
+	var area_level = a.levels.get("AREA", 0)
+	
 	match id:
 		1:  # Dano
-			if hero["coins"] >= GameConstants.AOE_DMG_COST:
+			var cost = get_upgrade_cost(GameConstants.AOE_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				a.damage += 1.0
 				a.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.AOE_DMG_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
-			if hero["coins"] >= GameConstants.AOE_RATE_COST and a.fire_rate > 0.5:
+			var cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
+			if hero["coins"] >= cost and a.fire_rate > 0.5:
 				a.fire_rate = max(0.5, a.fire_rate - 0.3)
 				a.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.AOE_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # Área
-			if hero["coins"] >= GameConstants.AOE_AREA_COST:
+			var cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
+			if hero["coins"] >= cost:
 				a.aoe_radius += 20.0
 				a.levels["AREA"] += 1
-				hero["coins"] -= GameConstants.AOE_AREA_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 	aoe_towers[aoe_selected_index] = a
 	_hide_range_indicator()
 	aoe_selected_index = -1
@@ -3125,13 +3492,22 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	shock_selected_index = idx
 	var s = shock_towers[idx]
 	_show_range_indicator(s.pos, s.range, Color(0.9, 0.5, 1.0, 0.65))
-	var can_dmg: bool = hero["coins"] >= GameConstants.SHOCK_DMG_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.SHOCK_RATE_COST and s.fire_rate > 0.5
-	var can_chain: bool = hero["coins"] >= GameConstants.SHOCK_CHAIN_COST
 	
-	shock_menu.set_item_text(0, "Dano +0.5 (%d)" % GameConstants.SHOCK_DMG_COST)
-	shock_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [GameConstants.SHOCK_RATE_COST, s.fire_rate])
-	shock_menu.set_item_text(2, "Corrente +1 (%d) [%d]" % [GameConstants.SHOCK_CHAIN_COST, s.chain_count])
+	# Calcular custos progressivos
+	var dmg_level = s.levels.get("DMG", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	var chain_level = s.levels.get("CHAIN", 0)
+	var dmg_cost = get_upgrade_cost(GameConstants.SHOCK_DMG_COST, dmg_level)
+	var rate_cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
+	var chain_cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 0.5
+	var can_chain: bool = hero["coins"] >= chain_cost
+	
+	shock_menu.set_item_text(0, "Dano +0.5 (%d)" % dmg_cost)
+	shock_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
+	shock_menu.set_item_text(2, "Corrente +1 (%d) [%d]" % [chain_cost, s.chain_count])
 	shock_menu.set_item_disabled(0, not can_dmg)
 	shock_menu.set_item_disabled(1, not can_rate)
 	shock_menu.set_item_disabled(2, not can_chain)
@@ -3142,22 +3518,32 @@ func _on_shock_menu_pressed(id: int) -> void:
 	if shock_selected_index < 0 or shock_selected_index >= shock_towers.size():
 		return
 	var s = shock_towers[shock_selected_index]
+	var dmg_level = s.levels.get("DMG", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	var chain_level = s.levels.get("CHAIN", 0)
+	
 	match id:
 		1:  # Dano
-			if hero["coins"] >= GameConstants.SHOCK_DMG_COST:
+			var cost = get_upgrade_cost(GameConstants.SHOCK_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				s.damage += 0.5
 				s.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.SHOCK_DMG_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
-			if hero["coins"] >= GameConstants.SHOCK_RATE_COST and s.fire_rate > 0.5:
+			var cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
+			if hero["coins"] >= cost and s.fire_rate > 0.5:
 				s.fire_rate = max(0.5, s.fire_rate - 0.2)
 				s.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.SHOCK_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # Corrente
-			if hero["coins"] >= GameConstants.SHOCK_CHAIN_COST:
+			var cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
+			if hero["coins"] >= cost:
 				s.chain_count += 1
 				s.levels["CHAIN"] += 1
-				hero["coins"] -= GameConstants.SHOCK_CHAIN_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 	shock_towers[shock_selected_index] = s
 	_hide_range_indicator()
 	shock_selected_index = -1
@@ -3168,15 +3554,26 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	slow_selected_index = idx
 	var s = slow_towers[idx]
 	_show_range_indicator(s.pos, s.range, Color(0.4, 1.0, 0.8, 0.65))
-	var can_range: bool = hero["coins"] >= GameConstants.SLOW_RANGE_COST
-	var can_amount: bool = hero["coins"] >= GameConstants.SLOW_AMOUNT_COST and s.slow_amount < 0.9
-	var can_duration: bool = hero["coins"] >= GameConstants.SLOW_DURATION_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.SLOW_RATE_COST and s.fire_rate > 0.2
 	
-	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [GameConstants.SLOW_RANGE_COST, s.range])
-	slow_menu.set_item_text(1, "Slow +10%% (%d) [%.0f%%]" % [GameConstants.SLOW_AMOUNT_COST, s.slow_amount * 100])
-	slow_menu.set_item_text(2, "Duração +0.5s (%d) [%.1fs]" % [GameConstants.SLOW_DURATION_COST, s.slow_duration])
-	slow_menu.set_item_text(3, "Taxa de Aplicação + (%d) [%.1fs]" % [GameConstants.SLOW_RATE_COST, s.fire_rate])
+	# Calcular custos progressivos
+	var range_level = s.levels.get("RANGE", 0)
+	var amount_level = s.levels.get("AMOUNT", 0)
+	var duration_level = s.levels.get("DURATION", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	var range_cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
+	var amount_cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
+	var duration_cost = get_upgrade_cost(GameConstants.SLOW_DURATION_COST, duration_level)
+	var rate_cost = get_upgrade_cost(GameConstants.SLOW_RATE_COST, rate_level)
+	
+	var can_range: bool = hero["coins"] >= range_cost
+	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.9
+	var can_duration: bool = hero["coins"] >= duration_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 0.2
+	
+	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [range_cost, s.range])
+	slow_menu.set_item_text(1, "Slow +10%% (%d) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
+	slow_menu.set_item_text(2, "Duração +0.5s (%d) [%.1fs]" % [duration_cost, s.slow_duration])
+	slow_menu.set_item_text(3, "Taxa de Aplicação + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
 	slow_menu.set_item_disabled(0, not can_range)
 	slow_menu.set_item_disabled(1, not can_amount)
 	slow_menu.set_item_disabled(2, not can_duration)
@@ -3188,27 +3585,40 @@ func _on_slow_menu_pressed(id: int) -> void:
 	if slow_selected_index < 0 or slow_selected_index >= slow_towers.size():
 		return
 	var s = slow_towers[slow_selected_index]
+	var range_level = s.levels.get("RANGE", 0)
+	var amount_level = s.levels.get("AMOUNT", 0)
+	var duration_level = s.levels.get("DURATION", 0)
+	var rate_level = s.levels.get("RATE", 0)
+	
 	match id:
 		1:  # Alcance
-			if hero["coins"] >= GameConstants.SLOW_RANGE_COST:
+			var cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
+			if hero["coins"] >= cost:
 				s.range += 30.0
 				s.levels["RANGE"] += 1
-				hero["coins"] -= GameConstants.SLOW_RANGE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		2:  # Slow Amount
-			if hero["coins"] >= GameConstants.SLOW_AMOUNT_COST and s.slow_amount < 0.9:
+			var cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
+			if hero["coins"] >= cost and s.slow_amount < 0.9:
 				s.slow_amount = min(0.9, s.slow_amount + 0.1)
 				s.levels["AMOUNT"] += 1
-				hero["coins"] -= GameConstants.SLOW_AMOUNT_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		3:  # Duração
-			if hero["coins"] >= GameConstants.SLOW_DURATION_COST:
+			var cost = get_upgrade_cost(GameConstants.SLOW_DURATION_COST, duration_level)
+			if hero["coins"] >= cost:
 				s.slow_duration += 0.5
 				s.levels["DURATION"] += 1
-				hero["coins"] -= GameConstants.SLOW_DURATION_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 		4:  # Taxa de Aplicação
-			if hero["coins"] >= GameConstants.SLOW_RATE_COST and s.fire_rate > 0.2:
+			var cost = get_upgrade_cost(GameConstants.SLOW_RATE_COST, rate_level)
+			if hero["coins"] >= cost and s.fire_rate > 0.2:
 				s.fire_rate = max(0.2, s.fire_rate - 0.1)
 				s.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.SLOW_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 	slow_towers[slow_selected_index] = s
 	_hide_range_indicator()
 	slow_selected_index = -1
@@ -3218,17 +3628,23 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 		return
 	boost_selected_index = idx
 	var b = boost_towers[idx]
-	_show_range_indicator(b.pos, b.range, Color(0.6, 0.9, 0.4, 0.65))
-	var can_range: bool = hero["coins"] >= GameConstants.BOOST_RANGE_COST
-	var can_dmg: bool = hero["coins"] >= GameConstants.BOOST_DMG_COST
-	var can_rate: bool = hero["coins"] >= GameConstants.BOOST_RATE_COST
+	# Boost tower tem range global, não precisa mostrar range indicator
+	# _show_range_indicator(b.pos, b.range, Color(0.6, 0.9, 0.4, 0.65))
 	
-	boost_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [GameConstants.BOOST_RANGE_COST, b.range])
-	boost_menu.set_item_text(1, "Boost Dano +10%% (%d) [%.0f%%]" % [GameConstants.BOOST_DMG_COST, b.damage_boost * 100])
-	boost_menu.set_item_text(2, "Boost Cadência +5%% (%d) [%.0f%%]" % [GameConstants.BOOST_RATE_COST, b.rate_boost * 100])
-	boost_menu.set_item_disabled(0, not can_range)
-	boost_menu.set_item_disabled(1, not can_dmg)
-	boost_menu.set_item_disabled(2, not can_rate)
+	# Calcular custos progressivos (sem range - range é global)
+	var dmg_level = b.levels.get("DMG", 0)
+	var rate_level = b.levels.get("RATE", 0)
+	var dmg_cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
+	var rate_cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var can_rate: bool = hero["coins"] >= rate_cost
+	
+	# Remover item de alcance (índice 0), manter apenas dano e cadência
+	boost_menu.set_item_text(0, "Boost Dano +10%% (%d) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
+	boost_menu.set_item_text(1, "Boost Cadência +5%% (%d) [%.0f%%]" % [rate_cost, b.rate_boost * 100])
+	boost_menu.set_item_disabled(0, not can_dmg)
+	boost_menu.set_item_disabled(1, not can_rate)
 	boost_menu.position = screen_pos
 	boost_menu.popup()
 
@@ -3236,22 +3652,24 @@ func _on_boost_menu_pressed(id: int) -> void:
 	if boost_selected_index < 0 or boost_selected_index >= boost_towers.size():
 		return
 	var b = boost_towers[boost_selected_index]
+	var dmg_level = b.levels.get("DMG", 0)
+	var rate_level = b.levels.get("RATE", 0)
+	
 	match id:
-		1:  # Alcance
-			if hero["coins"] >= GameConstants.BOOST_RANGE_COST:
-				b.range += 30.0
-				b.levels["RANGE"] += 1
-				hero["coins"] -= GameConstants.BOOST_RANGE_COST
-		2:  # Boost Dano
-			if hero["coins"] >= GameConstants.BOOST_DMG_COST:
+		0:  # Boost Dano (índice mudou - removido alcance)
+			var cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
 				b.damage_boost += 0.1
 				b.levels["DMG"] += 1
-				hero["coins"] -= GameConstants.BOOST_DMG_COST
-		3:  # Boost Cadência
-			if hero["coins"] >= GameConstants.BOOST_RATE_COST:
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		1:  # Boost Cadência (índice mudou - removido alcance)
+			var cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
+			if hero["coins"] >= cost:
 				b.rate_boost += 0.05
 				b.levels["RATE"] += 1
-				hero["coins"] -= GameConstants.BOOST_RATE_COST
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
 	boost_towers[boost_selected_index] = b
 	_hide_range_indicator()
 	boost_selected_index = -1
@@ -3260,8 +3678,9 @@ func _is_inside_base_point(p: Vector2) -> bool:
 	return grid_manager.is_inside_base_point(p)
 
 func _try_place_tower(pos: Vector2) -> void:
-	# verificar moedas
-	if hero["coins"] < GameConstants.TOWER_COST:
+	# verificar moedas (com custo escalado por wave)
+	var tower_cost = get_tower_cost(GameConstants.TOWER_COST)
+	if hero["coins"] < tower_cost:
 		placing_tower = false
 		return
 	
@@ -3306,16 +3725,17 @@ func _try_place_tower(pos: Vector2) -> void:
 		"damage": 0.5,
 		"levels": { "RANGE": 0, "RATE": 0, "DIRS": 0, "DMG": 0 }
 	})
-	hero["coins"] -= GameConstants.TOWER_COST
-	_track_coin_spent(GameConstants.TOWER_COST)
+	hero["coins"] -= tower_cost
+	_track_coin_spent(tower_cost)
 	_track_tower_built("tower")
 	placing_tower = false
 
 # Blocos removidos - substituídos por Muralhas
 
 func _try_place_barracks(pos: Vector2) -> void:
-	# verificar moedas
-	if hero["coins"] < GameConstants.BARRACKS_COST:
+	# verificar moedas (com custo escalado por wave)
+	var barracks_cost = get_tower_cost(GameConstants.BARRACKS_COST)
+	if hero["coins"] < barracks_cost:
 		placing_barracks = false
 		return
 	
@@ -3356,7 +3776,8 @@ func _try_place_barracks(pos: Vector2) -> void:
 		"projectile_speed": 80.0,  # velocidade do projetil do soldado
 		"levels": { "HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0 }
 	})
-	hero["coins"] -= GameConstants.BARRACKS_COST
+	hero["coins"] -= barracks_cost
+	_track_coin_spent(barracks_cost)
 	_track_coin_spent(GameConstants.BARRACKS_COST)
 	_track_tower_built("barracks")
 	placing_barracks = false
@@ -3431,6 +3852,21 @@ func _unregister_mine_tile(tile: Vector2i) -> void:
 	if mine_tiles.has(key):
 		mine_tiles.erase(key)
 
+func _wall_tile_key(tile: Vector2i) -> String:
+	return "%d_%d" % [tile.x, tile.y]
+
+func _is_wall_tile_occupied(tile: Vector2i) -> bool:
+	return wall_tiles.has(_wall_tile_key(tile))
+
+func _register_wall_tile(tile: Vector2i) -> void:
+	wall_tiles[_wall_tile_key(tile)] = true
+
+func _unregister_wall_tile(tile: Vector2i) -> void:
+	var key = _wall_tile_key(tile)
+	if wall_tiles.has(key):
+		wall_tiles.erase(key)
+
+
 func _rebuild_mine_tiles() -> void:
 	mine_tiles.clear()
 	for mine in mines:
@@ -3481,7 +3917,8 @@ func _try_place_mine(pos: Vector2) -> void:
 func _on_buy_slow_tower() -> void:
 	if placing_slow_tower:
 		return
-	if hero["coins"] < GameConstants.SLOW_TOWER_COST:
+	var slow_cost_check = get_tower_cost(GameConstants.SLOW_TOWER_COST)
+	if hero["coins"] < slow_cost_check:
 		return
 	if slow_towers.size() >= GameConstants.MAX_SLOW_TOWERS:
 		return
@@ -3496,7 +3933,8 @@ func _on_buy_slow_tower() -> void:
 	placing_healing_station = false
 
 func _try_place_slow_tower(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.SLOW_TOWER_COST:
+	var slow_cost = get_tower_cost(GameConstants.SLOW_TOWER_COST)
+	if hero["coins"] < slow_cost:
 		placing_slow_tower = false
 		return
 	if slow_towers.size() >= GameConstants.MAX_SLOW_TOWERS:
@@ -3523,15 +3961,16 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 		"fire_rate": 0.5,
 		"levels": {"RANGE": 0, "AMOUNT": 0, "DURATION": 0, "RATE": 0}
 	})
-	hero["coins"] -= GameConstants.SLOW_TOWER_COST
-	_track_coin_spent(GameConstants.SLOW_TOWER_COST)
+	hero["coins"] -= slow_cost
+	_track_coin_spent(slow_cost)
 	_track_tower_built("slow_tower")
 	placing_slow_tower = false
 
 func _on_buy_aoe_tower() -> void:
 	if placing_aoe_tower:
 		return
-	if hero["coins"] < GameConstants.AOE_TOWER_COST:
+	var aoe_cost_check = get_tower_cost(GameConstants.AOE_TOWER_COST)
+	if hero["coins"] < aoe_cost_check:
 		return
 	if aoe_towers.size() >= GameConstants.MAX_AOE_TOWERS:
 		return
@@ -3546,7 +3985,8 @@ func _on_buy_aoe_tower() -> void:
 	placing_healing_station = false
 
 func _try_place_aoe_tower(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.AOE_TOWER_COST:
+	var aoe_cost = get_tower_cost(GameConstants.AOE_TOWER_COST)
+	if hero["coins"] < aoe_cost:
 		placing_aoe_tower = false
 		return
 	if aoe_towers.size() >= GameConstants.MAX_AOE_TOWERS:
@@ -3573,15 +4013,16 @@ func _try_place_aoe_tower(pos: Vector2) -> void:
 		"fire_rate": 2.0,
 		"levels": { "DMG": 0, "RATE": 0, "AREA": 0 }
 	})
-	hero["coins"] -= GameConstants.AOE_TOWER_COST
-	_track_coin_spent(GameConstants.AOE_TOWER_COST)
+	hero["coins"] -= aoe_cost
+	_track_coin_spent(aoe_cost)
 	_track_tower_built("aoe_tower")
 	placing_aoe_tower = false
 
 func _on_buy_sniper_tower() -> void:
 	if placing_sniper_tower:
 		return
-	if hero["coins"] < GameConstants.SNIPER_TOWER_COST:
+	var sniper_cost_check = get_tower_cost(GameConstants.SNIPER_TOWER_COST)
+	if hero["coins"] < sniper_cost_check:
 		return
 	if sniper_towers.size() >= GameConstants.MAX_SNIPER_TOWERS:
 		return
@@ -3596,7 +4037,8 @@ func _on_buy_sniper_tower() -> void:
 	placing_healing_station = false
 
 func _try_place_sniper_tower(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.SNIPER_TOWER_COST:
+	var sniper_cost = get_tower_cost(GameConstants.SNIPER_TOWER_COST)
+	if hero["coins"] < sniper_cost:
 		placing_sniper_tower = false
 		return
 	if sniper_towers.size() >= GameConstants.MAX_SNIPER_TOWERS:
@@ -3617,22 +4059,23 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
 		"range": 400.0,
-		"damage": 5.0,
+		"damage": 8.0,  # Aumentado de 5.0 para 8.0
 		"cooldown": 0.0,
-		"fire_rate": 5.0,  # cooldown aumentado de 3.0 para 5.0 segundos
+		"fire_rate": 15.0,  # Reduzido de 20.0 para 15.0 (mais rápido)
 		"pierce": 1,
 		"target_mode": 0,  # 0 = Boss, 1 = Mais próximo ao centro
 		"levels": { "DMG": 0, "RATE": 0 }
 	})
-	hero["coins"] -= GameConstants.SNIPER_TOWER_COST
-	_track_coin_spent(GameConstants.SNIPER_TOWER_COST)
+	hero["coins"] -= sniper_cost
+	_track_coin_spent(sniper_cost)
 	_track_tower_built("sniper_tower")
 	placing_sniper_tower = false
 
 func _on_buy_boost_tower() -> void:
 	if placing_boost_tower:
 		return
-	if hero["coins"] < GameConstants.BOOST_TOWER_COST:
+	var boost_cost_check = get_tower_cost(GameConstants.BOOST_TOWER_COST)
+	if hero["coins"] < boost_cost_check:
 		return
 	if boost_towers.size() >= GameConstants.MAX_BOOST_TOWERS:
 		return
@@ -3647,7 +4090,8 @@ func _on_buy_boost_tower() -> void:
 	placing_healing_station = false
 
 func _try_place_boost_tower(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.BOOST_TOWER_COST:
+	var boost_cost = get_tower_cost(GameConstants.BOOST_TOWER_COST)
+	if hero["coins"] < boost_cost:
 		placing_boost_tower = false
 		return
 	if boost_towers.size() >= GameConstants.MAX_BOOST_TOWERS:
@@ -3667,20 +4111,21 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
-		"range": 150.0,
+		"range": 9999.0,  # Range global - não precisa de upgrade de alcance
 		"damage_boost": 0.5,
 		"rate_boost": 0.3,
-		"levels": {"RANGE": 0, "DMG": 0, "RATE": 0}
+		"levels": {"DMG": 0, "RATE": 0}  # Removido RANGE - range é global
 	})
-	hero["coins"] -= GameConstants.BOOST_TOWER_COST
-	_track_coin_spent(GameConstants.BOOST_TOWER_COST)
+	hero["coins"] -= boost_cost
+	_track_coin_spent(boost_cost)
 	_track_tower_built("boost_tower")
 	placing_boost_tower = false
 
 func _on_buy_shock_tower() -> void:
 	if placing_shock_tower:
 		return
-	if hero["coins"] < GameConstants.SHOCK_TOWER_COST:
+	var shock_cost_check = get_tower_cost(GameConstants.SHOCK_TOWER_COST)
+	if hero["coins"] < shock_cost_check:
 		return
 	if shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS:
 		return
@@ -3696,7 +4141,8 @@ func _on_buy_shock_tower() -> void:
 	placing_healing_station = false
 
 func _try_place_shock_tower(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.SHOCK_TOWER_COST:
+	var shock_cost = get_tower_cost(GameConstants.SHOCK_TOWER_COST)
+	if hero["coins"] < shock_cost:
 		placing_shock_tower = false
 		return
 	if shock_towers.size() >= GameConstants.MAX_SHOCK_TOWERS:
@@ -3723,8 +4169,8 @@ func _try_place_shock_tower(pos: Vector2) -> void:
 		"fire_rate": 1.5,
 		"levels": { "DMG": 0, "RATE": 0, "CHAIN": 0 }
 	})
-	hero["coins"] -= GameConstants.SHOCK_TOWER_COST
-	_track_coin_spent(GameConstants.SHOCK_TOWER_COST)
+	hero["coins"] -= shock_cost
+	_track_coin_spent(shock_cost)
 	_track_tower_built("shock_tower")
 	placing_shock_tower = false
 
@@ -3752,37 +4198,135 @@ func _try_place_wall(pos: Vector2) -> void:
 	if walls.size() >= GameConstants.MAX_WALLS:
 		placing_wall = false
 		return
-	if not grid_manager.is_inside_base_point(pos):
+	
+	# Muralha deve ficar no labirinto (fora da base) e em tiles caminháveis
+	if grid_manager.is_inside_base_point(pos):
 		placing_wall = false
 		return
 	
-	# Verificar se está em um caminho (não permitir)
-	if _is_on_path(pos):
+	# Muralha deve ser colocada nos caminhos (paths)
+	if not _is_on_path(pos):
 		placing_wall = false
 		return
 	
-	# Verificar se está no centro (não permitir)
-	if _is_in_center_area(pos):
+	var tile = _world_to_tile_coords(pos)
+	if _is_wall_tile_occupied(tile):
 		placing_wall = false
 		return
 	
-	var grid_coord = grid_manager.world_to_base_grid(pos)
-	if not grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.WALL_SIZE_GRID, 9):
-		placing_wall = false
-		return
-	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.WALL_SIZE_GRID, 9)
-	pathfinder.invalidate_cache()
-	var wall_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var wall_world_pos = grid_manager.tile_center(tile.x, tile.y)
 	walls.append({
 		"pos": wall_world_pos,
-		"grid_x": grid_coord.x,
-		"grid_y": grid_coord.y,
+		"grid_x": tile.x,
+		"grid_y": tile.y,
 		"hp": 20.0,
 		"max_hp": 20.0
 	})
+	_register_wall_tile(tile)
+	pathfinder.invalidate_cache()
+	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
+	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
 	hero["coins"] -= GameConstants.WALL_COST
 	_track_wall_built()
 	placing_wall = false
+
+func _recalculate_all_enemy_paths() -> void:
+	"""Recalcula o caminho de todos os inimigos vivos quando o grid muda (ex: muralha colocada)"""
+	pathfinder.set_wall_tiles(wall_tiles)
+	for enemy in enemies:
+		if enemy.has("pos") and not enemy.get("reached", false) and enemy.get("hp", 0) > 0:
+			var enemy_tile = _world_to_tile_coords(enemy["pos"])
+			var new_path = pathfinder.find_path(enemy_tile.x, enemy_tile.y, grid_manager.base_grid)
+			if not new_path.is_empty():
+				var pts = []
+				for t in new_path:
+					if t.x >= 0 and t.x < GameConstants.GRID_COLS and t.y >= 0 and t.y < GameConstants.GRID_ROWS:
+						pts.append(grid_manager.tile_center(t.x, t.y))
+				if not pts.is_empty():
+					enemy["path"] = pts
+					enemy["path_index"] = 0
+
+func _try_move_wall(wall_idx: int, new_pos: Vector2) -> bool:
+	if wall_idx < 0 or wall_idx >= walls.size():
+		return false
+	
+	var wall = walls[wall_idx]
+	
+	# Limpar tile na posição antiga
+	var old_tile = Vector2i(wall.grid_x, wall.grid_y)
+	_unregister_wall_tile(old_tile)
+	
+	# Verificar nova posição
+	if grid_manager.is_inside_base_point(new_pos):
+		# Restaurar tile antigo
+		_register_wall_tile(old_tile)
+		return false
+	
+	# Muralha deve ser colocada nos caminhos (paths)
+	if not _is_on_path(new_pos):
+		# Restaurar tile antigo
+		_register_wall_tile(old_tile)
+		return false
+	
+	var new_tile = _world_to_tile_coords(new_pos)
+	if _is_wall_tile_occupied(new_tile):
+		# Restaurar tile antigo
+		_register_wall_tile(old_tile)
+		return false
+	
+	# Atualizar posição da muralha
+	var new_world_pos = grid_manager.tile_center(new_tile.x, new_tile.y)
+	wall.pos = new_world_pos
+	wall.grid_x = new_tile.x
+	wall.grid_y = new_tile.y
+	_register_wall_tile(new_tile)
+	pathfinder.invalidate_cache()
+	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
+	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
+	return true
+
+func _try_move_mine(mine_idx: int, new_pos: Vector2) -> bool:
+	if mine_idx < 0 or mine_idx >= mines.size():
+		return false
+	
+	var mine = mines[mine_idx]
+	
+	# Limpar tile na posição antiga
+	var old_tile = Vector2i(int(mine.grid_x), int(mine.grid_y))
+	_unregister_mine_tile(old_tile)
+	
+	# Verificar nova posição
+	# Mina deve ficar no labirinto (fora da base) e em tiles caminháveis
+	if grid_manager.is_inside_base_point(new_pos):
+		# Restaurar tile antigo
+		_register_mine_tile(old_tile)
+		return false
+	
+	var new_tile = _world_to_tile_coords(new_pos)
+	if not _is_walkable_tile(new_tile):
+		# Restaurar tile antigo
+		_register_mine_tile(old_tile)
+		return false
+	
+	if _is_in_center_area(new_pos):
+		# Restaurar tile antigo
+		_register_mine_tile(old_tile)
+		return false
+	
+	if _is_mine_tile_occupied(new_tile):
+		# Restaurar tile antigo
+		_register_mine_tile(old_tile)
+		return false
+	
+	# Atualizar posição da mina
+	var new_world_pos = grid_manager.tile_center(new_tile.x, new_tile.y)
+	mine.pos = new_world_pos
+	mine.grid_x = new_tile.x
+	mine.grid_y = new_tile.y
+	_register_mine_tile(new_tile)
+	
+	mines[mine_idx] = mine
+	return true
 
 func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	if tower_idx < 0 or tower_idx >= towers.size():
@@ -3953,6 +4497,33 @@ func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	shock_towers[tower_idx] = tower
 	return true
 
+func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
+	if barracks_idx < 0 or barracks_idx >= barracks.size():
+		return false
+	
+	var b = barracks[barracks_idx]
+	grid_manager.clear_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID)
+	
+	if not grid_manager.is_inside_base_point(new_pos):
+		grid_manager.set_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, 3)
+		return false
+	
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3):
+		grid_manager.set_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, 3)
+		return false
+	
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	b.pos = new_world_pos
+	b.grid_x = new_grid_coord.x
+	b.grid_y = new_grid_coord.y
+	
+	barracks[barracks_idx] = b
+	return true
+
 func _on_buy_healing_station() -> void:
 	if placing_healing_station:
 		return
@@ -4056,7 +4627,7 @@ func _physics_process(delta: float) -> void:
 func _tower_fire_cross(tower: Dictionary) -> void:
 	var speed := 260.0
 	var dirs: Array = tower.get("dirs", [Vector2(1, 0)])
-	var tower_damage: float = tower.get("damage", 0.5)
+	var tower_damage: float = tower.get("damage", 0.5) * global_tower_damage_boost
 	var has_freeze: bool = tower.get("has_freeze", false)
 	var has_fire: bool = tower.get("has_fire", false)
 	
@@ -4187,9 +4758,10 @@ func _detonate_mine(mine: Dictionary) -> void:
 				e["dying"] = true
 				e["dying_time"] = 0.0
 				_create_death_animation(e["pos"])
-				hero["coins"] += GameConstants.NORMAL_REWARD
+				var is_boss = e.get("is_boss", false)
+				hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 				_try_drop_coin(e["pos"])
-				_track_enemy_kill(e.get("is_boss", false))
+				_track_enemy_kill(is_boss)
 
 func _update_slow_towers(delta: float) -> void:
 	for st in slow_towers:
@@ -4281,11 +4853,12 @@ func _update_aoe_towers(delta: float) -> void:
 						e["dying"] = true
 						e["dying_time"] = 0.0
 						_create_death_animation(e["pos"])
-						hero["coins"] += GameConstants.NORMAL_REWARD
+						var is_boss = e.get("is_boss", false)
+						hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
 						# Rastrear achievements de kills
-						_track_enemy_kill(false)
+						_track_enemy_kill(is_boss)
 		else:
 			# mover projétil em direção ao alvo
 			proj.pos += dir * move_dist
@@ -4304,8 +4877,7 @@ func _update_sniper_towers(delta: float) -> void:
 			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 			
 			if target_mode == 0:
-				# Modo Boss: procurar boss primeiro, se não encontrar, usar comportamento padrão (mais distante)
-				var boss_found = false
+				# Modo Boss: só atira se houver boss no alcance
 				for e in enemies:
 					if e["hp"] <= 0 or e["reached"]:
 						continue
@@ -4314,18 +4886,7 @@ func _update_sniper_towers(delta: float) -> void:
 						if dist <= sniper.range:
 							target_enemy = e
 							target_dist = dist
-							boss_found = true
 							break
-				
-				# Se não encontrou boss, procurar inimigo mais distante (comportamento padrão)
-				if not boss_found:
-					for e in enemies:
-						if e["hp"] <= 0 or e["reached"]:
-							continue
-						var dist = sniper.pos.distance_to(e["pos"])
-						if dist <= sniper.range and dist > target_dist:
-							target_enemy = e
-							target_dist = dist
 			else:
 				# Modo Mais Próximo ao Centro: procurar inimigo mais próximo ao centro da base
 				var closest_to_center = INF
@@ -4373,11 +4934,12 @@ func _update_sniper_towers(delta: float) -> void:
 						e["dying"] = true
 						e["dying_time"] = 0.0
 						_create_death_animation(e["pos"])
-						hero["coins"] += GameConstants.NORMAL_REWARD
+						var is_boss = e.get("is_boss", false)
+						hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
 						# Rastrear achievements de kills
-						_track_enemy_kill(false)
+						_track_enemy_kill(is_boss)
 				# resetar cooldown apenas se encontrou alvo
 				sniper.cooldown = sniper.fire_rate
 			else:
@@ -4444,7 +5006,7 @@ func _update_shock_towers(delta: float) -> void:
 						target["dying_time"] = 0.0
 						_create_death_animation(target["pos"])
 						var is_boss = target.get("is_boss", false)
-						hero["coins"] += GameConstants.BOSS_REWARD_MULTIPLIER * GameConstants.NORMAL_REWARD if is_boss else GameConstants.NORMAL_REWARD
+						hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 						_try_drop_coin(target["pos"])
 						# Rastrear achievements de kills
 						_track_enemy_kill(is_boss)
@@ -4489,11 +5051,14 @@ func _update_walls(delta: float) -> void:
 			if dist < 20.0:  # inimigo próximo da parede
 				w.hp -= 0.5 * delta  # dano por segundo
 				if w.hp <= 0:
-					grid_manager.clear_grid_area(w.grid_x, w.grid_y, GameConstants.WALL_SIZE_GRID)
+					if grid_manager.is_inside_base_point(w.pos):
+						grid_manager.clear_grid_area(w.grid_x, w.grid_y, GameConstants.WALL_SIZE_GRID)
+					else:
+						var wall_tile = Vector2i(w.grid_x, w.grid_y)
+						_unregister_wall_tile(wall_tile)
 					pathfinder.invalidate_cache()
 					walls_to_remove.append(i)
 					break
-	# remover paredes destruídas
 	walls_to_remove.reverse()
 	for idx in walls_to_remove:
 		if idx < walls.size():
@@ -4573,8 +5138,8 @@ func _update_soldiers(delta: float) -> void:
 			if target_enemy["hp"] <= 0:
 				_create_death_animation(target_enemy["pos"])
 				var is_boss = target_enemy.get("is_boss", false)
-				# chefe dá 20x mais moedas (40 vs 2)
-				hero["coins"] += 40 if is_boss else 2
+				# chefe dá 20x mais moedas (recompensas escaladas com wave)
+				hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 				# chance de dropar moeda
 				_try_drop_coin(target_enemy["pos"])
 				# Rastrear achievements de kills
@@ -5245,6 +5810,14 @@ func _create_tower_shop_ui() -> void:
 		buy_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 		buy_btn.add_theme_font_size_override("font_size", 12)
 		
+		# Adicionar tooltip ao botão
+		var tooltip_text = _get_shop_tooltip_text(tower_info.name)
+		buy_btn.tooltip_text = tooltip_text
+		
+		# Conectar eventos de mouse para tooltip customizado
+		buy_btn.mouse_entered.connect(func(): _on_shop_button_hover(tower_info.name))
+		buy_btn.mouse_exited.connect(func(): _on_shop_button_unhover())
+		
 		hbox.add_child(buy_btn)
 		
 		# Armazenar referências para atualização
@@ -5276,6 +5849,47 @@ func _create_tower_shop_ui() -> void:
 	tooltip_label.add_theme_stylebox_override("normal", tooltip_style)
 	tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	tower_shop_panel.add_child(tooltip_label)
+
+func _create_game_tooltip() -> void:
+	# Criar tooltip global no CanvasLayer
+	var canvas = $CanvasLayer
+	game_tooltip = Control.new()
+	game_tooltip.name = "GameTooltip"
+	game_tooltip.visible = false
+	game_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(game_tooltip)
+	
+	# Painel de fundo
+	var tooltip_panel = Panel.new()
+	tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	panel_style.border_color = Color(0.5, 0.5, 0.7)
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel_style.corner_radius_top_left = 4
+	panel_style.corner_radius_top_right = 4
+	panel_style.corner_radius_bottom_left = 4
+	panel_style.corner_radius_bottom_right = 4
+	tooltip_panel.add_theme_stylebox_override("panel", panel_style)
+	game_tooltip.add_child(tooltip_panel)
+	
+	# Label de texto
+	var tooltip_text_label = Label.new()
+	tooltip_text_label.name = "TooltipText"
+	tooltip_text_label.text = ""
+	tooltip_text_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tooltip_text_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	tooltip_text_label.add_theme_font_size_override("font_size", 12)
+	tooltip_panel.add_child(tooltip_text_label)
+	
+	# Configurar layout
+	tooltip_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tooltip_text_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tooltip_text_label.position = Vector2(8, 8)
+	tooltip_text_label.size = Vector2(-16, -16)
 
 func _create_hero_home_card(vbox: VBoxContainer, card_height: float) -> void:
 	hero_home_panel_data = {}
@@ -6182,3 +6796,215 @@ func _on_resource_loading_progress(progress: float) -> void:
 func _on_coin_collected(value: int) -> void:
 	hero["coins"] += value
 	total_coins_collected += value
+
+func _track_coin_collected(value: int) -> void:
+	total_coins_collected += value
+
+func _update_game_tooltip(delta: float) -> void:
+	if game_tooltip == null:
+		return
+	
+	var tooltip_text_label = game_tooltip.get_node("Panel/TooltipText") as Label
+	if tooltip_text_label == null:
+		return
+	
+	# Não mostrar tooltip durante colocação de estruturas ou drag
+	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or dragging_tower:
+		game_tooltip.visible = false
+		tooltip_timer = 0.0
+		return
+	
+	# Obter posição do mouse no mundo
+	var mouse_pos = preview_mouse_pos
+	var tooltip_info = _get_tooltip_for_position(mouse_pos)
+	
+	if tooltip_info != "":
+		tooltip_timer += delta
+		if tooltip_timer >= TOOLTIP_DELAY:
+			tooltip_text_label.text = tooltip_info
+			game_tooltip.visible = true
+			
+			# Posicionar tooltip próximo ao mouse
+			var viewport = get_viewport()
+			var screen_mouse = viewport.get_mouse_position()
+			var tooltip_size = Vector2(250, 100)
+			var offset = Vector2(20, 20)
+			
+			# Ajustar posição para não sair da tela
+			var tooltip_pos = screen_mouse + offset
+			if tooltip_pos.x + tooltip_size.x > viewport.get_visible_rect().size.x:
+				tooltip_pos.x = screen_mouse.x - tooltip_size.x - offset.x
+			if tooltip_pos.y + tooltip_size.y > viewport.get_visible_rect().size.y:
+				tooltip_pos.y = screen_mouse.y - tooltip_size.y - offset.y
+			
+			game_tooltip.position = tooltip_pos
+			game_tooltip.size = tooltip_size
+			var panel = game_tooltip.get_node("Panel") as Panel
+			if panel:
+				panel.size = tooltip_size
+		else:
+			game_tooltip.visible = false
+	else:
+		tooltip_timer = 0.0
+		game_tooltip.visible = false
+
+func _get_tooltip_for_position(world_pos: Vector2) -> String:
+	# Verificar torres
+	for i in range(towers.size()):
+		var t = towers[i]
+		if world_pos.distance_to(t.pos) < 25.0:
+			return _get_tower_tooltip(t)
+	
+	# Verificar slow towers
+	for i in range(slow_towers.size()):
+		var st = slow_towers[i]
+		if world_pos.distance_to(st.pos) < 25.0:
+			return _get_slow_tower_tooltip(st)
+	
+	# Verificar AOE towers
+	for i in range(aoe_towers.size()):
+		var aoe = aoe_towers[i]
+		if world_pos.distance_to(aoe.pos) < 25.0:
+			return _get_aoe_tower_tooltip(aoe)
+	
+	# Verificar sniper towers
+	for i in range(sniper_towers.size()):
+		var sniper = sniper_towers[i]
+		if world_pos.distance_to(sniper.pos) < 25.0:
+			return _get_sniper_tower_tooltip(sniper)
+	
+	# Verificar boost towers
+	for i in range(boost_towers.size()):
+		var boost = boost_towers[i]
+		if world_pos.distance_to(boost.pos) < 25.0:
+			return _get_boost_tower_tooltip(boost)
+	
+	# Verificar shock towers
+	for i in range(shock_towers.size()):
+		var shock = shock_towers[i]
+		if world_pos.distance_to(shock.pos) < 25.0:
+			return _get_shock_tower_tooltip(shock)
+	
+	# Verificar barracks
+	for i in range(barracks.size()):
+		var b = barracks[i]
+		if world_pos.distance_to(b.pos) < 25.0:
+			return _get_barracks_tooltip(b)
+	
+	# Verificar muralhas
+	for i in range(walls.size()):
+		var w = walls[i]
+		if w.hp > 0 and world_pos.distance_to(w.pos) < 20.0:
+			return _get_wall_tooltip(w)
+	
+	# Verificar minas
+	for i in range(mines.size()):
+		var m = mines[i]
+		if world_pos.distance_to(m.pos) < 15.0:
+			return _get_mine_tooltip(m)
+	
+	# Verificar estações de cura
+	for i in range(healing_stations.size()):
+		var hs = healing_stations[i]
+		if world_pos.distance_to(hs.pos) < 25.0:
+			return _get_healing_station_tooltip(hs)
+	
+	return ""
+
+func _get_tower_tooltip(t: Dictionary) -> String:
+	var dmg = t.get("damage", 1)
+	var rate = t.get("fire_rate", 1.0)
+	var range_val = t.get("range", 100.0)
+	var dirs = t.get("dirs", 1)
+	return "Torre Básica\n\nDano: %d\nCadência: %.1fs\nAlcance: %.0f\nDireções: %d" % [dmg, rate, range_val, dirs]
+
+func _get_slow_tower_tooltip(st: Dictionary) -> String:
+	var slow_amount = st.get("slow_amount", 0.0) * 100
+	var range_val = st.get("range", 100.0)
+	return "Torre Lenta\n\nRedução: %.0f%%\nAlcance: %.0f" % [slow_amount, range_val]
+
+func _get_aoe_tower_tooltip(aoe: Dictionary) -> String:
+	var dmg = aoe.get("damage", 1)
+	var aoe_radius = aoe.get("aoe_radius", 50.0)
+	var range_val = aoe.get("range", 100.0)
+	return "Torre AOE\n\nDano: %d\nRaio AOE: %.0f\nAlcance: %.0f" % [dmg, aoe_radius, range_val]
+
+func _get_sniper_tower_tooltip(sniper: Dictionary) -> String:
+	var dmg = sniper.get("damage", 1)
+	var rate = sniper.get("fire_rate", 20.0)
+	var range_val = sniper.get("range", 100.0)
+	var pierce = sniper.get("pierce", 1)
+	var target_mode = sniper.get("target_mode", 0)
+	var target_text = "Boss" if target_mode == 0 else "Mais Próximo"
+	return "Torre Sniper\n\nDano: %d\nCadência: %.1fs\nAlcance: %.0f\nPerfuração: %d\nAlvo: %s" % [dmg, rate, range_val, pierce, target_text]
+
+func _get_boost_tower_tooltip(boost: Dictionary) -> String:
+	var dmg_boost = boost.get("damage_boost", 0.0) * 100
+	var rate_boost = boost.get("rate_boost", 0.0) * 100
+	var range_val = boost.get("range", 100.0)
+	return "Torre Boost\n\nDano: +%.0f%%\nCadência: +%.0f%%\nAlcance: %.0f" % [dmg_boost, rate_boost, range_val]
+
+func _get_shock_tower_tooltip(shock: Dictionary) -> String:
+	var dmg = shock.get("damage", 1)
+	var chain = shock.get("chain_count", 1)
+	var range_val = shock.get("range", 100.0)
+	return "Torre Choque\n\nDano: %d\nCorrentes: %d\nAlcance: %.0f" % [dmg, chain, range_val]
+
+func _get_barracks_tooltip(b: Dictionary) -> String:
+	var soldiers_count = b.get("soldiers", []).size()
+	var dmg = b.get("damage", 1)
+	return "Quartel\n\nSoldados: %d\nDano: %d" % [soldiers_count, dmg]
+
+func _get_wall_tooltip(w: Dictionary) -> String:
+	var hp = w.get("hp", 0.0)
+	var max_hp = w.get("max_hp", 20.0)
+	var hp_percent = int((hp / max_hp) * 100)
+	return "Muralha\n\nVida: %d/%d (%d%%)" % [int(hp), int(max_hp), hp_percent]
+
+func _get_mine_tooltip(m: Dictionary) -> String:
+	var dmg = m.get("damage", 75.0)
+	var triggered = m.get("triggered", false)
+	var status = "Ativa" if not triggered else "Explodida"
+	return "Mina\n\nDano: %d\nStatus: %s" % [int(dmg), status]
+
+func _get_healing_station_tooltip(hs: Dictionary) -> String:
+	var heal_rate = hs.get("heal_rate", 1.0)
+	var range_val = hs.get("range", 100.0)
+	return "Estação de Cura\n\nCura: %.1f/s\nAlcance: %.0f" % [heal_rate, range_val]
+
+func _get_shop_tooltip_text(tower_name: String) -> String:
+	match tower_name:
+		"Torre Básica":
+			return "Torre básica de defesa. Atira em inimigos próximos com dano moderado."
+		"Quartel":
+			return "Produz soldados que atacam inimigos automaticamente. Soldados perseguem inimigos."
+		"Mina":
+			return "Explode quando inimigos se aproximam, causando dano alto e reduzindo velocidade."
+		"Slow Tower":
+			return "Reduz a velocidade dos inimigos em sua área de efeito."
+		"AOE Tower":
+			return "Causa dano em área, afetando múltiplos inimigos simultaneamente."
+		"Sniper Tower":
+			return "Torre de longo alcance com alta precisão. Pode focar em bosses ou inimigos próximos ao centro."
+		"Boost Tower":
+			return "Aumenta o dano e cadência de outras torres próximas."
+		"Shock Tower":
+			return "Atira raios elétricos que saltam entre múltiplos inimigos."
+		"Muralha":
+			return "Bloqueia caminhos. Inimigos precisam recalcular rota ao encontrar uma muralha. Explode se bloquear todos os caminhos."
+		"Estação de Cura":
+			return "Cura a base automaticamente quando inimigos estão próximos."
+		_:
+			return ""
+
+func _on_shop_button_hover(tower_name: String) -> void:
+	if tooltip_label == null:
+		return
+	var tooltip_text = _get_shop_tooltip_text(tower_name)
+	if tooltip_text != "":
+		tooltip_label.text = tooltip_text
+		tooltip_label.visible = true
+
+func _on_shop_button_unhover() -> void:
+	if tooltip_label:
+		tooltip_label.visible = false

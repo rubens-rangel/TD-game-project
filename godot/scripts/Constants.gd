@@ -19,10 +19,10 @@ const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
 const BOOST_TOWER_COST := 35
 const SHOCK_TOWER_COST := 40
-const WALL_COST := 10
+const WALL_COST := 50
 const HEALING_STATION_COST := 50
 
-const MINE_DAMAGE := 75.0  # Dano alto
+const MINE_DAMAGE := 15.0  # Dano alto
 const MINE_TRIGGER_RADIUS := 18.0
 const MINE_EXPLOSION_RADIUS := 60.0
 const MINE_SLOW_DURATION := 1.5
@@ -43,13 +43,13 @@ const HEALING_STATION_SIZE_GRID := 3
 # Limits
 const MAX_TOWERS := 8
 const MAX_BARRACKS := 2
-const MAX_MINES := 10
+const MAX_MINES := 8
 const MAX_SLOW_TOWERS := 1
 const MAX_AOE_TOWERS := 5
 const MAX_SNIPER_TOWERS := 2
 const MAX_BOOST_TOWERS := 1
 const MAX_SHOCK_TOWERS := 4
-const MAX_WALLS := 15
+const MAX_WALLS := 4
 const MAX_HEALING_STATIONS := 2
 
 # Tower upgrades
@@ -57,8 +57,8 @@ const TOWER_RANGE_COST := 8
 const TOWER_RATE_COST := 8
 const TOWER_DIRS_COST := 12
 const TOWER_DMG_COST := 10
-const TOWER_FREEZE_COST := 25
-const TOWER_FIRE_COST := 25
+const TOWER_FREEZE_COST := 40  # Aumentado de 25 para 40
+const TOWER_FIRE_COST := 40  # Aumentado de 25 para 40
 
 # Barracks upgrades
 const BARRACKS_DMG_COST := 15
@@ -92,27 +92,33 @@ const BOOST_DMG_COST := 20
 const BOOST_RATE_COST := 18
 
 # Waves
-const WAVE_SCALE := 1.1
-const INTERMISSION := 2.0
+const WAVE_SCALE := 1.06  # Aumentado para 1.06 conforme feedback de teste
+const INTERMISSION := 8.0  # Aumentado de 5.0 para 8.0 para dar mais tempo entre waves
 
 # Enemy stats
 const ENEMY_BASE_SPEED := 30.0
-const BOSS_SPEED_MULTIPLIER := 0.8
-const ENEMY_BASE_HP := 2
-const BOSS_BASE_HP := 50
+const BOSS_SPEED_MULTIPLIER := 0.5
+const ENEMY_BASE_HP := 3  # Aumentado de 2 para 3 para aumentar dificuldade inicial
+const BOSS_BASE_HP := 35
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
+# Balanceamento: Escala de recompensas e upgrades
+const REWARD_SCALE := 1.05  # Recompensas crescem 5% por wave (mais lento que dificuldade)
+const UPGRADE_COST_MULTIPLIER := 1.12  # Upgrades ficam 12% mais caros por nível
+const WAVE_COMPLETION_BONUS_BASE := 10
+const WAVE_COMPLETION_BONUS_PER_WAVE := 2
+
 # Hero
 const HERO_START_COINS := 0
-const HERO_BASE_FIRE_RATE := 1.0 
-const HERO_BASE_DAMAGE := 1
+const HERO_BASE_FIRE_RATE := 1.0  # Aumentado de 0.8 para 1.0 (mais lento) para balancear
+const HERO_BASE_DAMAGE := 0.8  # Reduzido de 1 para 0.8 para balancear dano da base
 
 # Coin drops
 const COIN_DROP_CHANCE := 0.10  # 10% de chance base de dropar moeda
-const COIN_MIN_VALUE := 5
+const COIN_MIN_VALUE := 3
 const COIN_MAX_VALUE := 20
-const COIN_LIFETIME := 10.0  # tempo que a moeda fica no chão antes de desaparecer
+const COIN_LIFETIME := 12.0  # tempo que a moeda fica no chão antes de desaparecer
 
 # Skills
 const SKILL_COLLECT_COINS_COST := 0  # Gratuita
