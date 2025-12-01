@@ -477,3 +477,4 @@ Razão Moedas/HP
 **Documento complementar:** Análise detalhada de cálculos e projeções
 
 
+

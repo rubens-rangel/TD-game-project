@@ -63,7 +63,7 @@ const TOWER_FIRE_COST := 40  # Aumentado de 25 para 40
 # Barracks upgrades
 const BARRACKS_DMG_COST := 15
 const BARRACKS_HOLD_COST := 12
-const BARRACKS_SPAWN_RATE_COST := 20
+const BARRACKS_SPAWN_RATE_COST := 30  # Aumentado de 20 para 30 (50% mais caro)
 const BARRACKS_PROJECTILE_SPEED_COST := 18
 
 # Sniper tower upgrades
@@ -92,14 +92,14 @@ const BOOST_DMG_COST := 20
 const BOOST_RATE_COST := 18
 
 # Waves
-const WAVE_SCALE := 1.06  # Aumentado para 1.06 conforme feedback de teste
+const WAVE_SCALE := 1.04  # Reduzido de 1.06 para 1.04 - crescimento mais suave
 const INTERMISSION := 8.0  # Aumentado de 5.0 para 8.0 para dar mais tempo entre waves
 
 # Enemy stats
-const ENEMY_BASE_SPEED := 30.0
+const ENEMY_BASE_SPEED := 38.0  # Aumentado de 30.0 para 38.0 (~27% mais rápido)
 const BOSS_SPEED_MULTIPLIER := 0.5
 const ENEMY_BASE_HP := 3  # Aumentado de 2 para 3 para aumentar dificuldade inicial
-const BOSS_BASE_HP := 35
+const BOSS_BASE_HP := 28  # Reduzido de 35 para 28 (~20% menos) para melhor balanceamento
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 

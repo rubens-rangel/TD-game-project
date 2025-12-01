@@ -545,3 +545,4 @@ WAVE_COMPLETION_BONUS = 10 + (wave * 2)
 **Baseado em:** Constants.gd, WaveManager.gd, Game.gd, EnemyManager.gd
 
 
+

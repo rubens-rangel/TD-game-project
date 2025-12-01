@@ -463,3 +463,4 @@ Este documento contém sugestões de melhorias baseadas em tower defenses popula
 **Última Atualização**: Baseado no estado atual do jogo e melhores práticas de tower defense games.
 
 
+

@@ -612,6 +612,14 @@ func get_stats() -> Dictionary:
 		"total_points": total_points
 	}
 
+# Resetar todos os achievements (útil para testes ou reset completo)
+func reset_all_achievements() -> void:
+	achievements_state = {}
+	total_points = 0
+	_initialize_all_achievements()
+	save_achievements()
+	print("Todos os achievements foram resetados!")
+
 # Instância singleton (será criada no Game.gd ou como autoload)
 static var instance: AchievementManager = null
 

@@ -229,9 +229,26 @@ func get_tower_cost(base_cost: int) -> int:
 	var wave_scale = pow(1.02, max(0, wave_manager.wave - 1))  # 2% por wave
 	return int(base_cost * wave_scale)
 
+# Calcula custo acumulativo de muralha
+func get_wall_cost() -> int:
+	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo)"""
+	var current_wall_count = walls.size()
+	match current_wall_count:
+		0:  # Primeira muralha
+			return 100
+		1:  # Segunda muralha
+			return 300
+		2:  # Terceira muralha
+			return 600
+		3:  # Quarta muralha (última)
+			return 1000
+		_:  # Caso de segurança
+			return 1000
+
 # upgrades overlay state
 var choosing_upgrade := false
 var benefit_applied := false
+var selected_benefit_index := -1  # Índice do benefício selecionado (mas não aplicado ainda)
 var upgrade_options := [
 	{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
 	{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
@@ -290,7 +307,7 @@ func _apply_hero_home_upgrade_effects(level: int) -> void:
 		3:
 			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres (acumulativo)
 			hero["pierce"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
+			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)  # Reduzido de 0.05 para 0.03
 			base_hp += 60
 
 
@@ -935,6 +952,7 @@ func _process(delta: float) -> void:
 			_track_coin_collected(wave_bonus)
 			choosing_upgrade = true
 			benefit_applied = false
+			selected_benefit_index = -1  # Resetar seleção anterior
 			$CanvasLayer/UpgradeOverlay.visible = true
 			_update_upgrade_labels()
 		else:
@@ -999,7 +1017,7 @@ func _update_tower_shop_ui() -> void:
 			"Shock Tower":
 				current_cost = get_tower_cost(GameConstants.SHOCK_TOWER_COST)
 			"Muralha":
-				current_cost = GameConstants.WALL_COST
+				current_cost = get_wall_cost()
 			"Estação de Cura":
 				current_cost = GameConstants.HEALING_STATION_COST
 		
@@ -2096,12 +2114,16 @@ func _update_upgrade_labels() -> void:
 		title.add_theme_font_size_override("font_size", 22)
 		title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))  # Dourado consistente
 	
-	# Ajustar tamanho do painel baseado no número de upgrades
+	# Ajustar tamanho do painel baseado no número de upgrades (mantendo centralizado)
 	if panel:
 		var num_upgrades = upgrade_options.size()
 		var panel_height = 100 + (num_upgrades * 60) + 50  # Título + botões + resume
-		panel.size.y = panel_height
-		panel.position.y = -panel_height / 2
+		var panel_width = 500.0  # Largura fixa
+		# Ajustar offsets para manter centralizado (anchors já estão em 0.5, 0.5 na cena)
+		panel.offset_left = -panel_width / 2
+		panel.offset_top = -panel_height / 2
+		panel.offset_right = panel_width / 2
+		panel.offset_bottom = panel_height / 2
 	
 	# Atualizar botão Resume
 	var resume_btn = ov.get_node("Panel/BtnResume") as Button
@@ -2225,8 +2247,7 @@ func _update_upgrade_labels() -> void:
 			btn.visible = false
 
 func _apply_benefit(i: int) -> void:
-	if benefit_applied:
-		return
+	# Permite selecionar ou trocar o benefício antes de confirmar
 	if upgrade_options.is_empty() or i < 0 or i >= upgrade_options.size():
 		return
 	
@@ -2239,34 +2260,30 @@ func _apply_benefit(i: int) -> void:
 	if current_level >= max_level:
 		return
 	
-	# Aplicar upgrade
-	match code:
-		"DMG":
-			hero["levels"]["DMG"] += 1
-			hero["damage"] += 1
-		"FIRERATE":
-			hero["levels"]["FIRERATE"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)  # Reduz tempo entre tiros
-		"PIERCE":
-			hero["levels"]["PIERCE"] += 1
-			hero["pierce"] += 1
-		"CRIT_CHANCE":
-			hero["levels"]["CRIT_CHANCE"] += 1
-			hero["crit_chance"] = min(0.20, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 20%
-		"CRIT_DMG":
-			hero["levels"]["CRIT_DMG"] += 1
-			hero["crit_multiplier"] += 0.2  # +0.2 por nível
+	# Armazenar seleção (não aplicar ainda)
+	selected_benefit_index = i
+	benefit_applied = true  # Marcar que há uma seleção (permite continuar)
 	
-	benefit_applied = true
-	
-	# Desabilitar todos os botões de upgrade após seleção
+	# Atualizar visual dos botões - permitir trocar seleção
 	var ov = $CanvasLayer/UpgradeOverlay
-	for j in range(4):
+	for j in range(upgrade_options.size()):
 		var btn = ov.get_node("Panel/Btn" + str(j + 1)) as Button
 		if btn:
-			if j == i:
-				# Destacar o botão selecionado
-				btn.text = "%s (Nível %d/%d) ✓" % [upgrade["label"], current_level + 1, max_level]
+			var btn_upgrade = upgrade_options[j]
+			var btn_code = btn_upgrade["code"]
+			var btn_current_level = hero["levels"].get(btn_code, 0)
+			var btn_max_level = btn_upgrade.get("max_level", 999)
+			
+			if btn_current_level >= btn_max_level:
+				# Mantém desabilitado se já está no máximo
+				btn.disabled = true
+				btn.text = "%s (MÁXIMO)" % btn_upgrade["label"]
+			elif j == i:
+				# Destacar o botão selecionado (mas ainda habilitado para permitir trocar)
+				btn.text = "%s (Nível %d/%d) ✓ Selecionado" % [btn_upgrade["label"], btn_current_level, btn_max_level]
+				btn.disabled = false
+				
+				# Estilo de selecionado
 				var selected_style = StyleBoxFlat.new()
 				selected_style.bg_color = Color(0.2, 0.4, 0.2, 0.9)
 				selected_style.border_color = Color(0.3, 0.8, 0.3)
@@ -2275,8 +2292,46 @@ func _apply_benefit(i: int) -> void:
 				selected_style.border_width_right = 3
 				selected_style.border_width_bottom = 3
 				btn.add_theme_stylebox_override("normal", selected_style)
+				
+				var hover_style = selected_style.duplicate()
+				hover_style.bg_color = Color(0.3, 0.5, 0.3, 0.9)
+				btn.add_theme_stylebox_override("hover", hover_style)
 			else:
-				btn.disabled = true
+				# Outros botões permanecem habilitados para permitir trocar
+				btn.disabled = false
+				btn.text = "%s (Nível %d/%d)" % [btn_upgrade["label"], btn_current_level, btn_max_level]
+				
+				# Restaurar estilo normal
+				var btn_style = StyleBoxFlat.new()
+				match btn_code:
+					"DMG":
+						btn_style.bg_color = Color(0.3, 0.15, 0.15, 0.9)
+						btn_style.border_color = Color(0.6, 0.3, 0.3)
+					"FIRERATE":
+						btn_style.bg_color = Color(0.15, 0.25, 0.35, 0.9)
+						btn_style.border_color = Color(0.3, 0.5, 0.7)
+					"PIERCE":
+						btn_style.bg_color = Color(0.3, 0.15, 0.35, 0.9)
+						btn_style.border_color = Color(0.5, 0.3, 0.7)
+					"CRIT_CHANCE":
+						btn_style.bg_color = Color(0.35, 0.3, 0.15, 0.9)
+						btn_style.border_color = Color(0.7, 0.6, 0.3)
+					"CRIT_DMG":
+						btn_style.bg_color = Color(0.4, 0.25, 0.1, 0.9)
+						btn_style.border_color = Color(0.8, 0.5, 0.2)
+					_:
+						btn_style.bg_color = Color(0.25, 0.25, 0.25, 0.9)
+						btn_style.border_color = Color(0.4, 0.4, 0.4)
+				
+				btn_style.border_width_left = 2
+				btn_style.border_width_top = 2
+				btn_style.border_width_right = 2
+				btn_style.border_width_bottom = 2
+				btn.add_theme_stylebox_override("normal", btn_style)
+				
+				var hover_style = btn_style.duplicate()
+				hover_style.bg_color = hover_style.bg_color.lightened(0.15)
+				btn.add_theme_stylebox_override("hover", hover_style)
 	
 	# Habilitar botão de continuar
 	var resume_btn = ov.get_node("Panel/BtnResume") as Button
@@ -2295,10 +2350,40 @@ func _apply_benefit(i: int) -> void:
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 
 func _resume_after_upgrade() -> void:
-	if not benefit_applied:
+	if not benefit_applied or selected_benefit_index < 0:
 		return
+	
+	# Aplicar o benefício selecionado agora (ao confirmar com Continuar)
+	var upgrade = upgrade_options[selected_benefit_index]
+	var code: String = upgrade["code"]
+	var current_level = hero["levels"].get(code, 0)
+	var max_level = upgrade.get("max_level", 999)
+	
+	# Verificar novamente se atingiu o limite (pode ter mudado)
+	if current_level < max_level:
+		# Aplicar upgrade
+		match code:
+			"DMG":
+				hero["levels"]["DMG"] += 1
+				hero["damage"] += 1
+			"FIRERATE":
+				hero["levels"]["FIRERATE"] += 1
+				hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)  # Reduzido de 0.05 para 0.03 - escala de crescimento menor
+			"PIERCE":
+				hero["levels"]["PIERCE"] += 1
+				hero["pierce"] += 1
+			"CRIT_CHANCE":
+				hero["levels"]["CRIT_CHANCE"] += 1
+				hero["crit_chance"] = min(0.20, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 20%
+			"CRIT_DMG":
+				hero["levels"]["CRIT_DMG"] += 1
+				hero["crit_multiplier"] += 0.2  # +0.2 por nível
+	
+	# Resetar estado
 	$CanvasLayer/UpgradeOverlay.visible = false
 	choosing_upgrade = false
+	benefit_applied = false
+	selected_benefit_index = -1
 	# start next wave now
 	wave_manager.start_next_wave()
 
@@ -2662,6 +2747,8 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			_unregister_wall_tile(tile)
 			walls.remove_at(hit_wall_idx)
 			pathfinder.invalidate_cache()
+			pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
+			_recalculate_all_enemy_paths()  # Recalcular caminhos quando muralha é destruída
 			
 			# Recalcular caminho após explosão
 			var path_after_explosion = _bfs_path(enemy_tile.x, enemy_tile.y, true)
@@ -3216,6 +3303,10 @@ func _add_100_coins() -> void:
 	# Adicionar 100 moedas ao jogador
 	hero["coins"] += 100
 	print("Admin: +100 moedas adicionadas (total: %d)" % hero["coins"])
+
+# Variáveis de reset de perks removidas - agora no Menu.gd
+
+# Funções de reset de perks removidas - agora estão no Menu.gd dentro do diálogo de perks
 
 func _on_upgrade_hero_home() -> void:
 	if hero_home_level >= HERO_HOME_MAX_LEVEL:
@@ -4061,7 +4152,7 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		"range": 400.0,
 		"damage": 8.0,  # Aumentado de 5.0 para 8.0
 		"cooldown": 0.0,
-		"fire_rate": 15.0,  # Reduzido de 20.0 para 15.0 (mais rápido)
+		"fire_rate": 8.0,  # Reduzido de 15.0 para 8.0 para melhor correlação com dano e outras torres
 		"pierce": 1,
 		"target_mode": 0,  # 0 = Boss, 1 = Mais próximo ao centro
 		"levels": { "DMG": 0, "RATE": 0 }
@@ -4177,7 +4268,8 @@ func _try_place_shock_tower(pos: Vector2) -> void:
 func _on_buy_wall() -> void:
 	if placing_wall:
 		return
-	if hero["coins"] < GameConstants.WALL_COST:
+	var wall_cost = get_wall_cost()
+	if hero["coins"] < wall_cost:
 		return
 	if walls.size() >= GameConstants.MAX_WALLS:
 		return
@@ -4192,7 +4284,8 @@ func _on_buy_wall() -> void:
 	placing_healing_station = false
 
 func _try_place_wall(pos: Vector2) -> void:
-	if hero["coins"] < GameConstants.WALL_COST:
+	var wall_cost = get_wall_cost()
+	if hero["coins"] < wall_cost:
 		placing_wall = false
 		return
 	if walls.size() >= GameConstants.MAX_WALLS:
@@ -4226,7 +4319,8 @@ func _try_place_wall(pos: Vector2) -> void:
 	pathfinder.invalidate_cache()
 	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
 	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
-	hero["coins"] -= GameConstants.WALL_COST
+	hero["coins"] -= wall_cost
+	_track_coin_spent(wall_cost)
 	_track_wall_built()
 	placing_wall = false
 
@@ -5063,6 +5157,10 @@ func _update_walls(delta: float) -> void:
 	for idx in walls_to_remove:
 		if idx < walls.size():
 			walls.remove_at(idx)
+	# Recalcular caminhos após remover muralhas destruídas
+	if walls_to_remove.size() > 0:
+		pathfinder.set_wall_tiles(wall_tiles)
+		_recalculate_all_enemy_paths()
 
 func _update_healing_stations(delta: float) -> void:
 	# Healing stations não precisam de atualização contínua
@@ -5710,7 +5808,7 @@ func _create_tower_shop_ui() -> void:
 		{"name": "Sniper Tower", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
 		{"name": "Boost Tower", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array_name": "boost_towers"},
 		{"name": "Shock Tower", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
-		{"name": "Muralha", "cost": GameConstants.WALL_COST, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},
+		{"name": "Muralha", "cost": 100, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},  # Custo será atualizado dinamicamente por get_wall_cost()
 		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array_name": "healing_stations"},
 	]
 	

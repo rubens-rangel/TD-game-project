@@ -700,11 +700,46 @@ func _show_perks_dialog() -> void:
 	
 	vbox.add_child(tab_container)
 	
-	# Botão fechar - melhorado
+	# Botões de ação - melhorado
 	var button_container = HBoxContainer.new()
 	button_container.add_theme_constant_override("separation", 10)
 	button_container.alignment = BoxContainer.ALIGNMENT_END
 	
+	# Botão de resetar perks
+	var reset_button = Button.new()
+	reset_button.text = "Resetar Melhorias"
+	reset_button.custom_minimum_size = Vector2(150, 45)
+	reset_button.tooltip_text = "Resetar todas as melhorias persistentes (perks)"
+	
+	# Estilo padrão do botão (padronizado com fechar)
+	var reset_btn_style = StyleBoxFlat.new()
+	reset_btn_style.bg_color = Color(0.4, 0.2, 0.2, 1.0)  # Vermelho para ação destrutiva
+	reset_btn_style.corner_radius_top_left = 5
+	reset_btn_style.corner_radius_top_right = 5
+	reset_btn_style.corner_radius_bottom_left = 5
+	reset_btn_style.corner_radius_bottom_right = 5
+	reset_btn_style.border_width_left = 2
+	reset_btn_style.border_width_top = 2
+	reset_btn_style.border_width_right = 2
+	reset_btn_style.border_width_bottom = 2
+	reset_btn_style.border_color = Color(0.6, 0.3, 0.3, 1.0)
+	reset_button.add_theme_stylebox_override("normal", reset_btn_style)
+	
+	var reset_hover_style = reset_btn_style.duplicate()
+	reset_hover_style.bg_color = Color(0.5, 0.3, 0.3, 1.0)
+	reset_button.add_theme_stylebox_override("hover", reset_hover_style)
+	
+	var reset_pressed_style = reset_btn_style.duplicate()
+	reset_pressed_style.bg_color = Color(0.3, 0.15, 0.15, 1.0)
+	reset_button.add_theme_stylebox_override("pressed", reset_pressed_style)
+	
+	reset_button.add_theme_font_size_override("font_size", 14)
+	reset_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	reset_button.pressed.connect(func(): _show_reset_perks_confirmation(dialog, perk_manager, achievement_manager))
+	
+	button_container.add_child(reset_button)
+	
+	# Botão fechar - melhorado
 	var close_button = Button.new()
 	close_button.text = "Fechar"
 	close_button.custom_minimum_size = Vector2(150, 45)
@@ -943,3 +978,89 @@ func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement
 	main_margin.set_offsets_preset(Control.PRESET_FULL_RECT)
 	
 	return panel
+
+func _show_reset_perks_confirmation(dialog: Window, perk_manager, achievement_manager) -> void:
+	# Criar diálogo de confirmação como Window para garantir que apareça acima
+	var confirm_window = Window.new()
+	confirm_window.title = "Resetar Melhorias Persistentes"
+	confirm_window.size = Vector2i(450, 250)
+	confirm_window.min_size = Vector2i(400, 200)
+	confirm_window.always_on_top = true
+	confirm_window.transient = true
+	confirm_window.popup_window = true  # Modal-like behavior
+	
+	# Container principal
+	var main_vbox = VBoxContainer.new()
+	main_vbox.add_theme_constant_override("separation", 15)
+	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_vbox.set_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 20)
+	confirm_window.add_child(main_vbox)
+	
+	# Texto de confirmação
+	var label = Label.new()
+	label.text = "Tem certeza que deseja resetar TODAS as melhorias persistentes (perks)?\n\nEsta ação não pode ser desfeita!\n\nTodas as melhorias serão removidas e os pontos gastos serão devolvidos para redistribuição."
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(label)
+	
+	# Container de botões
+	var button_container = HBoxContainer.new()
+	button_container.add_theme_constant_override("separation", 10)
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	
+	# Botão Cancelar
+	var cancel_btn = Button.new()
+	cancel_btn.text = "Cancelar"
+	cancel_btn.custom_minimum_size = Vector2(100, 35)
+	cancel_btn.pressed.connect(func():
+		confirm_window.queue_free()
+	)
+	button_container.add_child(cancel_btn)
+	
+	# Botão Confirmar
+	var confirm_btn = Button.new()
+	confirm_btn.text = "Sim, Resetar"
+	confirm_btn.custom_minimum_size = Vector2(120, 35)
+	
+	# Estilizar botão de confirmação (vermelho)
+	var confirm_style = StyleBoxFlat.new()
+	confirm_style.bg_color = Color(0.5, 0.2, 0.2, 1.0)
+	confirm_style.corner_radius_top_left = 5
+	confirm_style.corner_radius_top_right = 5
+	confirm_style.corner_radius_bottom_left = 5
+	confirm_style.corner_radius_bottom_right = 5
+	confirm_style.border_width_left = 2
+	confirm_style.border_width_top = 2
+	confirm_style.border_width_right = 2
+	confirm_style.border_width_bottom = 2
+	confirm_style.border_color = Color(0.7, 0.3, 0.3, 1.0)
+	confirm_btn.add_theme_stylebox_override("normal", confirm_style)
+	
+	confirm_btn.pressed.connect(func():
+		# Resetar perks e devolver pontos
+		var points_refunded = perk_manager.reset_all_perks(achievement_manager)
+		print("Perks resetados com sucesso! Pontos devolvidos: ", points_refunded)
+		
+		# Fechar o diálogo de confirmação
+		confirm_window.queue_free()
+		
+		# Atualizar a janela de perks recriando os painéis
+		# Primeiro, vamos fechar o diálogo atual e reabrir
+		dialog.queue_free()
+		await get_tree().process_frame
+		_show_perks_dialog()
+	)
+	button_container.add_child(confirm_btn)
+	
+	main_vbox.add_child(button_container)
+	
+	# Adicionar à raiz da árvore para aparecer acima de tudo
+	get_tree().root.add_child(confirm_window)
+	
+	# Centralizar na tela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = confirm_window.size
+	confirm_window.position = (screen_size - window_size) / 2
+	
+	# Mostrar janela
+	confirm_window.show()

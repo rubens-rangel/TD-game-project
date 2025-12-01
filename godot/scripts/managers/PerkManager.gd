@@ -302,6 +302,31 @@ func apply_perk_effects(game_instance: Node2D) -> Dictionary:
 	
 	return effects
 
+# Resetar todos os perks e devolver pontos gastos
+func reset_all_perks(achievement_manager: AchievementManager) -> int:
+	# Calcular quantos pontos foram gastos em perks
+	var total_spent = 0
+	for perk_id in perks_state.keys():
+		var state = perks_state[perk_id]
+		if state.level > 0 and ALL_PERKS.has(perk_id):
+			var perk = ALL_PERKS[perk_id]
+			# Cada nível custa o mesmo valor (perk.cost)
+			total_spent += perk.cost * state.level
+	
+	# Devolver pontos gastos
+	if achievement_manager:
+		achievement_manager.total_points += total_spent
+		achievement_manager.save_achievements()
+		print("Pontos devolvidos: ", total_spent)
+	
+	# Resetar perks
+	perks_state = {}
+	_initialize_all_perks()
+	save_perks()
+	print("Todos os perks foram resetados! Total de pontos devolvidos: ", total_spent)
+	
+	return total_spent
+
 # Instância singleton
 static var instance: PerkManager = null
 
