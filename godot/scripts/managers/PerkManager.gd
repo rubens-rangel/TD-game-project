@@ -80,6 +80,16 @@ static var ALL_PERKS: Dictionary = {
 		"effect": "tower_cost_reduction",
 		"effect_value": 0.10
 	},
+	"coin_magnetism": {
+		"name": "Magnetismo de Moedas",
+		"description": "Coleta moedas automaticamente ao passar o mouse sobre elas",
+		"category": Category.ECONOMY,
+		"cost": 120,
+		"max_level": 1,
+		"icon": "🧲",
+		"effect": "coin_magnetism",
+		"effect_value": 1.0
+	},
 	
 	# === COMBAT ===
 	"hero_damage_boost": {

@@ -209,7 +209,16 @@ var skill_speed_boost_cooldown: float = 0.0
 var skill_slow_all_cooldown: float = 0.0
 var skill_slow_all_active: bool = false
 var skill_slow_all_time: float = 0.0
+var skill_magnetism_cooldown: float = 0.0
+var skill_magnetism_active: bool = false
+var skill_magnetism_time: float = 0.0
 var skill_buttons: Dictionary = {}  # Armazenar referências aos botões para atualizar cooldown
+var has_coin_magnetism_perk: bool = false  # Se tem o perk permanente de magnetismo
+
+# Sistema de DPS das torres
+var tower_dps_data: Dictionary = {}  # {tower_id: {dps: float, damage_dealt: float, shots: int, wave_damage: Dictionary}}
+var dps_menu_panel: Panel = null
+var dps_menu_visible: bool = false
 
 # Wave management agora em wave_manager
 func _wave_factor() -> float:
@@ -220,7 +229,20 @@ func _wave_factor() -> float:
 # Calcula recompensa escalada de inimigo normal baseada na wave
 func get_enemy_reward() -> int:
 	"""Calcula recompensa de inimigo normal baseada na wave atual"""
-	var scale = pow(GameConstants.REWARD_SCALE, max(0, wave_manager.wave - 1))
+	var wave = wave_manager.wave
+	var scale: float = 1.0
+	
+	if wave <= 1:
+		scale = 1.0
+	elif wave <= GameConstants.REWARD_SCALE_SOFT_CAP:
+		# Escala normal até a wave 30
+		scale = pow(GameConstants.REWARD_SCALE, wave - 1)
+	else:
+		# Após a wave 30, usar escala reduzida
+		var base_scale = pow(GameConstants.REWARD_SCALE, GameConstants.REWARD_SCALE_SOFT_CAP - 1)
+		var extra_waves = wave - GameConstants.REWARD_SCALE_SOFT_CAP
+		scale = base_scale * pow(GameConstants.REWARD_SCALE_AFTER_CAP, extra_waves)
+	
 	return int(GameConstants.NORMAL_REWARD * scale)
 
 # Calcula recompensa de boss baseada na wave
@@ -235,8 +257,9 @@ func get_upgrade_cost(base_cost: int, current_level: int) -> int:
 
 # Calcula bonus de completion de wave
 func get_wave_completion_bonus() -> int:
-	"""Calcula bonus de moedas por completar uma wave"""
-	return GameConstants.WAVE_COMPLETION_BONUS_BASE + (wave_manager.wave * GameConstants.WAVE_COMPLETION_BONUS_PER_WAVE)
+	"""Calcula bonus de moedas por completar uma wave (com cap máximo)"""
+	var bonus = GameConstants.WAVE_COMPLETION_BONUS_BASE + (wave_manager.wave * GameConstants.WAVE_COMPLETION_BONUS_PER_WAVE)
+	return min(bonus, GameConstants.WAVE_COMPLETION_BONUS_MAX)
 
 # Calcula custo de torre escalado com wave
 func get_tower_cost(base_cost: int) -> int:
@@ -608,6 +631,9 @@ func _ready() -> void:
 	# Criar menu de skills
 	_create_skills_ui()
 	
+	# Criar botão de DPS no TopBar
+	_create_dps_button()
+	
 	# Ajustar painéis após criação
 	_adjust_shop_and_skills_panels()
 	_create_range_indicator()
@@ -852,6 +878,10 @@ func _process(delta: float) -> void:
 		skill_slow_all_cooldown -= delta
 		skill_slow_all_cooldown = max(0.0, skill_slow_all_cooldown)
 	
+	if skill_magnetism_cooldown > 0.0:
+		skill_magnetism_cooldown -= delta
+		skill_magnetism_cooldown = max(0.0, skill_magnetism_cooldown)
+	
 	# Atualizar timer da skill de slow global
 	if skill_slow_all_active:
 		skill_slow_all_time -= delta
@@ -859,6 +889,32 @@ func _process(delta: float) -> void:
 			skill_slow_all_active = false
 			skill_slow_all_time = 0.0
 			print("Slow Global expirou!")
+	
+	# Atualizar timer da skill de magnetismo
+	if skill_magnetism_active:
+		skill_magnetism_time -= delta
+		if skill_magnetism_time <= 0.0:
+			skill_magnetism_active = false
+			skill_magnetism_time = 0.0
+			print("Magnetismo expirou!")
+	
+	# Coleta automática de moedas quando mouse passa sobre elas (se tem perk ou skill ativa)
+	if (has_coin_magnetism_perk or skill_magnetism_active) and coin_manager:
+		var mouse_screen_pos = get_viewport().get_mouse_position()
+		# Converter posição da tela para coordenadas do mundo do Node2D
+		var world_pos = to_local(mouse_screen_pos)
+		var coin_value = coin_manager.try_collect_coin(world_pos)
+		if coin_value > 0:
+			achievement_manager.increment_progress("collect_1000_coins", coin_value)
+			achievement_manager.increment_progress("collect_10000_coins", coin_value)
+			achievement_manager.increment_progress("collect_100000_coins", coin_value)
+			achievement_manager.increment_progress("collect_1000000_coins", coin_value)
+			if hero["coins"] >= 10000:
+				achievement_manager.set_progress("hold_10000_coins", 1)
+			if hero["coins"] >= 50000:
+				achievement_manager.set_progress("hold_50000_coins", 1)
+			_play_coin_sound()
+			queue_redraw()
 	
 	# Atualizar UI das skills (cooldown visual)
 	_update_skills_ui()
@@ -1001,7 +1057,7 @@ func _process(delta: float) -> void:
 				available_upgrades = pool
 			
 			available_upgrades.shuffle()
-			# Mostrar apenas 3 upgrades aleatórios
+			# Mostrar apenas 3 upgrades aleatórios (ou menos se não houver)
 			upgrade_options = available_upgrades.slice(0, min(3, available_upgrades.size()))
 			# Auto-save quando a wave termina (antes do upgrade overlay)
 			_auto_save_after_wave()
@@ -1010,7 +1066,8 @@ func _process(delta: float) -> void:
 			hero["coins"] += wave_bonus
 			_track_coin_collected(wave_bonus)
 			choosing_upgrade = true
-			benefit_applied = false
+			# Se não há upgrades disponíveis, permitir continuar sem selecionar
+			benefit_applied = upgrade_options.is_empty()  # Se não há upgrades, já está "aplicado" (pode continuar)
 			selected_benefit_index = -1  # Resetar seleção anterior
 			$CanvasLayer/UpgradeOverlay.visible = true
 			_update_upgrade_labels()
@@ -2455,6 +2512,17 @@ func _apply_benefit(i: int) -> void:
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 
 func _resume_after_upgrade() -> void:
+	# Se não há upgrades disponíveis, permitir continuar sem aplicar benefício
+	if upgrade_options.is_empty():
+		# Resetar estado e continuar
+		$CanvasLayer/UpgradeOverlay.visible = false
+		choosing_upgrade = false
+		benefit_applied = false
+		selected_benefit_index = -1
+		wave_manager.start_next_wave()
+		return
+	
+	# Se há upgrades mas nenhum foi selecionado, não pode continuar
 	if not benefit_applied or selected_benefit_index < 0:
 		return
 	
@@ -3006,9 +3074,17 @@ func _handle_collisions() -> void:
 				continue
 			if b["pos"].distance_to(e["pos"]) < (b["radius"] + e["radius"]):
 				var old_hp = e["hp"]
-				e["hp"] -= b["damage"]
+				var damage_dealt = b["damage"]
+				e["hp"] -= damage_dealt
+				
+				# Rastrear dano para DPS
+				if b.has("tower_id"):
+					var tower_id = b["tower_id"]
+					if tower_dps_data.has(tower_id):
+						tower_dps_data[tower_id]["damage_dealt"] += damage_dealt
+				
 				# Criar indicador de dano
-				_create_damage_number(e["pos"], b["damage"], false)
+				_create_damage_number(e["pos"], damage_dealt, false)
 				if e["hp"] <= 0:
 					e["hp"] = 0
 					e["dying"] = true
@@ -3171,14 +3247,19 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var range_level = t.levels.get("RANGE", 0)
 	var rate_level = t.levels.get("RATE", 0)
 	var dmg_level = t.levels.get("DMG", 0)
-	var range_cost = get_upgrade_cost(GameConstants.TOWER_RANGE_COST, range_level)
+	# Custo progressivo mais caro para alcance (multiplicador maior)
+	var range_cost = int(GameConstants.TOWER_RANGE_COST * pow(1.5, range_level))  # 1.5x por nível ao invés de 1.2x
 	var rate_cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
 	var dirs_cost = GameConstants.TOWER_DIRS_COST  # One-time upgrade
 	var dmg_cost = get_upgrade_cost(GameConstants.TOWER_DMG_COST, dmg_level)
 	var freeze_cost = GameConstants.TOWER_FREEZE_COST  # One-time upgrade
 	var fire_cost = GameConstants.TOWER_FIRE_COST  # One-time upgrade
 	
-	var can_range: bool = hero["coins"] >= range_cost
+	# Limite de alcance baseado no tamanho do mapa (diagonal do centro até o canto mais distante)
+	var map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+	var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+	var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5  # Metade da diagonal
+	var can_range: bool = hero["coins"] >= range_cost and t.range < max_range
 	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.12
 	var can_dirs: bool = hero["coins"] >= dirs_cost and dirs_count < 4
 	var can_dmg: bool = hero["coins"] >= dmg_cost
@@ -3212,9 +3293,15 @@ func _on_tower_menu_pressed(id: int) -> void:
 	
 	match id:
 		1:  # Alcance
-			var cost = get_upgrade_cost(GameConstants.TOWER_RANGE_COST, range_level)
-			if hero["coins"] >= cost:
+			# Custo progressivo mais caro para alcance
+			var cost = int(GameConstants.TOWER_RANGE_COST * pow(1.5, range_level))
+			# Limite de alcance baseado no tamanho do mapa
+			var map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5
+			if hero["coins"] >= cost and t.range < max_range:
 				t.range += 60.0
+				t.range = min(t.range, max_range)  # Garantir que não ultrapasse o limite
 				t.levels["RANGE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -3472,6 +3559,12 @@ func _on_upgrade_hero_home() -> void:
 	queue_redraw()
 
 func _on_wave_started(wave_number: int, is_boss_wave: bool):
+	# Resetar dados de DPS da wave anterior
+	for tower_id in tower_dps_data.keys():
+		if tower_dps_data[tower_id].has("wave_damage"):
+			tower_dps_data[tower_id]["wave_damage"][wave_number - 1] = tower_dps_data[tower_id].get("damage_dealt", 0.0)
+		tower_dps_data[tower_id]["damage_dealt"] = 0.0
+		tower_dps_data[tower_id]["shots"] = 0
 	if ((wave_number + 1) % 5) == 0:
 		_show_boss_warning("ALERTA! Boss chegando na próxima wave!")
 	
@@ -5079,8 +5172,22 @@ func _tower_fire_cross(tower: Dictionary) -> void:
 	
 	tower_damage *= damage_multiplier
 	var life := float(tower.get("range", 260.0)) / speed
+	
+	# Rastrear DPS da torre
+	var tower_id = _get_tower_id(tower, "tower")
+	if not tower_dps_data.has(tower_id):
+		tower_dps_data[tower_id] = {
+			"dps": 0.0,
+			"damage_dealt": 0.0,
+			"shots": 0,
+			"wave_damage": {},
+			"tower_type": "tower",
+			"pos": tower.pos
+		}
+	tower_dps_data[tower_id]["shots"] += dirs.size()
+	
 	for d in dirs:
-		var b = { "pos": tower.pos, "vel": d * speed, "life": life, "radius": 2, "damage": tower_damage, "pierce": 0, "has_freeze": has_freeze, "has_fire": has_fire }
+		var b = { "pos": tower.pos, "vel": d * speed, "life": life, "radius": 2, "damage": tower_damage, "pierce": 0, "has_freeze": has_freeze, "has_fire": has_fire, "tower_id": tower_id }
 		tower_bullets.append(b)
 
 func _update_barracks(delta: float) -> void:
@@ -5271,14 +5378,36 @@ func _update_aoe_towers(delta: float) -> void:
 			# projétil chegou ao alvo - criar explosão
 			if effects_manager:
 				effects_manager.create_aoe_effect(proj.target, proj.radius, 0.3)
+			# Rastrear DPS da AOE tower
+			var aoe_tower = proj.get("aoe_tower", null)
+			var aoe_id = ""
+			if aoe_tower != null:
+				aoe_id = _get_tower_id(aoe_tower, "aoe")
+				if not tower_dps_data.has(aoe_id):
+					tower_dps_data[aoe_id] = {
+						"dps": 0.0,
+						"damage_dealt": 0.0,
+						"shots": 0,
+						"wave_damage": {},
+						"tower_type": "aoe",
+						"pos": aoe_tower.pos
+					}
+				tower_dps_data[aoe_id]["shots"] += 1
+			
 			# causar dano em área
 			for e in enemies:
 				if e["hp"] <= 0 or e["reached"]:
 					continue
 				var dist = proj.target.distance_to(e["pos"])
 				if dist <= proj.radius:
-					e["hp"] -= proj.damage
-					_create_damage_number(e["pos"], proj.damage, false)
+					var damage_dealt = proj.damage
+					e["hp"] -= damage_dealt
+					
+					# Rastrear dano para DPS
+					if aoe_id != "" and tower_dps_data.has(aoe_id):
+						tower_dps_data[aoe_id]["damage_dealt"] += damage_dealt
+					
+					_create_damage_number(e["pos"], damage_dealt, false)
 					if e["hp"] <= 0:
 						e["hp"] = 0
 						e["dying"] = true
@@ -5302,13 +5431,14 @@ func _update_sniper_towers(delta: float) -> void:
 	for sniper in sniper_towers:
 		sniper.cooldown = max(0.0, sniper.cooldown - delta)
 		if sniper.cooldown <= 0.0:
-			var target_mode = sniper.get("target_mode", 0)  # 0 = Boss, 1 = Mais próximo ao centro
+			var target_mode = sniper.get("target_mode", 0)  # 0 = Prioridade Boss, 1 = Mais próximo ao centro
 			var target_enemy = null
 			var target_dist = -1.0
 			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 			
 			if target_mode == 0:
-				# Modo Boss: só atira se houver boss no alcance
+				# Modo Prioridade Boss: primeiro procura boss, se não encontrar, procura mais próximo ao centro
+				var boss_found = false
 				for e in enemies:
 					if e["hp"] <= 0 or e["reached"]:
 						continue
@@ -5317,7 +5447,21 @@ func _update_sniper_towers(delta: float) -> void:
 						if dist <= sniper.range:
 							target_enemy = e
 							target_dist = dist
+							boss_found = true
 							break
+				# Se não encontrou boss, procurar mais próximo ao centro
+				if not boss_found:
+					var closest_to_center = INF
+					for e in enemies:
+						if e["hp"] <= 0 or e["reached"]:
+							continue
+						var dist_to_sniper = sniper.pos.distance_to(e["pos"])
+						if dist_to_sniper <= sniper.range:
+							var dist_to_center = e["pos"].distance_to(base_center)
+							if dist_to_center < closest_to_center:
+								target_enemy = e
+								closest_to_center = dist_to_center
+								target_dist = dist_to_sniper
 			else:
 				# Modo Mais Próximo ao Centro: procurar inimigo mais próximo ao centro da base
 				var closest_to_center = INF
@@ -5356,9 +5500,27 @@ func _update_sniper_towers(delta: float) -> void:
 				
 				# causar dano nos primeiros (pierce + 1) inimigos
 				var pierce_count = sniper.pierce + 1  # pierce=1 significa atinge 2 inimigos
+				# Rastrear DPS da sniper tower
+				var sniper_id = _get_tower_id(sniper, "sniper")
+				if not tower_dps_data.has(sniper_id):
+					tower_dps_data[sniper_id] = {
+						"dps": 0.0,
+						"damage_dealt": 0.0,
+						"shots": 0,
+						"wave_damage": {},
+						"tower_type": "sniper",
+						"pos": sniper.pos
+					}
+				tower_dps_data[sniper_id]["shots"] += 1
+				
 				for i in range(min(pierce_count, enemies_in_line.size())):
 					var e = enemies_in_line[i].enemy
 					e["hp"] -= sniper_damage
+					
+					# Rastrear dano para DPS
+					if tower_dps_data.has(sniper_id):
+						tower_dps_data[sniper_id]["damage_dealt"] += sniper_damage
+					
 					_create_damage_number(e["pos"], sniper_damage, true)  # crítico para sniper
 					if e["hp"] <= 0:
 						e["hp"] = 0
@@ -5427,10 +5589,29 @@ func _update_shock_towers(delta: float) -> void:
 				if skill_damage_boost_active:
 					shock_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
 				
+				# Rastrear DPS da shock tower
+				var shock_id = _get_tower_id(shock, "shock")
+				if not tower_dps_data.has(shock_id):
+					tower_dps_data[shock_id] = {
+						"dps": 0.0,
+						"damage_dealt": 0.0,
+						"shots": 0,
+						"wave_damage": {},
+						"tower_type": "shock",
+						"pos": shock.pos
+					}
+				tower_dps_data[shock_id]["shots"] += 1
+				
 				# Aplicar dano a todos os alvos da cadeia
 				for target in chain_targets:
-					target["hp"] -= shock_damage
-					_create_damage_number(target["pos"], shock_damage, false, Color(0.5, 0.8, 1.0))  # azul para choque
+					var damage_dealt = shock_damage
+					target["hp"] -= damage_dealt
+					
+					# Rastrear dano para DPS
+					if tower_dps_data.has(shock_id):
+						tower_dps_data[shock_id]["damage_dealt"] += damage_dealt
+					
+					_create_damage_number(target["pos"], damage_dealt, false, Color(0.5, 0.8, 1.0))  # azul para choque
 					if target["hp"] <= 0:
 						target["hp"] = 0
 						target["dying"] = true
@@ -6863,6 +7044,86 @@ func _create_skills_ui() -> void:
 	skill4_hbox.add_child(skill4_btn)
 	
 	vbox.add_child(skill4_container)
+	
+	# Skill 5: Magnetismo de Moedas
+	var skill5_container = PanelContainer.new()
+	skill5_container.custom_minimum_size = Vector2(panel_width - 20, 85)
+	var skill5_style = StyleBoxFlat.new()
+	skill5_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	skill5_style.border_color = Color(0.4, 0.4, 0.5)
+	skill5_style.border_width_left = 1
+	skill5_style.border_width_top = 1
+	skill5_style.border_width_right = 1
+	skill5_style.border_width_bottom = 1
+	skill5_container.add_theme_stylebox_override("panel", skill5_style)
+	
+	var skill5_hbox = HBoxContainer.new()
+	skill5_hbox.add_theme_constant_override("separation", 5)
+	skill5_container.add_child(skill5_hbox)
+	
+	# Ícone (usar um Label com símbolo)
+	var skill5_icon = Label.new()
+	skill5_icon.text = "🧲"
+	skill5_icon.custom_minimum_size = Vector2(50, 50)
+	skill5_icon.add_theme_font_size_override("font_size", 32)
+	skill5_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill5_icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	skill5_hbox.add_child(skill5_icon)
+	
+	# Texto da skill
+	var skill5_text = VBoxContainer.new()
+	skill5_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill5_hbox.add_child(skill5_text)
+	
+	var skill5_name = Label.new()
+	skill5_name.text = "Magnetismo de Moedas"
+	skill5_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill5_name.add_theme_font_size_override("font_size", 14)
+	skill5_text.add_child(skill5_name)
+	
+	var skill5_desc = Label.new()
+	skill5_desc.name = "Skill5Desc"
+	skill5_desc.text = "Coleta moedas automaticamente ao passar o mouse por %.0fs" % GameConstants.SKILL_MAGNETISM_DURATION
+	skill5_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	skill5_desc.add_theme_font_size_override("font_size", 11)
+	skill5_text.add_child(skill5_desc)
+	
+	# Label de cooldown base
+	var skill5_cooldown_base_label = Label.new()
+	skill5_cooldown_base_label.name = "Skill5CooldownBase"
+	skill5_cooldown_base_label.text = "CD: %.0fs" % GameConstants.SKILL_MAGNETISM_COOLDOWN
+	skill5_cooldown_base_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	skill5_cooldown_base_label.add_theme_font_size_override("font_size", 10)
+	skill5_text.add_child(skill5_cooldown_base_label)
+	
+	# Label de cooldown ativo
+	var skill5_cooldown_label = Label.new()
+	skill5_cooldown_label.name = "Skill5Cooldown"
+	skill5_cooldown_label.text = ""
+	skill5_cooldown_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	skill5_cooldown_label.add_theme_font_size_override("font_size", 11)
+	skill5_text.add_child(skill5_cooldown_label)
+	
+	# Botão
+	var skill5_btn = Button.new()
+	skill5_btn.name = "Skill5Button"
+	skill5_btn.text = "Usar"
+	skill5_btn.custom_minimum_size = Vector2(60, 35)
+	skill5_btn.pressed.connect(_on_skill_magnetism)
+	skill_buttons["magnetism"] = {"button": skill5_btn, "cooldown_label": skill5_cooldown_label, "cooldown_base_label": skill5_cooldown_base_label}
+	var btn5_style = StyleBoxFlat.new()
+	btn5_style.bg_color = Color(0.4, 0.2, 0.6)
+	btn5_style.border_color = Color(0.5, 0.3, 0.7)
+	btn5_style.border_width_left = 1
+	btn5_style.border_width_top = 1
+	btn5_style.border_width_right = 1
+	btn5_style.border_width_bottom = 1
+	skill5_btn.add_theme_stylebox_override("normal", btn5_style)
+	skill5_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	skill5_btn.add_theme_font_size_override("font_size", 12)
+	skill5_hbox.add_child(skill5_btn)
+	
+	vbox.add_child(skill5_container)
 
 func _create_range_indicator() -> void:
 	if range_indicator and range_indicator.is_inside_tree():
@@ -7037,6 +7298,22 @@ func _on_skill_speed_boost() -> void:
 	skill_speed_boost_cooldown = GameConstants.SKILL_SPEED_BOOST_COOLDOWN
 	print("Boost de Velocidade ativado por %.0f segundos!" % skill_speed_boost_time)
 
+func _on_skill_magnetism() -> void:
+	# Verificar se já tem o perk permanente
+	if has_coin_magnetism_perk:
+		return  # Se tem o perk, não precisa usar a skill
+	
+	# Verificar cooldown
+	if skill_magnetism_cooldown > 0.0:
+		return
+	if skill_magnetism_active:
+		return  # Já está ativo
+	
+	skill_magnetism_active = true
+	skill_magnetism_time = GameConstants.SKILL_MAGNETISM_DURATION
+	skill_magnetism_cooldown = GameConstants.SKILL_MAGNETISM_COOLDOWN
+	print("Magnetismo de Moedas ativado por %.0f segundos!" % skill_magnetism_time)
+
 func _update_skills_ui() -> void:
 	if not skills_panel:
 		return
@@ -7165,6 +7442,117 @@ func _update_skills_ui() -> void:
 			btn_style.border_width_right = 1
 			btn_style.border_width_bottom = 1
 			btn.add_theme_stylebox_override("normal", btn_style)
+	
+	# Atualizar Skill 5: Magnetismo de Moedas
+	if skill_buttons.has("magnetism"):
+		var btn_data = skill_buttons["magnetism"]
+		var btn = btn_data.button
+		var cooldown_label = btn_data.cooldown_label
+		
+		# Se tem o perk permanente, desabilitar a skill
+		if has_coin_magnetism_perk:
+			btn.disabled = true
+			cooldown_label.text = "Perk Ativo"
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.2, 0.5, 0.2)
+			btn_style.border_color = Color(0.3, 0.7, 0.3)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		elif skill_magnetism_cooldown > 0.0 or skill_magnetism_active:
+			btn.disabled = true
+			if skill_magnetism_active:
+				cooldown_label.text = "Ativo: %.1fs" % skill_magnetism_time
+			else:
+				cooldown_label.text = "Cooldown: %.1fs" % skill_magnetism_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.4, 0.2, 0.6)
+			btn_style.border_color = Color(0.5, 0.3, 0.7)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+			btn_style.border_color = Color(0.3, 0.7, 0.3)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		elif skill_magnetism_cooldown > 0.0 or skill_magnetism_active:
+			btn.disabled = true
+			if skill_magnetism_active:
+				cooldown_label.text = "Ativo: %.1fs" % skill_magnetism_time
+			else:
+				cooldown_label.text = "Cooldown: %.1fs" % skill_magnetism_cooldown
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.3, 0.3, 0.3)
+			btn_style.border_color = Color(0.5, 0.5, 0.5)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+		else:
+			btn.disabled = false
+			cooldown_label.text = ""
+			var btn_style = StyleBoxFlat.new()
+			btn_style.bg_color = Color(0.2, 0.4, 0.6)
+			btn_style.border_color = Color(0.3, 0.5, 0.7)
+			btn_style.border_width_left = 1
+			btn_style.border_width_top = 1
+			btn_style.border_width_right = 1
+			btn_style.border_width_bottom = 1
+			btn.add_theme_stylebox_override("normal", btn_style)
+
+func _create_dps_button() -> void:
+	"""Cria o botão para abrir/fechar o menu de DPS no TopBar"""
+	var tb = $CanvasLayer/HUD/TopBar
+	if tb == null:
+		return
+	
+	# Verificar se o botão já existe
+	if tb.has_node("BtnDPS"):
+		return
+	
+	var btn_dps = Button.new()
+	btn_dps.name = "BtnDPS"
+	btn_dps.text = "DPS"
+	btn_dps.custom_minimum_size = Vector2(60, 28)
+	btn_dps.position = Vector2(1100, 8)
+	btn_dps.pressed.connect(_toggle_dps_menu)
+	
+	# Estilo do botão
+	var btn_style = StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.3, 0.3, 0.5, 1.0)
+	btn_style.border_color = Color(0.4, 0.4, 0.6)
+	btn_style.border_width_left = 1
+	btn_style.border_width_top = 1
+	btn_style.border_width_right = 1
+	btn_style.border_width_bottom = 1
+	btn_dps.add_theme_stylebox_override("normal", btn_style)
+	
+	var btn_hover_style = btn_style.duplicate()
+	btn_hover_style.bg_color = Color(0.4, 0.4, 0.6, 1.0)
+	btn_dps.add_theme_stylebox_override("hover", btn_hover_style)
+	
+	btn_dps.add_theme_font_size_override("font_size", 12)
+	btn_dps.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	
+	tb.add_child(btn_dps)
 
 func _create_boss_alert_ui() -> void:
 	var canvas = $CanvasLayer
@@ -7356,6 +7744,9 @@ func _apply_perk_effects() -> void:
 		coin_drop_chance += effects["coin_drop_chance"]
 		# Limitar a 100% (embora não deva chegar lá)
 		coin_drop_chance = min(coin_drop_chance, 1.0)
+	
+	# Verificar se tem perk de magnetismo permanente
+	has_coin_magnetism_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
 	
 func _on_resource_loading_progress(progress: float) -> void:
 	_update_loading_progress(progress)
@@ -7819,3 +8210,429 @@ func _adjust_shop_and_skills_panels() -> void:
 		
 		# Atualizar conteúdo visível
 		_update_skills_panel_collapse()
+	
+	# Atualizar DPS das torres periodicamente
+	_update_tower_dps(delta)
+
+# ========== SISTEMA DE DPS DAS TORRES ==========
+
+func _get_tower_id(tower: Dictionary, tower_type: String) -> String:
+	"""Gera um ID único para uma torre baseado em sua posição e tipo"""
+	return "%s_%d_%d" % [tower_type, int(tower.pos.x), int(tower.pos.y)]
+
+func _calculate_tower_dps(tower: Dictionary, tower_type: String) -> float:
+	"""Calcula o DPS teórico de uma torre baseado em dano e fire_rate"""
+	var damage = tower.get("damage", 0.5)
+	var fire_rate = tower.get("fire_rate", 1.5)
+	var dirs_count = tower.get("dirs", [Vector2(1, 0)]).size()
+	
+	# Aplicar multiplicadores globais
+	damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	var rate_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = tower.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+			rate_multiplier += boost.rate_boost
+	
+	# Aplicar skill de boost de dano
+	if skill_damage_boost_active:
+		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	
+	# Aplicar skill de boost de velocidade
+	if skill_speed_boost_active:
+		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	
+	damage *= damage_multiplier
+	var effective_fire_rate = fire_rate / rate_multiplier
+	
+	# DPS = (dano * direções) / fire_rate
+	if effective_fire_rate > 0:
+		return (damage * dirs_count) / effective_fire_rate
+	return 0.0
+
+func _calculate_sniper_dps(sniper: Dictionary) -> float:
+	"""Calcula o DPS teórico de uma sniper tower"""
+	var damage = sniper.get("damage", 2.0)
+	var fire_rate = sniper.get("fire_rate", 2.0)
+	var pierce = sniper.get("pierce", 0)
+	
+	# Aplicar multiplicadores globais
+	damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	var rate_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = sniper.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+			rate_multiplier += boost.rate_boost
+	
+	# Aplicar skill de boost de dano
+	if skill_damage_boost_active:
+		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	
+	# Aplicar skill de boost de velocidade
+	if skill_speed_boost_active:
+		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	
+	damage *= damage_multiplier
+	var effective_fire_rate = fire_rate / rate_multiplier
+	
+	# DPS = dano / fire_rate (pierce não afeta DPS, apenas permite acertar múltiplos inimigos)
+	if effective_fire_rate > 0:
+		return damage / effective_fire_rate
+	return 0.0
+
+func _calculate_aoe_dps(aoe: Dictionary) -> float:
+	"""Calcula o DPS teórico de uma AOE tower"""
+	var damage = aoe.get("damage", 1.0)
+	var fire_rate = aoe.get("fire_rate", 1.5)
+	
+	# Aplicar multiplicadores globais
+	damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	var rate_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = aoe.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+			rate_multiplier += boost.rate_boost
+	
+	# Aplicar skill de boost de dano
+	if skill_damage_boost_active:
+		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	
+	# Aplicar skill de boost de velocidade
+	if skill_speed_boost_active:
+		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	
+	damage *= damage_multiplier
+	var effective_fire_rate = fire_rate / rate_multiplier
+	
+	# DPS = dano / fire_rate (AOE pode acertar múltiplos inimigos, mas DPS é por tiro)
+	if effective_fire_rate > 0:
+		return damage / effective_fire_rate
+	return 0.0
+
+func _calculate_shock_dps(shock: Dictionary) -> float:
+	"""Calcula o DPS teórico de uma shock tower"""
+	var damage = shock.get("damage", 0.5)
+	var fire_rate = shock.get("fire_rate", 1.0)
+	var chain_count = shock.get("chain_count", 1)
+	
+	# Aplicar multiplicadores globais
+	damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	var rate_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = shock.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+			rate_multiplier += boost.rate_boost
+	
+	# Aplicar skill de boost de dano
+	if skill_damage_boost_active:
+		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	
+	# Aplicar skill de boost de velocidade
+	if skill_speed_boost_active:
+		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	
+	damage *= damage_multiplier
+	var effective_fire_rate = fire_rate / rate_multiplier
+	
+	# DPS = (dano * chain_count) / fire_rate (cada corrente causa dano)
+	if effective_fire_rate > 0:
+		return (damage * chain_count) / effective_fire_rate
+	return 0.0
+
+func _update_tower_dps(delta: float) -> void:
+	"""Atualiza o DPS calculado de todas as torres"""
+	var current_time = Time.get_ticks_msec() / 1000.0
+	
+	# Atualizar DPS das torres normais
+	for i in range(towers.size()):
+		var tower = towers[i]
+		var tower_id = _get_tower_id(tower, "tower")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "tower",
+				"pos": tower.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_tower_dps(tower, "tower")
+		tower_dps_data[tower_id]["tower_type"] = "tower"
+		tower_dps_data[tower_id]["pos"] = tower.pos
+	
+	# Atualizar DPS das sniper towers
+	for i in range(sniper_towers.size()):
+		var sniper = sniper_towers[i]
+		var tower_id = _get_tower_id(sniper, "sniper")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "sniper",
+				"pos": sniper.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_sniper_dps(sniper)
+		tower_dps_data[tower_id]["tower_type"] = "sniper"
+		tower_dps_data[tower_id]["pos"] = sniper.pos
+	
+	# Atualizar DPS das AOE towers
+	for i in range(aoe_towers.size()):
+		var aoe = aoe_towers[i]
+		var tower_id = _get_tower_id(aoe, "aoe")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "aoe",
+				"pos": aoe.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_aoe_dps(aoe)
+		tower_dps_data[tower_id]["tower_type"] = "aoe"
+		tower_dps_data[tower_id]["pos"] = aoe.pos
+	
+	# Atualizar DPS das shock towers
+	for i in range(shock_towers.size()):
+		var shock = shock_towers[i]
+		var tower_id = _get_tower_id(shock, "shock")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "shock",
+				"pos": shock.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_shock_dps(shock)
+		tower_dps_data[tower_id]["tower_type"] = "shock"
+		tower_dps_data[tower_id]["pos"] = shock.pos
+	
+	# Remover dados de torres que não existem mais
+	var valid_ids = []
+	for tower in towers:
+		valid_ids.append(_get_tower_id(tower, "tower"))
+	for sniper in sniper_towers:
+		valid_ids.append(_get_tower_id(sniper, "sniper"))
+	for aoe in aoe_towers:
+		valid_ids.append(_get_tower_id(aoe, "aoe"))
+	for shock in shock_towers:
+		valid_ids.append(_get_tower_id(shock, "shock"))
+	
+	var ids_to_remove = []
+	for tower_id in tower_dps_data.keys():
+		if not valid_ids.has(tower_id):
+			ids_to_remove.append(tower_id)
+	for id in ids_to_remove:
+		tower_dps_data.erase(id)
+
+func _create_dps_menu() -> void:
+	"""Cria o menu de DPS das torres"""
+	if dps_menu_panel != null and dps_menu_panel.is_inside_tree():
+		return
+	
+	var canvas = $CanvasLayer
+	if canvas == null:
+		return
+	
+	# Criar painel de DPS
+	dps_menu_panel = Panel.new()
+	dps_menu_panel.name = "DPSMenuPanel"
+	dps_menu_panel.custom_minimum_size = Vector2(350, 400)
+	dps_menu_panel.position = Vector2(50, 100)
+	dps_menu_panel.visible = false
+	dps_menu_panel.z_index = 50
+	
+	# Estilo do painel
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.15, 0.15, 0.2, 0.95)
+	panel_style.border_color = Color(0.4, 0.4, 0.5)
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	dps_menu_panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Container principal
+	var main_vbox = VBoxContainer.new()
+	main_vbox.add_theme_constant_override("separation", 5)
+	
+	# Título
+	var title_hbox = HBoxContainer.new()
+	var title_label = Label.new()
+	title_label.text = "DPS das Torres"
+	title_label.add_theme_font_size_override("font_size", 18)
+	title_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_hbox.add_child(title_label)
+	
+	# Botão fechar
+	var close_btn = Button.new()
+	close_btn.text = "✕"
+	close_btn.custom_minimum_size = Vector2(30, 30)
+	close_btn.pressed.connect(func(): _toggle_dps_menu())
+	title_hbox.add_child(close_btn)
+	
+	main_vbox.add_child(title_hbox)
+	
+	# ScrollContainer para lista de torres
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(330, 350)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	
+	var content_vbox = VBoxContainer.new()
+	content_vbox.name = "DPSContent"
+	content_vbox.add_theme_constant_override("separation", 5)
+	scroll.add_child(content_vbox)
+	
+	main_vbox.add_child(scroll)
+	
+	dps_menu_panel.add_child(main_vbox)
+	canvas.add_child(dps_menu_panel)
+
+func _update_dps_menu() -> void:
+	"""Atualiza o conteúdo do menu de DPS"""
+	if dps_menu_panel == null or not dps_menu_panel.is_inside_tree():
+		return
+	
+	var content_vbox = dps_menu_panel.get_node_or_null("DPSContent")
+	if content_vbox == null:
+		return
+	
+	# Limpar conteúdo anterior
+	for child in content_vbox.get_children():
+		child.queue_free()
+	
+	# Ordenar torres por DPS (maior primeiro)
+	var sorted_towers = []
+	for tower_id in tower_dps_data.keys():
+		var data = tower_dps_data[tower_id]
+		sorted_towers.append({
+			"id": tower_id,
+			"dps": data.get("dps", 0.0),
+			"damage_dealt": data.get("damage_dealt", 0.0),
+			"tower_type": data.get("tower_type", "unknown"),
+			"pos": data.get("pos", Vector2.ZERO)
+		})
+	
+	sorted_towers.sort_custom(func(a, b): return a.dps > b.dps)
+	
+	# Criar painéis para cada torre
+	for tower_info in sorted_towers:
+		var tower_panel = Panel.new()
+		tower_panel.custom_minimum_size = Vector2(310, 60)
+		
+		var panel_style = StyleBoxFlat.new()
+		panel_style.bg_color = Color(0.2, 0.2, 0.25, 0.9)
+		panel_style.border_color = Color(0.4, 0.4, 0.5)
+		panel_style.border_width_left = 1
+		panel_style.border_width_top = 1
+		panel_style.border_width_right = 1
+		panel_style.border_width_bottom = 1
+		panel_style.corner_radius_top_left = 4
+		panel_style.corner_radius_top_right = 4
+		panel_style.corner_radius_bottom_left = 4
+		panel_style.corner_radius_bottom_right = 4
+		tower_panel.add_theme_stylebox_override("panel", panel_style)
+		
+		var hbox = HBoxContainer.new()
+		hbox.add_theme_constant_override("separation", 10)
+		
+		# Tipo da torre
+		var type_label = Label.new()
+		var type_names = {
+			"tower": "Torre",
+			"sniper": "Sniper",
+			"aoe": "AOE",
+			"shock": "Shock"
+		}
+		type_label.text = type_names.get(tower_info.tower_type, "Desconhecida")
+		type_label.custom_minimum_size = Vector2(60, 0)
+		type_label.add_theme_font_size_override("font_size", 12)
+		hbox.add_child(type_label)
+		
+		# Informações de DPS
+		var info_vbox = VBoxContainer.new()
+		info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		
+		var dps_label = Label.new()
+		dps_label.text = "DPS: %.1f" % tower_info.dps
+		dps_label.add_theme_font_size_override("font_size", 13)
+		dps_label.add_theme_color_override("font_color", Color(0.8, 1.0, 0.8))
+		info_vbox.add_child(dps_label)
+		
+		var damage_label = Label.new()
+		var current_wave = wave_manager.wave if wave_manager else 0
+		var wave_damage = 0.0
+		if tower_dps_data[tower_info.id].has("wave_damage"):
+			wave_damage = tower_dps_data[tower_info.id]["wave_damage"].get(current_wave - 1, 0.0)
+		damage_label.text = "Dano Wave %d: %.0f" % [current_wave - 1 if current_wave > 0 else 0, wave_damage]
+		damage_label.add_theme_font_size_override("font_size", 11)
+		damage_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		info_vbox.add_child(damage_label)
+		
+		hbox.add_child(info_vbox)
+		tower_panel.add_child(hbox)
+		content_vbox.add_child(tower_panel)
+	
+	# Se não há torres, mostrar mensagem
+	if sorted_towers.is_empty():
+		var empty_label = Label.new()
+		empty_label.text = "Nenhuma torre construída"
+		empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty_label.add_theme_font_size_override("font_size", 14)
+		empty_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		content_vbox.add_child(empty_label)
+
+func _toggle_dps_menu() -> void:
+	"""Abre/fecha o menu de DPS"""
+	if dps_menu_panel == null:
+		_create_dps_menu()
+	
+	if dps_menu_panel == null:
+		return
+	
+	dps_menu_visible = !dps_menu_visible
+	dps_menu_panel.visible = dps_menu_visible
+	
+	if dps_menu_visible:
+		_update_dps_menu()
+		# Criar timer para atualizar periodicamente
+		if not has_node("DPSUpdateTimer"):
+			var timer = Timer.new()
+			timer.name = "DPSUpdateTimer"
+			timer.wait_time = 0.5
+			timer.timeout.connect(_update_dps_menu)
+			timer.autostart = true
+			add_child(timer)
+		else:
+			var timer = get_node("DPSUpdateTimer")
+			timer.start()
+	else:
+		# Parar timer quando fechar
+		if has_node("DPSUpdateTimer"):
+			var timer = get_node("DPSUpdateTimer")
+			timer.stop()

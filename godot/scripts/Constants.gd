@@ -41,7 +41,7 @@ const WALL_SIZE_GRID := 1
 const HEALING_STATION_SIZE_GRID := 3
 
 # Limits
-const MAX_TOWERS := 8
+const MAX_TOWERS := 4
 const MAX_BARRACKS := 2
 const MAX_MINES := 8
 const MAX_SLOW_TOWERS := 1
@@ -53,16 +53,16 @@ const MAX_WALLS := 4
 const MAX_HEALING_STATIONS := 2
 
 # Tower upgrades
-const TOWER_RANGE_COST := 8
-const TOWER_RATE_COST := 8
-const TOWER_DIRS_COST := 12
+const TOWER_RANGE_COST := 15
+const TOWER_RATE_COST := 10
+const TOWER_DIRS_COST := 40
 const TOWER_DMG_COST := 10
 const TOWER_FREEZE_COST := 40  # Aumentado de 25 para 40
 const TOWER_FIRE_COST := 40  # Aumentado de 25 para 40
 
 # Barracks upgrades
 const BARRACKS_DMG_COST := 15
-const BARRACKS_HOLD_COST := 12
+const BARRACKS_HOLD_COST := 30
 const BARRACKS_SPAWN_RATE_COST := 30  # Aumentado de 20 para 30 (50% mais caro)
 const BARRACKS_PROJECTILE_SPEED_COST := 20
 
@@ -103,10 +103,13 @@ const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
 # Balanceamento: Escala de recompensas e upgrades
-const REWARD_SCALE := 1.05  # Recompensas crescem 5% por wave (mais lento que dificuldade)
+const REWARD_SCALE := 1.03  # Recompensas crescem 2% por wave (reduzido de 1.05 para balancear níveis altos)
+const REWARD_SCALE_SOFT_CAP := 50  # A partir da wave 30, a escala diminui ainda mais
+const REWARD_SCALE_AFTER_CAP := 1.02  # Após o soft cap, cresce apenas 2% por wave
 const UPGRADE_COST_MULTIPLIER := 1.15  # Upgrades ficam 15% mais caros por nível (aumentado de 1.12)
 const WAVE_COMPLETION_BONUS_BASE := 10
-const WAVE_COMPLETION_BONUS_PER_WAVE := 2
+const WAVE_COMPLETION_BONUS_PER_WAVE := 1  # Reduzido de 2 para 1 (crescimento mais lento)
+const WAVE_COMPLETION_BONUS_MAX := 100  # Cap máximo de bônus por wave (evita valores muito altos)
 
 # Hero
 const HERO_START_COINS := 0
@@ -134,3 +137,5 @@ const SKILL_COLLECT_COINS_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_DAMAGE_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SPEED_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SLOW_ALL_COOLDOWN := 60.0  # segundos de cooldown
+const SKILL_MAGNETISM_COOLDOWN := 45.0  # segundos de cooldown
+const SKILL_MAGNETISM_DURATION := 30.0  # segundos de duração

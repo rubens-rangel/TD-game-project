@@ -940,18 +940,10 @@ func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement
 	buy_button.add_theme_font_size_override("font_size", 12)
 	buy_button.pressed.connect(func():
 		if perk_manager.purchase_perk(perk.id, achievement_manager):
-			# Atualizar pontos na UI
-			var main_container = dialog.get_child(0)
-			if main_container:
-				var vbox = main_container.get_child(0)
-				if vbox:
-					var points_panel = vbox.get_child(0)
-					if points_panel:
-						var points_container = points_panel.get_child(0)
-						if points_container:
-							var points_label = points_container.get_node("PointsLabel")
-							if points_label:
-								points_label.text = "Pontos Disponíveis: %d" % achievement_manager.total_points
+			# Atualizar pontos na UI imediatamente
+			var points_label = dialog.get_node_or_null("*/PointsLabel")
+			if points_label:
+				points_label.text = "Pontos Disponíveis: %d" % achievement_manager.total_points
 			# Recriar painel do perk
 			var parent = panel.get_parent()
 			var index = parent.get_children().find(panel)
