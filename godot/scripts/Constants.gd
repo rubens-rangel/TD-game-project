@@ -139,3 +139,45 @@ const SKILL_SPEED_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SLOW_ALL_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_MAGNETISM_COOLDOWN := 45.0  # segundos de cooldown
 const SKILL_MAGNETISM_DURATION := 30.0  # segundos de duração
+const COIN_MAGNETISM_RANGE := 20.0  # Raio de coleta automática de moedas
+
+# Hero
+const HERO_ARROW_SPEED := 260.0
+const HERO_BASE_HP := 100
+const HERO_HOME_MAX_LEVEL := 3
+const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1200
+const HERO_HOME_UPGRADE_COST_LEVEL_3 := 3000
+const HERO_CRIT_MULTIPLIER_BASE := 2.0
+const HERO_RANGE_MAX := 9999.0
+
+# UI Colors
+const COLOR_UI_WHITE := Color(1.0, 1.0, 1.0)
+const COLOR_UI_GOLD := Color(1.0, 0.9, 0.3)
+const COLOR_UI_RED := Color(1.0, 0.3, 0.3)
+const COLOR_UI_GRAY := Color(0.7, 0.7, 0.7)
+const COLOR_UI_DARK_BG := Color(0.1, 0.1, 0.15, 0.95)
+const COLOR_UI_BORDER := Color(0.3, 0.3, 0.4)
+const COLOR_UI_BUTTON_NORMAL := Color(0.2, 0.2, 0.3)
+const COLOR_UI_BUTTON_HOVER := Color(0.3, 0.3, 0.4)
+
+# UI Sizes
+const UI_TOP_BAR_HEIGHT := 44.0
+const UI_RANGE_INDICATOR_SEGMENTS := 64
+const UI_MAX_COIN_SOUND_PLAYERS := 3
+
+# Audio
+const MUSIC_VOLUME_DEFAULT := -7.0
+
+# Visual Effects
+const EFFECT_DAMAGE_NUMBER_DURATION := 1.0
+const EFFECT_COIN_COLLECT_DURATION := 0.5
+const EFFECT_DEATH_ANIMATION_DURATION := 0.8
+
+# Wall Costs (acumulativo)
+const WALL_COST_1ST := 100
+const WALL_COST_2ND := 300
+const WALL_COST_3RD := 600
+const WALL_COST_4TH := 1000
+
+# Tower Cost Scaling
+const TOWER_COST_SCALE_PER_WAVE := 1.02  # 2% por wave

@@ -11,6 +11,14 @@ const PerkManager = preload("res://scripts/managers/PerkManager.gd")
 const ResourceManager = preload("res://scripts/managers/ResourceManager.gd")
 const EffectsManager = preload("res://scripts/managers/EffectsManager.gd")
 const CoinManager = preload("res://scripts/managers/CoinManager.gd")
+const RewardCalculator = preload("res://scripts/managers/RewardCalculator.gd")
+const UIHelper = preload("res://scripts/helpers/UIHelper.gd")
+const HeroManager = preload("res://scripts/managers/HeroManager.gd")
+const SkillsManager = preload("res://scripts/managers/SkillsManager.gd")
+const PlacementManager = preload("res://scripts/managers/PlacementManager.gd")
+const TowerSystemManager = preload("res://scripts/managers/TowerSystemManager.gd")
+const VisualEffectsManager = preload("res://scripts/managers/VisualEffectsManager.gd")
+const UIManager = preload("res://scripts/managers/UIManager.gd")
 
 const HERO_ARROW_SPEED := 260.0
 
@@ -23,6 +31,13 @@ var perk_manager: PerkManager
 var resource_manager: ResourceManager
 var effects_manager: EffectsManager
 var coin_manager: CoinManager
+var reward_calculator: RewardCalculator
+var hero_manager: HeroManager
+var skills_manager: SkillsManager
+var placement_manager: PlacementManager
+var tower_system_manager: TowerSystemManager
+var visual_effects_manager: VisualEffectsManager
+var ui_manager: UIManager
 
 # Estatísticas para achievements
 var total_kills: int = 0
@@ -199,21 +214,23 @@ var save_status_label: Label
 
 # Skills system
 var skills_panel: Panel
-var skill_damage_boost_active: bool = false
-var skill_damage_boost_time: float = 0.0
-var skill_speed_boost_active: bool = false
-var skill_speed_boost_time: float = 0.0
-var skill_collect_coins_cooldown: float = 0.0
-var skill_damage_boost_cooldown: float = 0.0
-var skill_speed_boost_cooldown: float = 0.0
-var skill_slow_all_cooldown: float = 0.0
-var skill_slow_all_active: bool = false
-var skill_slow_all_time: float = 0.0
-var skill_magnetism_cooldown: float = 0.0
-var skill_magnetism_active: bool = false
-var skill_magnetism_time: float = 0.0
+# Variáveis antigas de skills - DEPRECATED: Usar skills_manager agora
+# Mantidas temporariamente para compatibilidade durante migração
+# var skill_damage_boost_active: bool = false
+# var skill_damage_boost_time: float = 0.0
+# var skill_speed_boost_active: bool = false
+# var skill_speed_boost_time: float = 0.0
+# var skill_collect_coins_cooldown: float = 0.0
+# var skill_damage_boost_cooldown: float = 0.0
+# var skill_speed_boost_cooldown: float = 0.0
+# var skill_slow_all_cooldown: float = 0.0
+# var skill_slow_all_active: bool = false
+# var skill_slow_all_time: float = 0.0
+# var skill_magnetism_cooldown: float = 0.0
+# var skill_magnetism_active: bool = false
+# var skill_magnetism_time: float = 0.0
 var skill_buttons: Dictionary = {}  # Armazenar referências aos botões para atualizar cooldown
-var has_coin_magnetism_perk: bool = false  # Se tem o perk permanente de magnetismo
+# var has_coin_magnetism_perk: bool = false  # DEPRECATED: Usar skills_manager.has_coin_magnetism_perk
 
 # Sistema de DPS das torres
 var tower_dps_data: Dictionary = {}  # {tower_id: {dps: float, damage_dealt: float, shots: int, wave_damage: Dictionary}}
@@ -225,63 +242,37 @@ func _wave_factor() -> float:
 	return wave_manager.wave_factor()
 
 # ========== FUNÇÕES DE BALANCEAMENTO ==========
+# Delegadas para RewardCalculator para melhor organização
 
 # Calcula recompensa escalada de inimigo normal baseada na wave
 func get_enemy_reward() -> int:
 	"""Calcula recompensa de inimigo normal baseada na wave atual"""
-	var wave = wave_manager.wave
-	var scale: float = 1.0
-	
-	if wave <= 1:
-		scale = 1.0
-	elif wave <= GameConstants.REWARD_SCALE_SOFT_CAP:
-		# Escala normal até a wave 30
-		scale = pow(GameConstants.REWARD_SCALE, wave - 1)
-	else:
-		# Após a wave 30, usar escala reduzida
-		var base_scale = pow(GameConstants.REWARD_SCALE, GameConstants.REWARD_SCALE_SOFT_CAP - 1)
-		var extra_waves = wave - GameConstants.REWARD_SCALE_SOFT_CAP
-		scale = base_scale * pow(GameConstants.REWARD_SCALE_AFTER_CAP, extra_waves)
-	
-	return int(GameConstants.NORMAL_REWARD * scale)
+	return reward_calculator.get_enemy_reward()
 
 # Calcula recompensa de boss baseada na wave
 func get_boss_reward() -> int:
 	"""Calcula recompensa de boss baseada na wave atual"""
-	return get_enemy_reward() * GameConstants.BOSS_REWARD_MULTIPLIER
+	return reward_calculator.get_boss_reward()
 
 # Calcula custo progressivo de upgrade
 func get_upgrade_cost(base_cost: int, current_level: int) -> int:
 	"""Calcula custo de upgrade com escala progressiva"""
-	return int(base_cost * pow(GameConstants.UPGRADE_COST_MULTIPLIER, current_level))
+	return RewardCalculator.get_upgrade_cost(base_cost, current_level)
 
 # Calcula bonus de completion de wave
 func get_wave_completion_bonus() -> int:
 	"""Calcula bonus de moedas por completar uma wave (com cap máximo)"""
-	var bonus = GameConstants.WAVE_COMPLETION_BONUS_BASE + (wave_manager.wave * GameConstants.WAVE_COMPLETION_BONUS_PER_WAVE)
-	return min(bonus, GameConstants.WAVE_COMPLETION_BONUS_MAX)
+	return reward_calculator.get_wave_completion_bonus()
 
 # Calcula custo de torre escalado com wave
 func get_tower_cost(base_cost: int) -> int:
-	"""Calcula custo de torre baseado na wave atual (cresce 2% por wave)"""
-	var wave_scale = pow(1.02, max(0, wave_manager.wave - 1))  # 2% por wave
-	return int(base_cost * wave_scale)
+	"""Calcula custo de torre baseado na wave atual"""
+	return reward_calculator.get_tower_cost(base_cost)
 
 # Calcula custo acumulativo de muralha
 func get_wall_cost() -> int:
 	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo)"""
-	var current_wall_count = walls.size()
-	match current_wall_count:
-		0:  # Primeira muralha
-			return 100
-		1:  # Segunda muralha
-			return 300
-		2:  # Terceira muralha
-			return 600
-		3:  # Quarta muralha (última)
-			return 1000
-		_:  # Caso de segurança
-			return 1000
+	return RewardCalculator.get_wall_cost(walls.size())
 
 # upgrades overlay state
 var choosing_upgrade := false
@@ -314,6 +305,10 @@ var hero_home_upgrade_costs := {
 }
 
 func _get_hero_home_texture_for_level(level: int) -> Texture2D:
+	"""Delegado para HeroManager"""
+	if hero_manager:
+		return hero_manager.get_hero_home_texture_for_level(level)
+	# Fallback se hero_manager não estiver disponível
 	match level:
 		2:
 			return tex_house if tex_house != null else tex_tent
@@ -323,9 +318,16 @@ func _get_hero_home_texture_for_level(level: int) -> Texture2D:
 			return tex_tent
 
 func _get_hero_home_upgrade_cost(level: int) -> int:
+	"""Delegado para HeroManager"""
+	if hero_manager:
+		return hero_manager.get_hero_home_upgrade_cost(level)
 	return hero_home_upgrade_costs.get(level, 0)
 
 func _get_hero_home_benefits_text(level: int) -> String:
+	"""Delegado para HeroManager"""
+	if hero_manager:
+		return hero_manager.get_hero_home_benefits_text(level)
+	# Fallback
 	match level:
 		1:
 			return "Nível inicial. Proteção básica da tenda."
@@ -337,15 +339,27 @@ func _get_hero_home_benefits_text(level: int) -> String:
 			return "Nível máximo alcançado"
 
 func _apply_hero_home_upgrade_effects(level: int) -> void:
+	"""Delegado para HeroManager"""
+	if hero_manager:
+		var changes = hero_manager.apply_hero_home_upgrade(level)
+		# Aplicar mudanças no jogo
+		global_tower_damage_boost = hero_manager.global_tower_damage_boost
+		base_hp = hero_manager.base_hp
+		hero_home_level = hero_manager.hero_home_level
+		# Atualizar boost global nas torres
+		if tower_system_manager:
+			tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
+		return
+	# Fallback (código antigo)
 	match level:
 		2:
-			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres
+			global_tower_damage_boost *= 1.10
 			hero["range"] += 100
 			base_hp += 40
 		3:
-			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres (acumulativo)
+			global_tower_damage_boost *= 1.10
 			hero["pierce"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)  # Reduzido de 0.05 para 0.03
+			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)
 			base_hp += 60
 
 
@@ -441,6 +455,27 @@ func _ready() -> void:
 	achievement_manager = AchievementManager.get_instance()
 	perk_manager = PerkManager.get_instance()
 	
+	# Inicializar RewardCalculator
+	reward_calculator = RewardCalculator.new(wave_manager)
+	
+	# Inicializar SkillsManager
+	skills_manager = SkillsManager.new(self)
+	
+	# Inicializar PlacementManager
+	placement_manager = PlacementManager.new(self, grid_manager)
+	placement_manager.set_structure_arrays(
+		towers, barracks, mines, slow_towers, aoe_towers,
+		sniper_towers, boost_towers, shock_towers, walls, healing_stations
+	)
+	
+	# Inicializar TowerSystemManager (será configurado depois que effects_manager for criado)
+	
+	# Inicializar VisualEffectsManager (será configurado depois que effects_manager for criado)
+	
+	# Inicializar UIManager
+	ui_manager = UIManager.new(self)
+	ui_manager.initialize()
+	
 	_apply_perk_effects()
 	
 	# Carregar configurações de áudio
@@ -500,6 +535,25 @@ func _ready() -> void:
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
+	
+	# Inicializar managers que dependem de texturas e effects_manager
+	# Inicializar HeroManager (após texturas carregadas)
+	hero_manager = HeroManager.new(base_hp)
+	hero_manager.set_textures(tex_tent, tex_house, tex_castle)
+	hero_manager.hero = hero  # Usar o mesmo dicionário do herói
+	hero_manager.hero_home_level = hero_home_level
+	hero_manager.global_tower_damage_boost = global_tower_damage_boost
+	
+	# Inicializar TowerSystemManager (após effects_manager criado)
+	tower_system_manager = TowerSystemManager.new(self, enemies, effects_manager, grid_manager)
+	tower_system_manager.set_tower_arrays(
+		towers, slow_towers, aoe_towers, sniper_towers,
+		boost_towers, shock_towers, barracks
+	)
+	tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
+	
+	# Inicializar VisualEffectsManager (após effects_manager criado)
+	visual_effects_manager = VisualEffectsManager.new(self, effects_manager)
 	tex_grass = resource_manager.get_texture("grass")
 	tex_path = resource_manager.get_texture("path")
 	tex_wall = resource_manager.get_texture("wall")
@@ -846,60 +900,12 @@ func _process(delta: float) -> void:
 		if boss_alert_timer <= 0.0 and boss_alert_label:
 			boss_alert_label.visible = false
 
-	# Atualizar timers das skills
-	if skill_damage_boost_active:
-		skill_damage_boost_time -= delta
-		if skill_damage_boost_time <= 0.0:
-			skill_damage_boost_active = false
-			skill_damage_boost_time = 0.0
-			print("Boost de Dano expirou!")
-	
-	if skill_speed_boost_active:
-		skill_speed_boost_time -= delta
-		if skill_speed_boost_time <= 0.0:
-			skill_speed_boost_active = false
-			skill_speed_boost_time = 0.0
-			print("Boost de Velocidade expirou!")
-	
-	# Atualizar cooldowns das skills
-	if skill_collect_coins_cooldown > 0.0:
-		skill_collect_coins_cooldown -= delta
-		skill_collect_coins_cooldown = max(0.0, skill_collect_coins_cooldown)
-	
-	if skill_damage_boost_cooldown > 0.0:
-		skill_damage_boost_cooldown -= delta
-		skill_damage_boost_cooldown = max(0.0, skill_damage_boost_cooldown)
-	
-	if skill_speed_boost_cooldown > 0.0:
-		skill_speed_boost_cooldown -= delta
-		skill_speed_boost_cooldown = max(0.0, skill_speed_boost_cooldown)
-	
-	if skill_slow_all_cooldown > 0.0:
-		skill_slow_all_cooldown -= delta
-		skill_slow_all_cooldown = max(0.0, skill_slow_all_cooldown)
-	
-	if skill_magnetism_cooldown > 0.0:
-		skill_magnetism_cooldown -= delta
-		skill_magnetism_cooldown = max(0.0, skill_magnetism_cooldown)
-	
-	# Atualizar timer da skill de slow global
-	if skill_slow_all_active:
-		skill_slow_all_time -= delta
-		if skill_slow_all_time <= 0.0:
-			skill_slow_all_active = false
-			skill_slow_all_time = 0.0
-			print("Slow Global expirou!")
-	
-	# Atualizar timer da skill de magnetismo
-	if skill_magnetism_active:
-		skill_magnetism_time -= delta
-		if skill_magnetism_time <= 0.0:
-			skill_magnetism_active = false
-			skill_magnetism_time = 0.0
-			print("Magnetismo expirou!")
+	# Atualizar skills usando SkillsManager
+	if skills_manager:
+		skills_manager.update_skills(delta)
 	
 	# Coleta automática de moedas quando mouse passa sobre elas (se tem perk ou skill ativa)
-	if (has_coin_magnetism_perk or skill_magnetism_active) and coin_manager:
+	if skills_manager and skills_manager.is_magnetism_active() and coin_manager:
 		var mouse_screen_pos = get_viewport().get_mouse_position()
 		# Converter posição da tela para coordenadas do mundo do Node2D
 		var world_pos = to_local(mouse_screen_pos)
@@ -948,34 +954,40 @@ func _process(delta: float) -> void:
 		sniper_effects = effects_manager.get_sniper_effects()
 		coin_collect_effects = effects_manager.get_coin_collect_effects()
 	
-	# atualizar indicadores de dano flutuantes
-	var new_damage_numbers: Array = []
-	for dmg in damage_numbers:
-		dmg.time += delta
-		dmg.pos += dmg.velocity * delta
-		dmg.velocity.y += 50.0 * delta  # gravidade leve
-		if dmg.time < dmg.max_time:
-			new_damage_numbers.append(dmg)
-	damage_numbers = new_damage_numbers
-	
-	# atualizar animações de morte
-	var new_death_animations: Array = []
-	for anim in enemy_death_animations:
-		anim.time += delta
-		var progress = anim.time / anim.max_time
-		anim.scale = 1.0 - progress  # encolhe
-		anim.alpha = 1.0 - progress  # fade out
-		if anim.time < anim.max_time:
-			new_death_animations.append(anim)
-	enemy_death_animations = new_death_animations
-	
-	# atualizar efeitos visuais de choque
-	var new_shock_effects: Array = []
-	for effect in shock_effects:
-		effect.time += delta
-		if effect.time < effect.max_time:
-			new_shock_effects.append(effect)
-	shock_effects = new_shock_effects
+	# atualizar efeitos visuais usando VisualEffectsManager
+	if visual_effects_manager:
+		visual_effects_manager.update_effects(delta)
+		# Sincronizar arrays locais com o manager (para desenho)
+		damage_numbers = visual_effects_manager.get_damage_numbers()
+		enemy_death_animations = visual_effects_manager.get_death_animations()
+		shock_effects = visual_effects_manager.get_shock_effects()
+	else:
+		# Fallback (código antigo)
+		var new_damage_numbers: Array = []
+		for dmg in damage_numbers:
+			dmg.time += delta
+			dmg.pos += dmg.velocity * delta
+			dmg.velocity.y += 50.0 * delta
+			if dmg.time < dmg.max_time:
+				new_damage_numbers.append(dmg)
+		damage_numbers = new_damage_numbers
+		
+		var new_death_animations: Array = []
+		for anim in enemy_death_animations:
+			anim.time += delta
+			var progress = anim.time / anim.max_time
+			anim.scale = 1.0 - progress
+			anim.alpha = 1.0 - progress
+			if anim.time < anim.max_time:
+				new_death_animations.append(anim)
+		enemy_death_animations = new_death_animations
+		
+		var new_shock_effects: Array = []
+		for effect in shock_effects:
+			effect.time += delta
+			if effect.time < effect.max_time:
+				new_shock_effects.append(effect)
+		shock_effects = new_shock_effects
 	
 	if coin_manager:
 		coin_manager.update_coins(delta)
@@ -1026,9 +1038,13 @@ func _process(delta: float) -> void:
 				# índice inválido, resetar para procurar novo
 				s.target_enemy_idx = -1
 	
-	# atualizar quartéis e soldados
-	_update_barracks(delta)
-	_update_soldiers(delta)
+	# atualizar quartéis e soldados usando TowerSystemManager
+	if tower_system_manager:
+		tower_system_manager.update_all_towers(delta)
+	else:
+		# Fallback (código antigo)
+		_update_barracks(delta)
+		_update_soldiers(delta)
 
 	# waves
 	if not wave_manager.spawning and enemies.is_empty() and not choosing_upgrade:
@@ -1041,13 +1057,19 @@ func _process(delta: float) -> void:
 					base_hp = min(100.0, base_hp + hs.heal_amount)
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
-			var pool := [
-				{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
-				{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
-				{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
-				{"label": "Chance Crítico", "code": "CRIT_CHANCE", "max_level": 10, "description": "Aumenta chance de crítico (2% por nível, máx 20%)"},
-				{"label": "Dano Crítico", "code": "CRIT_DMG", "max_level": 10, "description": "Aumenta multiplicador de dano crítico (+0.2 por nível)"},
-			]
+			# Usar pool do HeroManager se disponível
+			var pool := []
+			if hero_manager:
+				pool = hero_manager.upgrade_options.duplicate()
+			else:
+				# Fallback
+				pool = [
+					{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
+					{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
+					{"label": "Perfuração", "code": "PIERCE", "max_level": 3, "description": "Permite acertar múltiplos inimigos (1, 2 ou 3)"},
+					{"label": "Chance Crítico", "code": "CRIT_CHANCE", "max_level": 10, "description": "Aumenta chance de crítico (2% por nível, máx 20%)"},
+					{"label": "Dano Crítico", "code": "CRIT_DMG", "max_level": 10, "description": "Aumenta multiplicador de dano crítico (+0.2 por nível)"},
+				]
 			# Filtrar apenas upgrades que não atingiram o limite
 			var available_upgrades = []
 			for upgrade in pool:
@@ -1055,25 +1077,34 @@ func _process(delta: float) -> void:
 				if current_level < upgrade["max_level"]:
 					available_upgrades.append(upgrade)
 			
-			# Se não houver upgrades disponíveis, usar todos (caso raro)
+			# Se não houver upgrades disponíveis, permitir continuar sem mostrar overlay
 			if available_upgrades.is_empty():
-				available_upgrades = pool
-			
-			available_upgrades.shuffle()
-			# Mostrar apenas 3 upgrades aleatórios (ou menos se não houver)
-			upgrade_options = available_upgrades.slice(0, min(3, available_upgrades.size()))
-			# Auto-save quando a wave termina (antes do upgrade overlay)
-			_auto_save_after_wave()
-			# Bonus por completar wave
-			var wave_bonus = get_wave_completion_bonus()
-			hero["coins"] += wave_bonus
-			_track_coin_collected(wave_bonus)
-			choosing_upgrade = true
-			# Se não há upgrades disponíveis, permitir continuar sem selecionar
-			benefit_applied = upgrade_options.is_empty()  # Se não há upgrades, já está "aplicado" (pode continuar)
-			selected_benefit_index = -1  # Resetar seleção anterior
-			$CanvasLayer/UpgradeOverlay.visible = true
-			_update_upgrade_labels()
+				# Não há upgrades disponíveis - permitir continuar diretamente
+				# Auto-save quando a wave termina
+				_auto_save_after_wave()
+				# Bonus por completar wave
+				var wave_bonus = get_wave_completion_bonus()
+				hero["coins"] += wave_bonus
+				_track_coin_collected(wave_bonus)
+				# Continuar para próxima wave sem mostrar overlay
+				wave_manager.start_next_wave()
+			else:
+				# Há upgrades disponíveis - mostrar overlay
+				available_upgrades.shuffle()
+				# Mostrar apenas 3 upgrades aleatórios (ou menos se não houver)
+				upgrade_options = available_upgrades.slice(0, min(3, available_upgrades.size()))
+				# Auto-save quando a wave termina (antes do upgrade overlay)
+				_auto_save_after_wave()
+				# Bonus por completar wave
+				var wave_bonus = get_wave_completion_bonus()
+				hero["coins"] += wave_bonus
+				_track_coin_collected(wave_bonus)
+				choosing_upgrade = true
+				# Resetar seleção anterior
+				benefit_applied = false
+				selected_benefit_index = -1
+				$CanvasLayer/UpgradeOverlay.visible = true
+				_update_upgrade_labels()
 		else:
 			wave_manager.time_to_next_wave = 0.0
 
@@ -1345,6 +1376,8 @@ func _input(event: InputEvent) -> void:
 					queue_redraw()
 					return
 			
+			# Usar PlacementManager se disponível (ainda em desenvolvimento)
+			# Por enquanto, manter código antigo
 			if placing_tower:
 				_try_place_tower(world_pos)
 			elif placing_barracks:
@@ -2294,12 +2327,15 @@ func _update_upgrade_labels() -> void:
 	var resume_btn = ov.get_node("Panel/BtnResume") as Button
 	if resume_btn:
 		resume_btn.text = "Continuar"
-		resume_btn.disabled = not benefit_applied  # Desabilitar se nenhum benefício foi selecionado
+		# Se não há upgrades disponíveis, sempre habilitar o botão
+		# Se há upgrades, habilitar apenas se um foi selecionado
+		var should_enable = upgrade_options.is_empty() or benefit_applied
+		resume_btn.disabled = not should_enable
 		# Posicionar o botão Resume abaixo de todos os botões de upgrade
 		var resume_y = 60 + (upgrade_options.size() * 60) + 10
 		resume_btn.position = Vector2(180, resume_y)
 		var resume_style = StyleBoxFlat.new()
-		if benefit_applied:
+		if should_enable:
 			resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
 			resume_style.border_color = Color(0.3, 0.8, 0.3)
 		else:
@@ -2311,8 +2347,10 @@ func _update_upgrade_labels() -> void:
 		resume_style.border_width_bottom = 2
 		resume_btn.add_theme_stylebox_override("normal", resume_style)
 		var resume_hover = resume_style.duplicate()
-		if benefit_applied:
+		if should_enable:
 			resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		else:
+			resume_hover.bg_color = Color(0.4, 0.4, 0.4, 0.9)
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 	
 	# Criar botões dinamicamente se necessário (suporta até 10 botões)
@@ -2501,17 +2539,28 @@ func _apply_benefit(i: int) -> void:
 	# Habilitar botão de continuar
 	var resume_btn = ov.get_node("Panel/BtnResume") as Button
 	if resume_btn:
-		resume_btn.disabled = false
+		# Se não há upgrades disponíveis, sempre habilitar o botão
+		# Se há upgrades, habilitar apenas se um foi selecionado
+		var should_enable = upgrade_options.is_empty() or benefit_applied
+		resume_btn.disabled = not should_enable
+		
 		var resume_style = StyleBoxFlat.new()
-		resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
-		resume_style.border_color = Color(0.3, 0.8, 0.3)
+		if should_enable:
+			resume_style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
+			resume_style.border_color = Color(0.3, 0.8, 0.3)
+		else:
+			resume_style.bg_color = Color(0.3, 0.3, 0.3, 0.9)
+			resume_style.border_color = Color(0.4, 0.4, 0.4)
 		resume_style.border_width_left = 2
 		resume_style.border_width_top = 2
 		resume_style.border_width_right = 2
 		resume_style.border_width_bottom = 2
 		resume_btn.add_theme_stylebox_override("normal", resume_style)
 		var resume_hover = resume_style.duplicate()
-		resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		if should_enable:
+			resume_hover.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		else:
+			resume_hover.bg_color = Color(0.4, 0.4, 0.4, 0.9)
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 
 func _resume_after_upgrade() -> void:
@@ -2537,23 +2586,27 @@ func _resume_after_upgrade() -> void:
 	
 	# Verificar novamente se atingiu o limite (pode ter mudado)
 	if current_level < max_level:
-		# Aplicar upgrade
-		match code:
-			"DMG":
-				hero["levels"]["DMG"] += 1
-				hero["damage"] += 1
-			"FIRERATE":
-				hero["levels"]["FIRERATE"] += 1
-				hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)  # Reduzido de 0.05 para 0.03 - escala de crescimento menor
-			"PIERCE":
-				hero["levels"]["PIERCE"] += 1
-				hero["pierce"] += 1
-			"CRIT_CHANCE":
-				hero["levels"]["CRIT_CHANCE"] += 1
-				hero["crit_chance"] = min(0.20, hero["crit_chance"] + 0.02)  # 2% por nível, máximo 20%
-			"CRIT_DMG":
-				hero["levels"]["CRIT_DMG"] += 1
-				hero["crit_multiplier"] += 0.2  # +0.2 por nível
+		# Aplicar upgrade usando HeroManager
+		if hero_manager:
+			hero_manager.apply_upgrade(code)
+		else:
+			# Fallback (código antigo)
+			match code:
+				"DMG":
+					hero["levels"]["DMG"] += 1
+					hero["damage"] += 1
+				"FIRERATE":
+					hero["levels"]["FIRERATE"] += 1
+					hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)
+				"PIERCE":
+					hero["levels"]["PIERCE"] += 1
+					hero["pierce"] += 1
+				"CRIT_CHANCE":
+					hero["levels"]["CRIT_CHANCE"] += 1
+					hero["crit_chance"] = min(0.20, hero["crit_chance"] + 0.02)
+				"CRIT_DMG":
+					hero["levels"]["CRIT_DMG"] += 1
+					hero["crit_multiplier"] += 0.2
 	
 	# Resetar estado
 	$CanvasLayer/UpgradeOverlay.visible = false
@@ -3012,8 +3065,8 @@ func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
 	var d = max(dir.length(), 0.0001)
 	# aplicar skill de boost de dano no herói
 	var hero_damage = hero["damage"]
-	if skill_damage_boost_active:
-		hero_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		hero_damage *= skills_manager.get_damage_multiplier()
 	
 	# Velocidade da flecha (fixa)
 	var arrow_speed = HERO_ARROW_SPEED
@@ -5100,8 +5153,8 @@ func _try_place_healing_station(pos: Vector2) -> void:
 func _physics_process(delta: float) -> void:
 	# aplicar skill de boost de velocidade no herói
 	var hero_rate_multiplier = 1.0
-	if skill_speed_boost_active:
-		hero_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	if skills_manager:
+		hero_rate_multiplier = skills_manager.get_speed_multiplier()
 	
 	hero["cooldown"] = max(0.0, hero["cooldown"] - delta * hero_rate_multiplier)
 	
@@ -5133,8 +5186,8 @@ func _physics_process(delta: float) -> void:
 				rate_multiplier += boost.rate_boost
 		
 		# aplicar skill de boost de velocidade
-		if skill_speed_boost_active:
-			rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+		if skills_manager:
+			rate_multiplier *= skills_manager.get_speed_multiplier()
 		
 		var effective_fire_rate = t.fire_rate / rate_multiplier
 		t.cooldown = max(0.0, t.cooldown - delta)
@@ -5144,12 +5197,15 @@ func _physics_process(delta: float) -> void:
 	
 	# atualizar novas torres (apenas se não estiver pausado)
 	if not paused and not game_over:
-		_update_mines(delta)
-		_update_slow_towers(delta)
-		_update_aoe_towers(delta)
-		_update_sniper_towers(delta)
-		_update_shock_towers(delta)
-		_update_boost_towers(delta)
+		# Usar TowerSystemManager se disponível (já atualiza todas as torres)
+		if not tower_system_manager:
+			# Fallback (código antigo)
+			_update_mines(delta)
+			_update_slow_towers(delta)
+			_update_aoe_towers(delta)
+			_update_sniper_towers(delta)
+			_update_shock_towers(delta)
+			_update_boost_towers(delta)
 		_update_walls(delta)
 		_update_healing_stations(delta)
 
@@ -5170,8 +5226,8 @@ func _tower_fire_cross(tower: Dictionary) -> void:
 			rate_multiplier += boost.rate_boost
 	
 	# aplicar skill de boost de dano
-	if skill_damage_boost_active:
-		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
 	tower_damage *= damage_multiplier
 	var life := float(tower.get("range", 260.0)) / speed
@@ -5310,8 +5366,8 @@ func _update_slow_towers(delta: float) -> void:
 	for st in slow_towers:
 		# aplicar skill de boost de velocidade
 		var slow_rate_multiplier = 1.0
-		if skill_speed_boost_active:
-			slow_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+		if skills_manager:
+			slow_rate_multiplier = skills_manager.get_speed_multiplier()
 		
 		# Aplicar slow continuamente enquanto o inimigo está dentro do alcance (sem cooldown)
 		for e in enemies:
@@ -5333,8 +5389,8 @@ func _update_aoe_towers(delta: float) -> void:
 	for aoe in aoe_towers:
 		# aplicar skill de boost de velocidade
 		var aoe_rate_multiplier = 1.0
-		if skill_speed_boost_active:
-			aoe_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+		if skills_manager:
+			aoe_rate_multiplier = skills_manager.get_speed_multiplier()
 		
 		aoe.cooldown = max(0.0, aoe.cooldown - delta * aoe_rate_multiplier)
 		if aoe.cooldown <= 0.0:
@@ -5353,8 +5409,8 @@ func _update_aoe_towers(delta: float) -> void:
 				var cannon_speed = 200.0
 				# aplicar skill de boost de dano
 				var aoe_damage = aoe.damage
-				if skill_damage_boost_active:
-					aoe_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				if skills_manager:
+					aoe_damage *= skills_manager.get_damage_multiplier()
 				
 				aoe_cannon_projectiles.append({
 					"pos": aoe.pos,
@@ -5498,8 +5554,8 @@ func _update_sniper_towers(delta: float) -> void:
 				enemies_in_line.sort_custom(func(a, b): return a.dist < b.dist)
 				# aplicar skill de boost de dano
 				var sniper_damage = sniper.damage
-				if skill_damage_boost_active:
-					sniper_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				if skills_manager:
+					sniper_damage *= skills_manager.get_damage_multiplier()
 				
 				# causar dano nos primeiros (pierce + 1) inimigos
 				var pierce_count = sniper.pierce + 1  # pierce=1 significa atinge 2 inimigos
@@ -5589,8 +5645,8 @@ func _update_shock_towers(delta: float) -> void:
 				
 				# aplicar skill de boost de dano
 				var shock_damage = shock.damage
-				if skill_damage_boost_active:
-					shock_damage *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+				if skills_manager:
+					shock_damage *= skills_manager.get_damage_multiplier()
 				
 				# Rastrear DPS da shock tower
 				var shock_id = _get_tower_id(shock, "shock")
@@ -5649,7 +5705,11 @@ func _create_shock_effect(start_pos: Vector2, end_pos: Vector2) -> void:
 		"time": 0.0,
 		"max_time": 0.15  # efeito rápido como um raio
 	}
-	shock_effects.append(shock_effect)
+	# Usar VisualEffectsManager se disponível
+	if visual_effects_manager:
+		visual_effects_manager.create_shock_effect(start_pos, end_pos)
+	else:
+		shock_effects.append(shock_effect)
 
 func _update_walls(delta: float) -> void:
 	# walls podem ser danificadas por inimigos que passam por perto
@@ -6277,7 +6337,11 @@ func _create_damage_number(pos: Vector2, damage: float, is_crit: bool = false, c
 		"color": color if color != Color.WHITE else (Color(1.0, 0.8, 0.2) if is_crit else Color(1.0, 0.3, 0.3)),
 		"velocity": Vector2(randf_range(-30, 30), -50.0)  # movimento para cima com pequeno desvio horizontal
 	}
-	damage_numbers.append(damage_num)
+	# Usar VisualEffectsManager se disponível
+	if visual_effects_manager:
+		visual_effects_manager.create_damage_number(pos, damage, is_crit, color)
+	else:
+		damage_numbers.append(damage_num)
 
 func _create_tower_shop_ui() -> void:
 	# Criar painel lateral para loja de torres
@@ -7230,14 +7294,16 @@ func _on_upgrade_menu_closed() -> void:
 	_hide_range_indicator()
 
 func _on_skill_collect_coins() -> void:
-	# Verificar cooldown
-	if skill_collect_coins_cooldown > 0.0:
+	if not skills_manager:
 		return
 	
+	if not skills_manager.activate_collect_coins():
+		return  # Cooldown ativo ou falha na ativação
+	
 	# Achievement: usar skill
-	if not skill_used:
+	if not skills_manager.skill_used:
 		achievement_manager.increment_progress("collect_skill")
-		skill_used = true
+		skills_manager.skill_used = true
 	
 	var total_collected = 0
 	if coin_manager:
@@ -7249,22 +7315,15 @@ func _on_skill_collect_coins() -> void:
 				total_collected += value
 				_play_coin_sound()
 	
-	# Ativar cooldown
-	skill_collect_coins_cooldown = GameConstants.SKILL_COLLECT_COINS_COOLDOWN
-	
 	if total_collected > 0:
 		print("Coletadas %d moedas!" % total_collected)
 
 func _on_skill_slow_all() -> void:
-	# Verificar cooldown
-	if skill_slow_all_cooldown > 0.0:
+	if not skills_manager:
 		return
-	if skill_slow_all_active:
-		return  # Já está ativo
 	
-	skill_slow_all_active = true
-	skill_slow_all_time = GameConstants.SKILL_SLOW_ALL_DURATION
-	skill_slow_all_cooldown = GameConstants.SKILL_SLOW_ALL_COOLDOWN
+	if not skills_manager.activate_slow_all():
+		return  # Cooldown ativo ou já está ativo
 	
 	# Aplicar slow em todos os inimigos através do sistema de efeitos
 	for i in range(enemies.size()):
@@ -7276,50 +7335,34 @@ func _on_skill_slow_all() -> void:
 		enemy_effects[enemy_idx].slow_time = GameConstants.SKILL_SLOW_ALL_DURATION
 		enemy_effects[enemy_idx].slow_amount = GameConstants.SKILL_SLOW_ALL_AMOUNT
 	
-	print("Slow Global ativado por %.0f segundos!" % skill_slow_all_time)
+	print("Slow Global ativado por %.0f segundos!" % GameConstants.SKILL_SLOW_ALL_DURATION)
 
 func _on_skill_damage_boost() -> void:
-	# Verificar cooldown
-	if skill_damage_boost_cooldown > 0.0:
+	if not skills_manager:
 		return
-	if skill_damage_boost_active:
-		return  # Já está ativo
 	
-	skill_damage_boost_active = true
-	skill_damage_boost_time = GameConstants.SKILL_DAMAGE_BOOST_DURATION
-	skill_damage_boost_cooldown = GameConstants.SKILL_DAMAGE_BOOST_COOLDOWN
-	print("Boost de Dano ativado por %.0f segundos!" % skill_damage_boost_time)
+	if skills_manager.activate_damage_boost():
+		print("Boost de Dano ativado por %.0f segundos!" % GameConstants.SKILL_DAMAGE_BOOST_DURATION)
 
 func _on_skill_speed_boost() -> void:
-	# Verificar cooldown
-	if skill_speed_boost_cooldown > 0.0:
+	if not skills_manager:
 		return
-	if skill_speed_boost_active:
-		return  # Já está ativo
 	
-	skill_speed_boost_active = true
-	skill_speed_boost_time = GameConstants.SKILL_SPEED_BOOST_DURATION
-	skill_speed_boost_cooldown = GameConstants.SKILL_SPEED_BOOST_COOLDOWN
-	print("Boost de Velocidade ativado por %.0f segundos!" % skill_speed_boost_time)
+	if skills_manager.activate_speed_boost():
+		print("Boost de Velocidade ativado por %.0f segundos!" % GameConstants.SKILL_SPEED_BOOST_DURATION)
 
 func _on_skill_magnetism() -> void:
-	# Verificar se já tem o perk permanente
-	if has_coin_magnetism_perk:
-		return  # Se tem o perk, não precisa usar a skill
-	
-	# Verificar cooldown
-	if skill_magnetism_cooldown > 0.0:
+	if not skills_manager:
 		return
-	if skill_magnetism_active:
-		return  # Já está ativo
 	
-	skill_magnetism_active = true
-	skill_magnetism_time = GameConstants.SKILL_MAGNETISM_DURATION
-	skill_magnetism_cooldown = GameConstants.SKILL_MAGNETISM_COOLDOWN
-	print("Magnetismo de Moedas ativado por %.0f segundos!" % skill_magnetism_time)
+	if skills_manager.activate_magnetism():
+		print("Magnetismo de Moedas ativado por %.0f segundos!" % GameConstants.SKILL_MAGNETISM_DURATION)
 
 func _update_skills_ui() -> void:
 	if not skills_panel:
+		return
+	
+	if not skills_manager:
 		return
 	
 	# Atualizar Skill 1: Coletar Moedas
@@ -7328,9 +7371,10 @@ func _update_skills_ui() -> void:
 		var btn = btn_data.button
 		var cooldown_label = btn_data.cooldown_label
 		
-		if skill_collect_coins_cooldown > 0.0:
+		var cooldown = skills_manager.get_cooldown("collect_coins")
+		if cooldown > 0.0:
 			btn.disabled = true
-			cooldown_label.text = "Cooldown: %.1fs" % skill_collect_coins_cooldown
+			cooldown_label.text = "Cooldown: %.1fs" % cooldown
 			var btn_style = StyleBoxFlat.new()
 			btn_style.bg_color = Color(0.3, 0.3, 0.3)
 			btn_style.border_color = Color(0.5, 0.5, 0.5)
@@ -7357,12 +7401,14 @@ func _update_skills_ui() -> void:
 		var btn = btn_data.button
 		var cooldown_label = btn_data.cooldown_label
 		
-		if skill_damage_boost_cooldown > 0.0 or skill_damage_boost_active:
+		var cooldown = skills_manager.get_cooldown("damage_boost")
+		var active_time = skills_manager.get_active_time("damage_boost")
+		if cooldown > 0.0 or skills_manager.is_skill_active("damage_boost"):
 			btn.disabled = true
-			if skill_damage_boost_active:
-				cooldown_label.text = "Ativo: %.1fs" % skill_damage_boost_time
+			if skills_manager.is_skill_active("damage_boost"):
+				cooldown_label.text = "Ativo: %.1fs" % active_time
 			else:
-				cooldown_label.text = "Cooldown: %.1fs" % skill_damage_boost_cooldown
+				cooldown_label.text = "Cooldown: %.1fs" % cooldown
 			var btn_style = StyleBoxFlat.new()
 			btn_style.bg_color = Color(0.3, 0.3, 0.3)
 			btn_style.border_color = Color(0.5, 0.5, 0.5)
@@ -7389,12 +7435,14 @@ func _update_skills_ui() -> void:
 		var btn = btn_data.button
 		var cooldown_label = btn_data.cooldown_label
 		
-		if skill_speed_boost_cooldown > 0.0 or skill_speed_boost_active:
+		var cooldown = skills_manager.get_cooldown("speed_boost")
+		var active_time = skills_manager.get_active_time("speed_boost")
+		if cooldown > 0.0 or skills_manager.is_skill_active("speed_boost"):
 			btn.disabled = true
-			if skill_speed_boost_active:
-				cooldown_label.text = "Ativo: %.1fs" % skill_speed_boost_time
+			if skills_manager.is_skill_active("speed_boost"):
+				cooldown_label.text = "Ativo: %.1fs" % active_time
 			else:
-				cooldown_label.text = "Cooldown: %.1fs" % skill_speed_boost_cooldown
+				cooldown_label.text = "Cooldown: %.1fs" % cooldown
 			var btn_style = StyleBoxFlat.new()
 			btn_style.bg_color = Color(0.3, 0.3, 0.3)
 			btn_style.border_color = Color(0.5, 0.5, 0.5)
@@ -7421,12 +7469,14 @@ func _update_skills_ui() -> void:
 		var btn = btn_data.button
 		var cooldown_label = btn_data.cooldown_label
 		
-		if skill_slow_all_cooldown > 0.0 or skill_slow_all_active:
+		var cooldown = skills_manager.get_cooldown("slow_all")
+		var active_time = skills_manager.get_active_time("slow_all")
+		if cooldown > 0.0 or skills_manager.is_skill_active("slow_all"):
 			btn.disabled = true
-			if skill_slow_all_active:
-				cooldown_label.text = "Ativo: %.1fs" % skill_slow_all_time
+			if skills_manager.is_skill_active("slow_all"):
+				cooldown_label.text = "Ativo: %.1fs" % active_time
 			else:
-				cooldown_label.text = "Cooldown: %.1fs" % skill_slow_all_cooldown
+				cooldown_label.text = "Cooldown: %.1fs" % cooldown
 			var btn_style = StyleBoxFlat.new()
 			btn_style.bg_color = Color(0.3, 0.3, 0.3)
 			btn_style.border_color = Color(0.5, 0.5, 0.5)
@@ -7454,7 +7504,7 @@ func _update_skills_ui() -> void:
 		var cooldown_label = btn_data.cooldown_label
 		
 		# Se tem o perk permanente, desabilitar a skill
-		if has_coin_magnetism_perk:
+		if skills_manager.has_coin_magnetism_perk:
 			btn.disabled = true
 			cooldown_label.text = "Perk Ativo"
 			var btn_style = StyleBoxFlat.new()
@@ -7465,31 +7515,34 @@ func _update_skills_ui() -> void:
 			btn_style.border_width_right = 1
 			btn_style.border_width_bottom = 1
 			btn.add_theme_stylebox_override("normal", btn_style)
-		elif skill_magnetism_cooldown > 0.0 or skill_magnetism_active:
-			btn.disabled = true
-			if skill_magnetism_active:
-				cooldown_label.text = "Ativo: %.1fs" % skill_magnetism_time
-			else:
-				cooldown_label.text = "Cooldown: %.1fs" % skill_magnetism_cooldown
-			var btn_style = StyleBoxFlat.new()
-			btn_style.bg_color = Color(0.3, 0.3, 0.3)
-			btn_style.border_color = Color(0.5, 0.5, 0.5)
-			btn_style.border_width_left = 1
-			btn_style.border_width_top = 1
-			btn_style.border_width_right = 1
-			btn_style.border_width_bottom = 1
-			btn.add_theme_stylebox_override("normal", btn_style)
 		else:
-			btn.disabled = false
-			cooldown_label.text = ""
-			var btn_style = StyleBoxFlat.new()
-			btn_style.bg_color = Color(0.2, 0.4, 0.6)
-			btn_style.border_color = Color(0.3, 0.5, 0.7)
-			btn_style.border_width_left = 1
-			btn_style.border_width_top = 1
-			btn_style.border_width_right = 1
-			btn_style.border_width_bottom = 1
-			btn.add_theme_stylebox_override("normal", btn_style)
+			var cooldown = skills_manager.get_cooldown("magnetism")
+			var active_time = skills_manager.get_active_time("magnetism")
+			if cooldown > 0.0 or skills_manager.is_skill_active("magnetism"):
+				btn.disabled = true
+				if skills_manager.is_skill_active("magnetism"):
+					cooldown_label.text = "Ativo: %.1fs" % active_time
+				else:
+					cooldown_label.text = "Cooldown: %.1fs" % cooldown
+				var btn_style = StyleBoxFlat.new()
+				btn_style.bg_color = Color(0.3, 0.3, 0.3)
+				btn_style.border_color = Color(0.5, 0.5, 0.5)
+				btn_style.border_width_left = 1
+				btn_style.border_width_top = 1
+				btn_style.border_width_right = 1
+				btn_style.border_width_bottom = 1
+				btn.add_theme_stylebox_override("normal", btn_style)
+			else:
+				btn.disabled = false
+				cooldown_label.text = ""
+				var btn_style = StyleBoxFlat.new()
+				btn_style.bg_color = Color(0.2, 0.4, 0.6)
+				btn_style.border_color = Color(0.3, 0.5, 0.7)
+				btn_style.border_width_left = 1
+				btn_style.border_width_top = 1
+				btn_style.border_width_right = 1
+				btn_style.border_width_bottom = 1
+				btn.add_theme_stylebox_override("normal", btn_style)
 
 func _create_dps_button() -> void:
 	"""Cria o botão para abrir/fechar o menu de DPS no TopBar"""
@@ -7634,7 +7687,11 @@ func _create_death_animation(pos: Vector2) -> void:
 		"scale": 1.0,
 		"alpha": 1.0
 	}
-	enemy_death_animations.append(death_anim)
+	# Usar VisualEffectsManager se disponível
+	if visual_effects_manager:
+		visual_effects_manager.create_death_animation(pos)
+	else:
+		enemy_death_animations.append(death_anim)
 
 # ========== ACHIEVEMENTS TRACKING ==========
 
@@ -7719,7 +7776,9 @@ func _apply_perk_effects() -> void:
 		coin_drop_chance = min(coin_drop_chance, 1.0)
 	
 	# Verificar se tem perk de magnetismo permanente
-	has_coin_magnetism_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
+	var has_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
+	if skills_manager:
+		skills_manager.set_coin_magnetism_perk(has_perk)
 	
 func _on_resource_loading_progress(progress: float) -> void:
 	_update_loading_progress(progress)
@@ -8209,12 +8268,12 @@ func _calculate_tower_dps(tower: Dictionary, tower_type: String) -> float:
 			rate_multiplier += boost.rate_boost
 	
 	# Aplicar skill de boost de dano
-	if skill_damage_boost_active:
-		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
 	# Aplicar skill de boost de velocidade
-	if skill_speed_boost_active:
-		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	if skills_manager:
+		rate_multiplier *= skills_manager.get_speed_multiplier()
 	
 	damage *= damage_multiplier
 	var effective_fire_rate = fire_rate / rate_multiplier
@@ -8243,12 +8302,12 @@ func _calculate_sniper_dps(sniper: Dictionary) -> float:
 			rate_multiplier += boost.rate_boost
 	
 	# Aplicar skill de boost de dano
-	if skill_damage_boost_active:
-		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
 	# Aplicar skill de boost de velocidade
-	if skill_speed_boost_active:
-		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	if skills_manager:
+		rate_multiplier *= skills_manager.get_speed_multiplier()
 	
 	damage *= damage_multiplier
 	var effective_fire_rate = fire_rate / rate_multiplier
@@ -8276,12 +8335,12 @@ func _calculate_aoe_dps(aoe: Dictionary) -> float:
 			rate_multiplier += boost.rate_boost
 	
 	# Aplicar skill de boost de dano
-	if skill_damage_boost_active:
-		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
 	# Aplicar skill de boost de velocidade
-	if skill_speed_boost_active:
-		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	if skills_manager:
+		rate_multiplier *= skills_manager.get_speed_multiplier()
 	
 	damage *= damage_multiplier
 	var effective_fire_rate = fire_rate / rate_multiplier
@@ -8310,12 +8369,12 @@ func _calculate_shock_dps(shock: Dictionary) -> float:
 			rate_multiplier += boost.rate_boost
 	
 	# Aplicar skill de boost de dano
-	if skill_damage_boost_active:
-		damage_multiplier *= GameConstants.SKILL_DAMAGE_BOOST_MULTIPLIER
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
 	# Aplicar skill de boost de velocidade
-	if skill_speed_boost_active:
-		rate_multiplier *= GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
+	if skills_manager:
+		rate_multiplier *= skills_manager.get_speed_multiplier()
 	
 	damage *= damage_multiplier
 	var effective_fire_rate = fire_rate / rate_multiplier
