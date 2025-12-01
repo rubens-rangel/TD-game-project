@@ -6,7 +6,7 @@
 script = ExtResource("1_rc3e6")
 
 [node name="MusicPlayer" type="AudioStreamPlayer" parent="."]
-volume_db = -5.0
+volume_db = -7.0
 autoplay = false
 
 [node name="SoundEffectsPlayer" type="AudioStreamPlayer" parent="."]
@@ -27,10 +27,10 @@ offset_bottom = 60.0
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
-offset_left = 8.0
-offset_top = 8.0
-offset_right = -8.0
-offset_bottom = 52.0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = 44.0
 
 [node name="LblLeft" type="Label" parent="CanvasLayer/HUD/TopBar"]
 layout_mode = 0

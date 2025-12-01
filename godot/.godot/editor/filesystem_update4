@@ -7,3 +7,5 @@ res://scripts/managers/AchievementManager.gd
 res://scripts/managers/PerkManager.gd
 res://scripts/managers/ResourceManager.gd
 res://scripts/managers/SaveManager.gd
+res://scripts/managers/TowerManager.gd
+res://scripts/WaveManager.gd

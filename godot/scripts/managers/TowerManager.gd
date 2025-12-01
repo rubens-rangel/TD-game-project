@@ -32,7 +32,7 @@ func create_slow_tower(pos: Vector2, grid_x: int, grid_y: int) -> Dictionary:
 		"grid_x": grid_x,
 		"grid_y": grid_y,
 		"range": 200.0,
-		"slow_amount": 0.5,
+		"slow_amount": 0.2,  # Valor inicial 20% (pode aumentar até 40% com upgrades)
 		"cooldown": 0.0,
 		"fire_rate": 0.5
 	}

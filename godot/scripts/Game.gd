@@ -93,6 +93,7 @@ var soldiers: Array = []  # soldados: {pos: Vector2, target_enemy_idx: int, hold
 # Constantes de upgrade agora em GameConstants
 var tower_menu: PopupMenu
 var tower_selected_index := -1
+var keep_menu_open := false  # Flag para manter menu aberto após upgrade
 var placing_tower_dir := Vector2(1, 0)  # direção inicial ao colocar torre
 
 # Constantes de barracks agora em GameConstants
@@ -156,6 +157,12 @@ var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
+var music_volume: float = -7.0  # Volume padrão (20% mais baixo que -5.0)
+var music_volume_slider: HSlider = null
+var tower_shop_collapsed: bool = false  # Estado de colapso da loja
+var skills_panel_collapsed: bool = false  # Estado de colapso do painel de skills
+var tower_shop_toggle_button: Button  # Botão para colapsar/expandir loja
+var skills_panel_toggle_button: Button  # Botão para colapsar/expandir skills
 
 # Sistema de tooltips
 var game_tooltip: Control  # Tooltip global para elementos do jogo
@@ -177,6 +184,8 @@ var boss_alert_timer: float = 0.0
 var boss_alert_duration: float = 4.0
 var boss_warning_sound: AudioStream
 var boss_alert_player: AudioStreamPlayer
+var coin_sound_players: Array = []  # Pool de players para som de moeda (evitar sobreposição)
+const MAX_COIN_SOUND_PLAYERS := 3  # Máximo de 3 sons simultâneos
 
 # Menu de pause
 var pause_overlay: Control
@@ -405,6 +414,9 @@ func _ready() -> void:
 	
 	_apply_perk_effects()
 	
+	# Carregar configurações de áudio
+	_load_music_settings()
+	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
 	
@@ -420,6 +432,16 @@ func _ready() -> void:
 	var win_w := int(grid_px_w)
 	var win_h := int(grid_px_h + bar_height)  # grid + top bar
 	DisplayServer.window_set_size(Vector2i(win_w, win_h))
+	
+	# Configurar modo tela cheia (pode ser ativado com F11)
+	# Por padrão inicia em janela, mas pode alternar
+	get_viewport().size_changed.connect(_on_viewport_size_changed)
+	
+	# Tornar HUD responsiva
+	_adjust_hud_to_screen_size()
+	
+	# Ajustar painéis da loja e skills
+	_adjust_shop_and_skills_panels()
 	
 	# aguardar um frame para viewport atualizar
 	await get_tree().process_frame
@@ -536,6 +558,33 @@ func _ready() -> void:
 		btn_mute.add_theme_font_size_override("font_size", 16)
 		btn_mute.pressed.connect(_toggle_music)
 	
+	# Adicionar slider de volume
+	if not tb.has_node("MusicVolumeSlider"):
+		var volume_container = HBoxContainer.new()
+		volume_container.name = "MusicVolumeContainer"
+		volume_container.position = Vector2(860, 8)
+		volume_container.custom_minimum_size = Vector2(150, 28)
+		
+		var volume_label = Label.new()
+		volume_label.text = "🔊"
+		volume_label.custom_minimum_size = Vector2(25, 28)
+		volume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		volume_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		volume_container.add_child(volume_label)
+		
+		var volume_slider = HSlider.new()
+		volume_slider.name = "MusicVolumeSlider"
+		volume_slider.custom_minimum_size = Vector2(120, 28)
+		volume_slider.min_value = -60.0  # Mínimo: muito baixo
+		volume_slider.max_value = 0.0    # Máximo: volume normal
+		volume_slider.value = music_volume
+		volume_slider.step = 1.0
+		volume_slider.value_changed.connect(_on_music_volume_changed)
+		volume_container.add_child(volume_slider)
+		
+		tb.add_child(volume_container)
+		music_volume_slider = volume_slider
+	
 	# remover botões antigos se existirem
 	if tb.has_node("BtnBuyTower"):
 		tb.get_node("BtnBuyTower").queue_free()
@@ -552,6 +601,9 @@ func _ready() -> void:
 	
 	# Criar menu de skills
 	_create_skills_ui()
+	
+	# Ajustar painéis após criação
+	_adjust_shop_and_skills_panels()
 	_create_range_indicator()
 
 	# criar PopupMenu para torres (deve estar em um Control)
@@ -561,7 +613,7 @@ func _ready() -> void:
 	menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tower_menu = PopupMenu.new()
 	tower_menu.name = "TowerMenu"
-	tower_menu.hide_on_checkable_item_selection = true
+	tower_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	tower_menu.add_item("Alcance +60", 1)
 	tower_menu.add_item("Cadencias +", 2)
 	tower_menu.add_item("+4 Direcoes", 3)
@@ -580,7 +632,7 @@ func _ready() -> void:
 	barracks_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	barracks_menu = PopupMenu.new()
 	barracks_menu.name = "BarracksMenu"
-	barracks_menu.hide_on_checkable_item_selection = true
+	barracks_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	barracks_menu.add_item("Dano +0.2", 1)
 	barracks_menu.add_item("Tempo Hold +1s", 2)
 	barracks_menu.add_item("Spawn Rate -0.5s", 3)
@@ -597,7 +649,7 @@ func _ready() -> void:
 	sniper_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sniper_menu = PopupMenu.new()
 	sniper_menu.name = "SniperMenu"
-	sniper_menu.hide_on_checkable_item_selection = true
+	sniper_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	sniper_menu.add_item("Dano +2", 1)
 	sniper_menu.add_item("Taxa de Tiro +", 2)
 	sniper_menu.add_separator()
@@ -615,7 +667,7 @@ func _ready() -> void:
 	aoe_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	aoe_menu = PopupMenu.new()
 	aoe_menu.name = "AOEMenu"
-	aoe_menu.hide_on_checkable_item_selection = true
+	aoe_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	aoe_menu.add_item("Dano +1", 1)
 	aoe_menu.add_item("Taxa de Tiro +", 2)
 	aoe_menu.add_item("Área +20", 3)
@@ -631,7 +683,7 @@ func _ready() -> void:
 	shock_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shock_menu = PopupMenu.new()
 	shock_menu.name = "ShockMenu"
-	shock_menu.hide_on_checkable_item_selection = true
+	shock_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	shock_menu.add_item("Dano +0.5", 1)
 	shock_menu.add_item("Taxa de Tiro +", 2)
 	shock_menu.add_item("Corrente +1", 3)
@@ -647,11 +699,11 @@ func _ready() -> void:
 	slow_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slow_menu = PopupMenu.new()
 	slow_menu.name = "SlowMenu"
-	slow_menu.hide_on_checkable_item_selection = true
+	slow_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	slow_menu.add_item("Alcance +30", 1)
-	slow_menu.add_item("Slow +10%", 2)
-	slow_menu.add_item("Duração +0.5s", 3)
-	slow_menu.add_item("Taxa de Aplicação +", 4)
+	slow_menu.add_item("Slow x1.05", 2)
+	# Removido duração - funciona enquanto está dentro da área
+	# Removido completamente "Taxa de Aplicação" (era id 4) - não faz sentido
 	slow_menu.id_pressed.connect(Callable(self, "_on_slow_menu_pressed"))
 	slow_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	slow_menu_container.add_child(slow_menu)
@@ -664,10 +716,10 @@ func _ready() -> void:
 	boost_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	boost_menu = PopupMenu.new()
 	boost_menu.name = "BoostMenu"
-	boost_menu.hide_on_checkable_item_selection = true
-	boost_menu.add_item("Alcance +30", 1)
-	boost_menu.add_item("Boost Dano +10%", 2)
-	boost_menu.add_item("Boost Cadência +5%", 3)
+	boost_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
+	boost_menu.add_item("Boost Dano +10%", 1)
+	boost_menu.add_item("Boost Cadência +5%", 2)
+	# Removido upgrade de alcance - range é global (9999)
 	boost_menu.id_pressed.connect(Callable(self, "_on_boost_menu_pressed"))
 	boost_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	boost_menu_container.add_child(boost_menu)
@@ -716,6 +768,7 @@ func _ready() -> void:
 			elif music is AudioStreamMP3:
 				music.loop = true
 			music_player.stream = music
+			music_player.volume_db = music_volume  # Aplicar volume configurado
 			music_player.play()
 			print("Game: Música de fundo iniciada")
 		else:
@@ -942,8 +995,8 @@ func _process(delta: float) -> void:
 				available_upgrades = pool
 			
 			available_upgrades.shuffle()
-			# Mostrar TODOS os upgrades disponíveis (não limitar a 3)
-			upgrade_options = available_upgrades
+			# Mostrar apenas 3 upgrades aleatórios
+			upgrade_options = available_upgrades.slice(0, min(3, available_upgrades.size()))
 			# Auto-save quando a wave termina (antes do upgrade overlay)
 			_auto_save_after_wave()
 			# Bonus por completar wave
@@ -979,7 +1032,13 @@ func _process(delta: float) -> void:
 	var wave_text = "Onda %d (CHEFE!)" % wave_manager.wave if is_boss_wave else "Onda %d" % wave_manager.wave
 	tb.get_node("LblLeft").text = "%s  Inimigos %d" % [wave_text, enemies.size()]
 	tb.get_node("LblCenter").text = "Moedas %d" % [int(hero["coins"])]
-	tb.get_node("LblRight").text = "Vida %d" % [base_hp]
+	var lbl_right = tb.get_node_or_null("LblRight")
+	if lbl_right:
+		lbl_right.text = "Vida %d" % [base_hp]
+		lbl_right.visible = true  # Garantir que sempre esteja visível
+		# Garantir que o texto seja atualizado mesmo se o label estiver escondido
+		if not lbl_right.visible:
+			lbl_right.show()
 	
 	# Atualizar UI melhorada - Menu lateral de torres
 	_update_tower_shop_ui()
@@ -1118,6 +1177,16 @@ func _get_structure_array(array_name: String) -> Array:
 			return []
 
 func _input(event: InputEvent) -> void:
+	# Alternar tela cheia com F11
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
+		var mode = DisplayServer.window_get_mode()
+		if mode == DisplayServer.WINDOW_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		else:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		get_viewport().set_input_as_handled()
+		return
+	
 	# Pausar/despausar com ESC
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		if game_over:
@@ -1241,6 +1310,36 @@ func _input(event: InputEvent) -> void:
 	
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		if not choosing_upgrade and not game_over:
+			# Fechar menus de upgrade ao clicar fora (botão direito)
+			if tower_menu and tower_menu.visible:
+				tower_menu.hide()
+				_hide_range_indicator()
+				tower_selected_index = -1
+			if sniper_menu and sniper_menu.visible:
+				sniper_menu.hide()
+				_hide_range_indicator()
+				sniper_selected_index = -1
+			if aoe_menu and aoe_menu.visible:
+				aoe_menu.hide()
+				_hide_range_indicator()
+				aoe_selected_index = -1
+			if slow_menu and slow_menu.visible:
+				slow_menu.hide()
+				_hide_range_indicator()
+				slow_selected_index = -1
+			if boost_menu and boost_menu.visible:
+				boost_menu.hide()
+				_hide_range_indicator()
+				boost_selected_index = -1
+			if shock_menu and shock_menu.visible:
+				shock_menu.hide()
+				_hide_range_indicator()
+				shock_selected_index = -1
+			if barracks_menu and barracks_menu.visible:
+				barracks_menu.hide()
+				_hide_range_indicator()
+				barracks_selected_index = -1
+			
 			# Cancelar drag se estiver arrastando
 			if dragging_tower:
 				# Restaurar posição original (grid já foi restaurado)
@@ -3010,27 +3109,35 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 	
 	var new_pos = mouse_pos - drag_offset
 	
-	# Tentar mover a torre
+	# Fazer snap para o grid antes de tentar mover (correção do bug de reposicionamento)
+	var grid_coord = grid_manager.world_to_base_grid(new_pos)
+	var snapped_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	
+	# Tentar mover a torre com posição ajustada ao grid
 	var moved = false
 	match dragged_tower_type:
 		"tower":
-			moved = _try_move_tower(dragged_tower_index, new_pos)
+			moved = _try_move_tower(dragged_tower_index, snapped_world_pos)
 		"slow_tower":
-			moved = _try_move_slow_tower(dragged_tower_index, new_pos)
+			moved = _try_move_slow_tower(dragged_tower_index, snapped_world_pos)
 		"aoe_tower":
-			moved = _try_move_aoe_tower(dragged_tower_index, new_pos)
+			moved = _try_move_aoe_tower(dragged_tower_index, snapped_world_pos)
 		"sniper_tower":
-			moved = _try_move_sniper_tower(dragged_tower_index, new_pos)
+			moved = _try_move_sniper_tower(dragged_tower_index, snapped_world_pos)
 		"boost_tower":
-			moved = _try_move_boost_tower(dragged_tower_index, new_pos)
+			moved = _try_move_boost_tower(dragged_tower_index, snapped_world_pos)
 		"shock_tower":
-			moved = _try_move_shock_tower(dragged_tower_index, new_pos)
+			moved = _try_move_shock_tower(dragged_tower_index, snapped_world_pos)
 		"mine":
+			# Para minas, não fazer snap (elas ficam em posições livres)
 			moved = _try_move_mine(dragged_tower_index, new_pos)
 		"wall":
-			moved = _try_move_wall(dragged_tower_index, new_pos)
+			# Para walls, fazer snap para tile coordinates
+			var wall_tile = _world_to_tile_coords(new_pos)
+			var wall_world_pos = Vector2(wall_tile.x * GameConstants.TILE_SIZE, wall_tile.y * GameConstants.TILE_SIZE)
+			moved = _try_move_wall(dragged_tower_index, wall_world_pos)
 		"barracks":
-			moved = _try_move_barracks(dragged_tower_index, new_pos)
+			moved = _try_move_barracks(dragged_tower_index, snapped_world_pos)
 	
 	# Se não conseguiu mover, restaurar grid na posição original
 	if not moved:
@@ -3149,8 +3256,42 @@ func _on_tower_menu_pressed(id: int) -> void:
 				hero["coins"] -= GameConstants.TOWER_FIRE_COST
 				_track_coin_spent(GameConstants.TOWER_FIRE_COST)
 	towers[tower_selected_index] = t
-	_hide_range_indicator()
-	tower_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = tower_menu.position if tower_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_menu_open = true
+	_reopen_tower_menu_immediately(saved_menu_pos)
+
+func _reopen_tower_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de torre na mesma posição após um upgrade"""
+	if not keep_menu_open:
+		return
+	if tower_selected_index < 0 or tower_selected_index >= towers.size():
+		keep_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_tower_menu", menu_pos)
+
+func _actually_reopen_tower_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu após o fechamento"""
+	if not keep_menu_open:
+		return
+	if tower_selected_index < 0 or tower_selected_index >= towers.size():
+		keep_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_tower_menu(tower_selected_index, menu_pos)
+	keep_menu_open = false
 
 func _try_shoot(target: Vector2) -> void:
 	if hero["cooldown"] > 0.0:
@@ -3512,8 +3653,10 @@ func _on_sniper_menu_pressed(id: int) -> void:
 		4:  # Alvo: Mais Próximo ao Centro
 			s["target_mode"] = 1
 	sniper_towers[sniper_selected_index] = s
-	_hide_range_indicator()
-	sniper_selected_index = -1
+	# Atualizar o menu com os novos valores e manter aberto
+	if sniper_menu and sniper_menu.visible:
+		var screen_pos = sniper_menu.position
+		_open_sniper_menu(sniper_selected_index, screen_pos)
 
 func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	if aoe_menu == null:
@@ -3574,8 +3717,9 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	aoe_towers[aoe_selected_index] = a
-	_hide_range_indicator()
-	aoe_selected_index = -1
+	# Não fechar o menu automaticamente - só fecha ao clicar fora
+	# _hide_range_indicator()
+	# aoe_selected_index = -1
 
 func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	if shock_menu == null:
@@ -3636,8 +3780,9 @@ func _on_shock_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	shock_towers[shock_selected_index] = s
-	_hide_range_indicator()
-	shock_selected_index = -1
+	# Não fechar o menu automaticamente - só fecha ao clicar fora
+	# _hide_range_indicator()
+	# shock_selected_index = -1
 
 func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	if slow_menu == null:
@@ -3646,29 +3791,20 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	var s = slow_towers[idx]
 	_show_range_indicator(s.pos, s.range, Color(0.4, 1.0, 0.8, 0.65))
 	
-	# Calcular custos progressivos
+	# Calcular custos progressivos (sem RATE e sem DURATION - removidos)
 	var range_level = s.levels.get("RANGE", 0)
 	var amount_level = s.levels.get("AMOUNT", 0)
-	var duration_level = s.levels.get("DURATION", 0)
-	var rate_level = s.levels.get("RATE", 0)
 	var range_cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
 	var amount_cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
-	var duration_cost = get_upgrade_cost(GameConstants.SLOW_DURATION_COST, duration_level)
-	var rate_cost = get_upgrade_cost(GameConstants.SLOW_RATE_COST, rate_level)
 	
-	var can_range: bool = hero["coins"] >= range_cost
-	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.9
-	var can_duration: bool = hero["coins"] >= duration_cost
-	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 0.2
+	var can_range: bool = hero["coins"] >= range_cost and s.range < 300.0  # Máximo 300
+	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.4  # Máximo 40%
 	
-	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f]" % [range_cost, s.range])
-	slow_menu.set_item_text(1, "Slow +10%% (%d) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
-	slow_menu.set_item_text(2, "Duração +0.5s (%d) [%.1fs]" % [duration_cost, s.slow_duration])
-	slow_menu.set_item_text(3, "Taxa de Aplicação + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
+	# Atualizar apenas os 2 itens (alcance e slow)
+	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f/300]" % [range_cost, s.range])
+	slow_menu.set_item_text(1, "Slow x1.05 (%d) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
 	slow_menu.set_item_disabled(0, not can_range)
 	slow_menu.set_item_disabled(1, not can_amount)
-	slow_menu.set_item_disabled(2, not can_duration)
-	slow_menu.set_item_disabled(3, not can_rate)
 	slow_menu.position = screen_pos
 	slow_menu.popup()
 
@@ -3678,41 +3814,30 @@ func _on_slow_menu_pressed(id: int) -> void:
 	var s = slow_towers[slow_selected_index]
 	var range_level = s.levels.get("RANGE", 0)
 	var amount_level = s.levels.get("AMOUNT", 0)
-	var duration_level = s.levels.get("DURATION", 0)
-	var rate_level = s.levels.get("RATE", 0)
+	# RATE e DURATION removidos - não fazem mais sentido
 	
 	match id:
-		1:  # Alcance
+		1:  # Alcance - aumenta apenas o range (máximo 300)
 			var cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
-			if hero["coins"] >= cost:
-				s.range += 30.0
-				s.levels["RANGE"] += 1
+			if hero["coins"] >= cost and s.range < 300.0:
+				s.range = min(300.0, s.range + 30.0)  # Aumenta o alcance em 30, máximo 300
+				s.levels["RANGE"] = s.levels.get("RANGE", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Slow Amount
+		2:  # Slow Amount - multiplicativo (x1.05 por upgrade, máximo 40%)
 			var cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
-			if hero["coins"] >= cost and s.slow_amount < 0.9:
-				s.slow_amount = min(0.9, s.slow_amount + 0.1)
-				s.levels["AMOUNT"] += 1
+			if hero["coins"] >= cost and s.slow_amount < 0.4:  # Máximo 40%
+				# Multiplicativo: multiplica por 1.05 (5% mais lento por upgrade)
+				s.slow_amount = min(0.4, s.slow_amount * 1.05)
+				s.levels["AMOUNT"] = s.levels.get("AMOUNT", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		3:  # Duração
-			var cost = get_upgrade_cost(GameConstants.SLOW_DURATION_COST, duration_level)
-			if hero["coins"] >= cost:
-				s.slow_duration += 0.5
-				s.levels["DURATION"] += 1
-				hero["coins"] -= cost
-				_track_coin_spent(cost)
-		4:  # Taxa de Aplicação
-			var cost = get_upgrade_cost(GameConstants.SLOW_RATE_COST, rate_level)
-			if hero["coins"] >= cost and s.fire_rate > 0.2:
-				s.fire_rate = max(0.2, s.fire_rate - 0.1)
-				s.levels["RATE"] += 1
-				hero["coins"] -= cost
-				_track_coin_spent(cost)
+		# Removido upgrade de Duração (id 3) - funciona enquanto está dentro da área
+		# Removido upgrade de Taxa de Aplicação (id 4)
 	slow_towers[slow_selected_index] = s
-	_hide_range_indicator()
-	slow_selected_index = -1
+	# Não fechar o menu automaticamente - só fecha ao clicar fora
+	# _hide_range_indicator()
+	# slow_selected_index = -1
 
 func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	if boost_menu == null:
@@ -3728,11 +3853,11 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	var dmg_cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
 	var rate_cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
 	
-	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_rate: bool = hero["coins"] >= rate_cost
+	var can_dmg: bool = hero["coins"] >= dmg_cost and b.damage_boost < 1.5  # Máximo 150%
+	var can_rate: bool = hero["coins"] >= rate_cost and b.rate_boost < 1.0  # Máximo 100%
 	
-	# Remover item de alcance (índice 0), manter apenas dano e cadência
-	boost_menu.set_item_text(0, "Boost Dano +10%% (%d) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
+	# Apenas dano e cadência (sem alcance)
+	boost_menu.set_item_text(0, "Boost Dano +5%% (%d) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
 	boost_menu.set_item_text(1, "Boost Cadência +5%% (%d) [%.0f%%]" % [rate_cost, b.rate_boost * 100])
 	boost_menu.set_item_disabled(0, not can_dmg)
 	boost_menu.set_item_disabled(1, not can_rate)
@@ -3747,23 +3872,24 @@ func _on_boost_menu_pressed(id: int) -> void:
 	var rate_level = b.levels.get("RATE", 0)
 	
 	match id:
-		0:  # Boost Dano (índice mudou - removido alcance)
+		1:  # Boost Dano (ID mudou de 0 para 1 após remover alcance)
 			var cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
-			if hero["coins"] >= cost:
-				b.damage_boost += 0.1
-				b.levels["DMG"] += 1
+			if hero["coins"] >= cost and b.damage_boost < 1.5:  # Máximo 150%
+				b.damage_boost = min(1.5, b.damage_boost + 0.05)  # Reduzido de +0.1 para +0.05 (+5%)
+				b.levels["DMG"] = b.levels.get("DMG", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		1:  # Boost Cadência (índice mudou - removido alcance)
+		2:  # Boost Cadência (ID mudou de 1 para 2 após remover alcance)
 			var cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
-			if hero["coins"] >= cost:
-				b.rate_boost += 0.05
-				b.levels["RATE"] += 1
+			if hero["coins"] >= cost and b.rate_boost < 1.0:  # Máximo 100%
+				b.rate_boost = min(1.0, b.rate_boost + 0.05)  # Mantém +5%
+				b.levels["RATE"] = b.levels.get("RATE", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	boost_towers[boost_selected_index] = b
-	_hide_range_indicator()
-	boost_selected_index = -1
+	# Não fechar o menu automaticamente - só fecha ao clicar fora
+	# _hide_range_indicator()
+	# boost_selected_index = -1
 
 func _is_inside_base_point(p: Vector2) -> bool:
 	return grid_manager.is_inside_base_point(p)
@@ -4046,7 +4172,7 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
 		"range": 200.0,
-		"slow_amount": 0.5,
+		"slow_amount": 0.2,  # Valor inicial 20% (pode aumentar até 40% com upgrades)
 		"slow_duration": 1.0,
 		"cooldown": 0.0,
 		"fire_rate": 0.5,
@@ -4203,8 +4329,8 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
 		"range": 9999.0,  # Range global - não precisa de upgrade de alcance
-		"damage_boost": 0.5,
-		"rate_boost": 0.3,
+		"damage_boost": 0.2,  # Reduzido de 0.5 para 0.2 (20%)
+		"rate_boost": 0.2,  # Reduzido de 0.3 para 0.2 (20%)
 		"levels": {"DMG": 0, "RATE": 0}  # Removido RANGE - range é global
 	})
 	hero["coins"] -= boost_cost
@@ -4316,6 +4442,8 @@ func _try_place_wall(pos: Vector2) -> void:
 		"max_hp": 20.0
 	})
 	_register_wall_tile(tile)
+	# Registrar no grid manager também (tipo 9 = wall)
+	grid_manager.set_grid_area(tile.x, tile.y, GameConstants.WALL_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
 	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
@@ -4349,23 +4477,27 @@ func _try_move_wall(wall_idx: int, new_pos: Vector2) -> bool:
 	# Limpar tile na posição antiga
 	var old_tile = Vector2i(wall.grid_x, wall.grid_y)
 	_unregister_wall_tile(old_tile)
+	grid_manager.clear_grid_area(wall.grid_x, wall.grid_y, GameConstants.WALL_SIZE_GRID)
 	
 	# Verificar nova posição
 	if grid_manager.is_inside_base_point(new_pos):
 		# Restaurar tile antigo
 		_register_wall_tile(old_tile)
+		grid_manager.set_grid_area(wall.grid_x, wall.grid_y, GameConstants.WALL_SIZE_GRID, 9)
 		return false
 	
 	# Muralha deve ser colocada nos caminhos (paths)
 	if not _is_on_path(new_pos):
 		# Restaurar tile antigo
 		_register_wall_tile(old_tile)
+		grid_manager.set_grid_area(wall.grid_x, wall.grid_y, GameConstants.WALL_SIZE_GRID, 9)
 		return false
 	
 	var new_tile = _world_to_tile_coords(new_pos)
 	if _is_wall_tile_occupied(new_tile):
 		# Restaurar tile antigo
 		_register_wall_tile(old_tile)
+		grid_manager.set_grid_area(wall.grid_x, wall.grid_y, GameConstants.WALL_SIZE_GRID, 9)
 		return false
 	
 	# Atualizar posição da muralha
@@ -4374,6 +4506,8 @@ func _try_move_wall(wall_idx: int, new_pos: Vector2) -> bool:
 	wall.grid_x = new_tile.x
 	wall.grid_y = new_tile.y
 	_register_wall_tile(new_tile)
+	# Registrar no grid manager na nova posição
+	grid_manager.set_grid_area(new_tile.x, new_tile.y, GameConstants.WALL_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
 	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
@@ -4864,21 +4998,19 @@ func _update_slow_towers(delta: float) -> void:
 		if skill_speed_boost_active:
 			slow_rate_multiplier = GameConstants.SKILL_SPEED_BOOST_MULTIPLIER
 		
-		st.cooldown = max(0.0, st.cooldown - delta * slow_rate_multiplier)
-		if st.cooldown <= 0.0:
-			# aplicar slow em todos os inimigos no alcance
-			for e in enemies:
-				if e["hp"] <= 0 or e["reached"]:
-					continue
-				var dist = st.pos.distance_to(e["pos"])
-				if dist <= st.range:
-					var enemy_idx = e.get("idx", -1)
-					if enemy_idx >= 0:
-						if not enemy_effects.has(enemy_idx):
-							enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0 }
-						enemy_effects[enemy_idx].slow_time = st.slow_duration  # usar duração configurável
-						enemy_effects[enemy_idx].slow_amount = st.slow_amount
-			st.cooldown = st.fire_rate
+		# Aplicar slow continuamente enquanto o inimigo está dentro do alcance (sem cooldown)
+		for e in enemies:
+			if e["hp"] <= 0 or e["reached"]:
+				continue
+			var dist = st.pos.distance_to(e["pos"])
+			if dist <= st.range:
+				var enemy_idx = e.get("idx", -1)
+				if enemy_idx >= 0:
+					if not enemy_effects.has(enemy_idx):
+						enemy_effects[enemy_idx] = { "slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0 }
+					# Slow funciona enquanto está dentro da área (sem duração)
+					enemy_effects[enemy_idx].slow_time = 999999.0  # Valor alto para durar enquanto estiver na área
+					enemy_effects[enemy_idx].slow_amount = st.slow_amount
 
 func _update_aoe_towers(delta: float) -> void:
 	if paused or game_over:
@@ -5708,20 +5840,42 @@ func _create_coin_collect_effect(pos: Vector2) -> void:
 		effects_manager.create_coin_collect_effect(pos)
 
 func _play_coin_sound() -> void:
-	# Tocar som de coleta de moeda
-	var sound_player = get_node_or_null("SoundEffectsPlayer")
-	if sound_player:
-		# Tentar carregar som da moeda (suporta múltiplos formatos)
+	# Tocar som de coleta de moeda usando pool de players para evitar sobreposição
+	# Carregar som uma vez (cache)
+	if not has_meta("coin_sound_cache"):
 		var coin_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
 		if coin_sound == null:
 			coin_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
 		if coin_sound == null:
 			coin_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
-		
 		if coin_sound != null:
-			sound_player.stream = coin_sound
-			sound_player.play()
-		# Se o som não existir, não faz nada (não mostra erro para não poluir o console)
+			set_meta("coin_sound_cache", coin_sound)
+		else:
+			return  # Sem som disponível
+	
+	var coin_sound = get_meta("coin_sound_cache", null)
+	if coin_sound == null:
+		return
+	
+	# Encontrar um player disponível ou criar um novo
+	var available_player: AudioStreamPlayer = null
+	for player in coin_sound_players:
+		if not player.playing:
+			available_player = player
+			break
+	
+	# Se não houver player disponível e ainda não atingiu o limite, criar um novo
+	if available_player == null and coin_sound_players.size() < MAX_COIN_SOUND_PLAYERS:
+		available_player = AudioStreamPlayer.new()
+		available_player.name = "CoinSoundPlayer_%d" % coin_sound_players.size()
+		available_player.volume_db = 0.0
+		add_child(available_player)
+		coin_sound_players.append(available_player)
+	
+	# Se encontrou um player disponível, tocar o som
+	if available_player != null:
+		available_player.stream = coin_sound
+		available_player.play()
 
 func _create_damage_number(pos: Vector2, damage: float, is_crit: bool = false, color: Color = Color.WHITE) -> void:
 	# Criar indicador de dano flutuante
@@ -5748,6 +5902,7 @@ func _create_tower_shop_ui() -> void:
 	# Criar painel lateral
 	tower_shop_panel = Panel.new()
 	tower_shop_panel.name = "TowerShopPanel"
+	tower_shop_panel.z_index = 0  # Garantir que fique atrás da HUD
 	hud.add_child(tower_shop_panel)
 	
 	# Configurar posição e tamanho do painel (lado direito da tela)
@@ -5769,16 +5924,39 @@ func _create_tower_shop_ui() -> void:
 	style_box.border_width_bottom = 0
 	tower_shop_panel.add_theme_stylebox_override("panel", style_box)
 	
+	# Container para título com botão de toggle
+	var title_container = HBoxContainer.new()
+	title_container.name = "TitleContainer"
+	title_container.position = Vector2(10, 10)
+	title_container.size = Vector2(panel_width - 20, 30)
+	tower_shop_panel.add_child(title_container)
+	
 	# Título do painel
 	var title_label = Label.new()
 	title_label.name = "TitleLabel"
 	title_label.text = "LOJA DE TORRES"
-	title_label.position = Vector2(10, 10)
-	title_label.size = Vector2(panel_width - 20, 30)
+	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
 	title_label.add_theme_font_size_override("font_size", 18)
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tower_shop_panel.add_child(title_label)
+	title_container.add_child(title_label)
+	
+	# Botão de toggle para colapsar/expandir
+	tower_shop_toggle_button = Button.new()
+	tower_shop_toggle_button.name = "ToggleButton"
+	tower_shop_toggle_button.text = "◄"
+	tower_shop_toggle_button.custom_minimum_size = Vector2(25, 25)
+	tower_shop_toggle_button.pressed.connect(_toggle_tower_shop)
+	var toggle_style = StyleBoxFlat.new()
+	toggle_style.bg_color = Color(0.3, 0.3, 0.4)
+	toggle_style.border_color = Color(0.5, 0.5, 0.6)
+	toggle_style.border_width_left = 1
+	toggle_style.border_width_top = 1
+	toggle_style.border_width_right = 1
+	toggle_style.border_width_bottom = 1
+	tower_shop_toggle_button.add_theme_stylebox_override("normal", toggle_style)
+	tower_shop_toggle_button.add_theme_font_size_override("font_size", 12)
+	title_container.add_child(tower_shop_toggle_button)
 	
 	# Container para botões de torres (sem scroll - tamanho fixo para mostrar tudo)
 	var scroll = ScrollContainer.new()
@@ -5787,6 +5965,9 @@ func _create_tower_shop_ui() -> void:
 	scroll.size = Vector2(panel_width - 20, panel_height - 45)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	tower_shop_panel.add_child(scroll)
+	
+	# Armazenar referência para poder esconder/mostrar
+	tower_shop_panel.set_meta("scroll_container", scroll)
 	
 	var vbox = VBoxContainer.new()
 	vbox.name = "TowerButtonsContainer"
@@ -6084,6 +6265,7 @@ func _create_skills_ui() -> void:
 	# Criar painel lateral
 	skills_panel = Panel.new()
 	skills_panel.name = "SkillsPanel"
+	skills_panel.z_index = 0  # Garantir que fique atrás da HUD
 	hud.add_child(skills_panel)
 	
 	# Configurar posição e tamanho do painel (lado direito, à esquerda da loja de torres)
@@ -6112,16 +6294,39 @@ func _create_skills_ui() -> void:
 	style_box.border_width_bottom = 0
 	skills_panel.add_theme_stylebox_override("panel", style_box)
 	
+	# Container para título com botão de toggle
+	var title_container = HBoxContainer.new()
+	title_container.name = "TitleContainer"
+	title_container.position = Vector2(10, 10)
+	title_container.size = Vector2(panel_width - 20, 35)
+	skills_panel.add_child(title_container)
+	
 	# Título do painel
 	var title_label = Label.new()
 	title_label.name = "TitleLabel"
 	title_label.text = "SKILLS"
-	title_label.position = Vector2(10, 10)
-	title_label.size = Vector2(panel_width - 20, 35)
+	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_label.add_theme_color_override("font_color", Color(0.3, 0.7, 1.0))
 	title_label.add_theme_font_size_override("font_size", 18)
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	skills_panel.add_child(title_label)
+	title_container.add_child(title_label)
+	
+	# Botão de toggle para colapsar/expandir
+	skills_panel_toggle_button = Button.new()
+	skills_panel_toggle_button.name = "ToggleButton"
+	skills_panel_toggle_button.text = "►"
+	skills_panel_toggle_button.custom_minimum_size = Vector2(25, 25)
+	skills_panel_toggle_button.pressed.connect(_toggle_skills_panel)
+	var toggle_style = StyleBoxFlat.new()
+	toggle_style.bg_color = Color(0.3, 0.3, 0.4)
+	toggle_style.border_color = Color(0.5, 0.5, 0.6)
+	toggle_style.border_width_left = 1
+	toggle_style.border_width_top = 1
+	toggle_style.border_width_right = 1
+	toggle_style.border_width_bottom = 1
+	skills_panel_toggle_button.add_theme_stylebox_override("normal", toggle_style)
+	skills_panel_toggle_button.add_theme_font_size_override("font_size", 12)
+	title_container.add_child(skills_panel_toggle_button)
 	
 	# Container para botões de skills
 	var vbox = VBoxContainer.new()
@@ -6130,6 +6335,9 @@ func _create_skills_ui() -> void:
 	vbox.size = Vector2(panel_width - 20, panel_height - 50)
 	vbox.add_theme_constant_override("separation", 10)
 	skills_panel.add_child(vbox)
+	
+	# Armazenar referência para poder esconder/mostrar
+	skills_panel.set_meta("skills_container", vbox)
 	
 	# Skill 1: Coletar todas as moedas
 	var skill1_container = PanelContainer.new()
@@ -6527,6 +6735,10 @@ func _close_all_upgrade_menus() -> void:
 	barracks_selected_index = -1
 
 func _on_upgrade_menu_closed() -> void:
+	# Se a flag está ativa, não fechar completamente - o menu será reaberto
+	if keep_menu_open:
+		keep_menu_open = false
+		return
 	_hide_range_indicator()
 
 func _on_skill_collect_coins() -> void:
@@ -6787,13 +6999,47 @@ func _toggle_music() -> void:
 		if music_muted:
 			music_player.volume_db = -80.0  # Muito baixo = mutado
 		else:
-			music_player.volume_db = -5.0  # Volume normal
+			music_player.volume_db = music_volume  # Volume configurável
 	
 	# Atualizar texto do botão
 	var tb = $CanvasLayer/HUD/TopBar
 	if tb.has_node("BtnMuteMusic"):
 		var btn_mute = tb.get_node("BtnMuteMusic")
 		btn_mute.text = "🔇" if music_muted else "🔊"
+
+func _on_music_volume_changed(value: float) -> void:
+	music_volume = value
+	var music_player = get_node_or_null("MusicPlayer")
+	if music_player and not music_muted:
+		music_player.volume_db = music_volume
+	
+	# Salvar preferência
+	_save_music_settings()
+
+func _save_music_settings() -> void:
+	var config = ConfigFile.new()
+	config.set_value("audio", "music_volume", music_volume)
+	config.set_value("audio", "music_muted", music_muted)
+	var config_path = "user://audio_settings.cfg"
+	config.save(config_path)
+
+func _load_music_settings() -> void:
+	var config = ConfigFile.new()
+	var config_path = "user://audio_settings.cfg"
+	var err = config.load(config_path)
+	if err == OK:
+		music_volume = config.get_value("audio", "music_volume", -7.0)
+		music_muted = config.get_value("audio", "music_muted", false)
+		
+		# Atualizar slider se existir
+		var tb = $CanvasLayer/HUD/TopBar
+		if tb:
+			var container = tb.get_node_or_null("MusicVolumeContainer")
+			if container:
+				var slider = container.get_node_or_null("MusicVolumeSlider")
+				if slider:
+					slider.value = music_volume
+					music_volume_slider = slider
 
 func _create_death_animation(pos: Vector2) -> void:
 	# Criar animação de morte (fade out e shrink)
@@ -6926,7 +7172,7 @@ func _update_game_tooltip(delta: float) -> void:
 			var viewport = get_viewport()
 			var screen_mouse = viewport.get_mouse_position()
 			var tooltip_size = Vector2(250, 100)
-			var offset = Vector2(20, 20)
+			var offset = Vector2(15, 15)  # Offset menor para ficar mais próximo
 			
 			# Ajustar posição para não sair da tela
 			var tooltip_pos = screen_mouse + offset
@@ -7106,3 +7352,244 @@ func _on_shop_button_hover(tower_name: String) -> void:
 func _on_shop_button_unhover() -> void:
 	if tooltip_label:
 		tooltip_label.visible = false
+
+# ========== HUD RESPONSIVA E TELA CHEIA ==========
+
+func _adjust_hud_to_screen_size() -> void:
+	"""Ajusta a HUD para ser responsiva ao tamanho da tela"""
+	var viewport = get_viewport()
+	if viewport == null:
+		return
+	
+	var screen_size = viewport.get_visible_rect().size
+	var tb = $CanvasLayer/HUD/TopBar
+	if tb == null:
+		return
+	
+	# Garantir que a TopBar fique acima dos painéis (onde está o label de vida)
+	tb.z_index = 100
+	
+	# Ajustar TopBar para usar toda a largura (sem margens laterais)
+	tb.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	tb.offset_left = 0.0
+	tb.offset_right = 0.0
+	tb.offset_top = 0.0
+	tb.offset_bottom = 44.0
+	
+	# Ajustar labels usando anchors
+	var lbl_left = tb.get_node_or_null("LblLeft")
+	var lbl_center = tb.get_node_or_null("LblCenter")
+	var lbl_right = tb.get_node_or_null("LblRight")
+	
+	if lbl_left:
+		lbl_left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		lbl_left.offset_left = 12
+		lbl_left.offset_right = -screen_size.x * 0.5
+		lbl_left.offset_top = 10
+	
+	if lbl_center:
+		lbl_center.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		lbl_center.offset_left = -100
+		lbl_center.offset_right = 100
+		lbl_center.offset_top = 10
+	
+	if lbl_right:
+		# Usar posicionamento simples e fixo para garantir visibilidade
+		lbl_right.layout_mode = 0  # Layout manual (posicionamento absoluto)
+		# Posição fixa: entre 500 e 650 pixels da esquerda (antes dos painéis colapsados)
+		# Garantir que não seja coberto pelos painéis quando colapsados
+		var label_x = max(500.0, min(650.0, screen_size.x * 0.5))
+		lbl_right.position = Vector2(label_x, 10)
+		lbl_right.size = Vector2(120, 24)  # Tamanho fixo
+		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_right.visible = true  # Garantir que sempre esteja visível
+		lbl_right.z_index = 10  # Acima dos painéis
+		# Mover para o final para garantir que fique acima dos painéis
+		if lbl_right.get_parent():
+			lbl_right.get_parent().move_child(lbl_right, -1)
+		# Atualizar texto também aqui para garantir que esteja sempre atualizado
+		lbl_right.text = "Vida %d" % [base_hp]
+	
+	# Ajustar botões admin (se existirem)
+	var btn_kill_all = tb.get_node_or_null("BtnKillAll")
+	if btn_kill_all:
+		# Configurar anchors manualmente - usar porcentagem da largura para posicionar
+		btn_kill_all.layout_mode = 1
+		btn_kill_all.anchor_left = 0.65
+		btn_kill_all.anchor_top = 0.0
+		btn_kill_all.anchor_right = 0.65
+		btn_kill_all.anchor_bottom = 0.0
+		btn_kill_all.offset_left = 0
+		btn_kill_all.offset_top = 8
+		btn_kill_all.offset_right = 90
+		btn_kill_all.offset_bottom = 36
+
+func _on_viewport_size_changed() -> void:
+	"""Chamado quando o tamanho da viewport muda (incluindo tela cheia)"""
+	_adjust_hud_to_screen_size()
+	_adjust_shop_and_skills_panels()
+	# Garantir que o label de vida esteja sempre visível após ajustes
+	var tb = $CanvasLayer/HUD/TopBar
+	if tb:
+		var lbl_right = tb.get_node_or_null("LblRight")
+		if lbl_right:
+			lbl_right.visible = true
+			lbl_right.text = "Vida %d" % [base_hp]
+			lbl_right.z_index = 10
+
+# ========== FUNÇÕES DE COLAPSO E AJUSTE DE PAINÉIS ==========
+
+func _toggle_tower_shop() -> void:
+	"""Alterna o estado de colapso da loja de torres"""
+	tower_shop_collapsed = !tower_shop_collapsed
+	_update_tower_shop_collapse()
+	_adjust_shop_and_skills_panels()
+
+func _toggle_skills_panel() -> void:
+	"""Alterna o estado de colapso do painel de skills"""
+	skills_panel_collapsed = !skills_panel_collapsed
+	_update_skills_panel_collapse()
+	_adjust_shop_and_skills_panels()
+
+func _update_tower_shop_collapse() -> void:
+	"""Atualiza a UI da loja baseado no estado de colapso"""
+	if tower_shop_panel == null:
+		return
+	
+	var scroll = tower_shop_panel.get_node_or_null("TowerScroll")
+	if scroll != null:
+		scroll.visible = !tower_shop_collapsed
+	
+	# Esconder tooltip quando colapsado
+	if tooltip_label != null:
+		tooltip_label.visible = false
+	
+	# Garantir que o título e o botão sempre estejam visíveis
+	var title_container = tower_shop_panel.get_node_or_null("TitleContainer")
+	if title_container != null:
+		title_container.visible = true
+		
+		# Ajustar título quando colapsado
+		var title_label = title_container.get_node_or_null("TitleLabel")
+		if title_label != null:
+			if tower_shop_collapsed:
+				title_label.text = "LOJA"
+				title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			else:
+				title_label.text = "LOJA DE TORRES"
+				title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	
+	if tower_shop_toggle_button != null:
+		tower_shop_toggle_button.visible = true
+		tower_shop_toggle_button.text = "►" if tower_shop_collapsed else "◄"
+
+func _update_skills_panel_collapse() -> void:
+	"""Atualiza a UI do painel de skills baseado no estado de colapso"""
+	if skills_panel == null:
+		return
+	
+	var vbox = skills_panel.get_node_or_null("SkillsButtonsContainer")
+	if vbox != null:
+		vbox.visible = !skills_panel_collapsed
+	
+	# Garantir que o título e o botão sempre estejam visíveis
+	var title_container = skills_panel.get_node_or_null("TitleContainer")
+	if title_container != null:
+		title_container.visible = true
+	
+	if skills_panel_toggle_button != null:
+		skills_panel_toggle_button.visible = true
+		skills_panel_toggle_button.text = "◄" if skills_panel_collapsed else "►"
+
+func _adjust_shop_and_skills_panels() -> void:
+	"""Ajusta os painéis da loja e skills para serem responsivos ao tamanho da tela"""
+	var viewport = get_viewport()
+	if viewport == null:
+		return
+	
+	var screen_width = viewport.get_visible_rect().size.x
+	var screen_height = viewport.get_visible_rect().size.y
+	var min_screen_width = 1710.0  # Tamanho mínimo onde os painéis cabem sem sobrepor
+	
+	# Ajustar loja de torres primeiro
+	if tower_shop_panel != null:
+		var panel_width_expanded = 380.0
+		var panel_width = panel_width_expanded if not tower_shop_collapsed else 80.0  # Aumentado para 80px para caber título e botão
+		var panel_height = screen_height - 44.0
+		
+		# Se a tela for muito pequena, reduzir largura quando expandido
+		if screen_width < min_screen_width and not tower_shop_collapsed:
+			panel_width = min(panel_width, screen_width * 0.25)
+		
+		# Garantir que não cubra o label de vida (que está em x=500 até ~650)
+		# O painel deve começar depois da HUD
+		var hud_safe_zone = 700.0  # Zona segura da HUD
+		var x_pos = screen_width - panel_width
+		
+		# Se o painel colapsado está cobrindo a HUD, movê-lo para fora da tela (mas ainda clicável)
+		if tower_shop_collapsed and x_pos < hud_safe_zone:
+			# Em telas muito pequenas, colocar o painel mais à direita mesmo que cubra parcialmente
+			# Mas sempre manter o título e botão visíveis
+			x_pos = max(650.0, screen_width - panel_width)
+		
+		tower_shop_panel.position = Vector2(x_pos, 44.0)
+		tower_shop_panel.size = Vector2(panel_width, panel_height)
+		
+		# Ajustar container do título quando colapsado
+		var title_container = tower_shop_panel.get_node_or_null("TitleContainer")
+		if title_container != null:
+			if tower_shop_collapsed:
+				title_container.size = Vector2(panel_width - 10, 30)
+		
+		# Atualizar conteúdo visível
+		_update_tower_shop_collapse()
+	
+	# Garantir que o label de vida esteja sempre visível após ajuste dos painéis
+	var tb = $CanvasLayer/HUD/TopBar
+	if tb:
+		var lbl_right = tb.get_node_or_null("LblRight")
+		if lbl_right:
+			lbl_right.visible = true
+			lbl_right.z_index = 10
+			lbl_right.text = "Vida %d" % [base_hp]
+	
+	# Ajustar painel de skills (precisa considerar largura da loja)
+	if skills_panel != null:
+		var panel_width_expanded = 390.0
+		var panel_width = panel_width_expanded if not skills_panel_collapsed else 80.0  # Aumentado para 80px
+		var panel_height = screen_height - 44.0
+		var tower_panel_width = 80.0  # Largura mínima quando colapsado
+		
+		if tower_shop_panel != null:
+			tower_panel_width = tower_shop_panel.size.x
+		
+		# Se a tela for muito pequena, reduzir largura quando expandido
+		if screen_width < min_screen_width and not skills_panel_collapsed:
+			var available_width = screen_width - tower_panel_width - 100
+			panel_width = min(panel_width, max(available_width * 0.3, 250.0))
+		
+		var margin = 5.0
+		var hud_safe_zone = 700.0  # Zona segura da HUD
+		var x_pos = screen_width - tower_panel_width - panel_width - margin
+		
+		# Se o painel colapsado está cobrindo a HUD, ajustar posição
+		if skills_panel_collapsed and x_pos < hud_safe_zone:
+			x_pos = max(600.0, screen_width - tower_panel_width - panel_width - margin)
+		
+		# Garantir que não fique fora da tela
+		if x_pos < 0:
+			x_pos = 0
+			if not skills_panel_collapsed:
+				panel_width = max(250.0, screen_width - tower_panel_width - margin - 10)
+		
+		skills_panel.position = Vector2(x_pos, 44.0)
+		skills_panel.size = Vector2(panel_width, panel_height)
+		
+		# Ajustar container do título quando colapsado
+		var title_container = skills_panel.get_node_or_null("TitleContainer")
+		if title_container != null:
+			if skills_panel_collapsed:
+				title_container.size = Vector2(panel_width - 10, 35)
+		
+		# Atualizar conteúdo visível
+		_update_skills_panel_collapse()

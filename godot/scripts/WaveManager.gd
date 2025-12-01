@@ -22,7 +22,32 @@ func is_boss_wave() -> bool:
 	return wave % 5 == 0
 
 func wave_factor() -> float:
-	return pow(GameConstants.WAVE_SCALE, max(0, wave - 1))
+	# Dificuldade ajustada por faixa de ondas
+	var base_scale: float
+	if wave <= 25:
+		# Ondas 1-25: dificuldade inicial aumentada
+		base_scale = 1.08  # Mais difícil que antes
+	elif wave <= 50:
+		# Ondas 25-50: dificuldade um pouco aumentada
+		base_scale = 1.06  # Um pouco mais difícil
+	else:
+		# Ondas 50+: escala normal (mantém como estava)
+		base_scale = GameConstants.WAVE_SCALE
+	
+	# Aplicar escala progressiva
+	if wave <= 1:
+		return 1.0
+	elif wave <= 25:
+		return pow(base_scale, max(0, wave - 1))
+	elif wave <= 50:
+		# Continuar escala a partir da onda 25
+		var factor_25 = pow(1.08, 24)  # Fator acumulado até onda 25
+		return factor_25 * pow(base_scale, max(0, wave - 25))
+	else:
+		# Continuar escala a partir da onda 50
+		var factor_25 = pow(1.08, 24)
+		var factor_50 = factor_25 * pow(1.06, 25)  # Fator acumulado até onda 50
+		return factor_50 * pow(base_scale, max(0, wave - 50))
 
 func start_next_wave():
 	wave += 1

@@ -157,6 +157,13 @@ func _ready() -> void:
 			elif music is AudioStreamMP3:
 				music.loop = true
 			music_player.stream = music
+			# Carregar configurações de volume e aplicar
+			var config = ConfigFile.new()
+			var config_path = "user://audio_settings.cfg"
+			var music_volume = -7.0  # Volume padrão 20% mais baixo
+			if config.load(config_path) == OK:
+				music_volume = config.get_value("audio", "music_volume", -7.0)
+			music_player.volume_db = music_volume
 			music_player.play()
 			print("Menu: Música de fundo iniciada")
 		else:

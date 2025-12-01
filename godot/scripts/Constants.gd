@@ -14,10 +14,10 @@ const BASE_GRID_SIZE := 15
 const TOWER_COST := 10
 const BARRACKS_COST := 20
 const MINE_COST := 10
-const SLOW_TOWER_COST := 25
+const SLOW_TOWER_COST := 80
 const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
-const BOOST_TOWER_COST := 35
+const BOOST_TOWER_COST := 100  # Aumentado de 80 para 100
 const SHOCK_TOWER_COST := 40
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
@@ -64,32 +64,31 @@ const TOWER_FIRE_COST := 40  # Aumentado de 25 para 40
 const BARRACKS_DMG_COST := 15
 const BARRACKS_HOLD_COST := 12
 const BARRACKS_SPAWN_RATE_COST := 30  # Aumentado de 20 para 30 (50% mais caro)
-const BARRACKS_PROJECTILE_SPEED_COST := 18
+const BARRACKS_PROJECTILE_SPEED_COST := 20
 
 # Sniper tower upgrades
-const SNIPER_DMG_COST := 35
+const SNIPER_DMG_COST := 30
 const SNIPER_RATE_COST := 12
 
 # AOE tower upgrades
 const AOE_DMG_COST := 15
-const AOE_RATE_COST := 12
+const AOE_RATE_COST := 20
 const AOE_AREA_COST := 20
 
 # Shock tower upgrades
 const SHOCK_DMG_COST := 15
-const SHOCK_RATE_COST := 12
+const SHOCK_RATE_COST := 25
 const SHOCK_CHAIN_COST := 20
 
 # Slow tower upgrades
-const SLOW_RANGE_COST := 15
-const SLOW_AMOUNT_COST := 20
-const SLOW_DURATION_COST := 18
-const SLOW_RATE_COST := 12
+const SLOW_RANGE_COST := 30  # Aumentado de 15 para 25 para balancear
+const SLOW_AMOUNT_COST := 40
+const SLOW_DURATION_COST := 20
+const SLOW_RATE_COST := 15
 
 # Boost tower upgrades
-const BOOST_RANGE_COST := 15
-const BOOST_DMG_COST := 20
-const BOOST_RATE_COST := 18
+const BOOST_DMG_COST := 50  # Aumentado de 40 para 50
+const BOOST_RATE_COST := 40  # Aumentado de 30 para 40
 
 # Waves
 const WAVE_SCALE := 1.04  # Reduzido de 1.06 para 1.04 - crescimento mais suave
@@ -105,7 +104,7 @@ const NORMAL_REWARD := 2
 
 # Balanceamento: Escala de recompensas e upgrades
 const REWARD_SCALE := 1.05  # Recompensas crescem 5% por wave (mais lento que dificuldade)
-const UPGRADE_COST_MULTIPLIER := 1.12  # Upgrades ficam 12% mais caros por nível
+const UPGRADE_COST_MULTIPLIER := 1.15  # Upgrades ficam 15% mais caros por nível (aumentado de 1.12)
 const WAVE_COMPLETION_BONUS_BASE := 10
 const WAVE_COMPLETION_BONUS_PER_WAVE := 2
 
