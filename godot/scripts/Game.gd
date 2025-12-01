@@ -918,6 +918,9 @@ func _process(delta: float) -> void:
 	
 	# Atualizar UI das skills (cooldown visual)
 	_update_skills_ui()
+	
+	# Atualizar DPS das torres periodicamente
+	_update_tower_dps(delta)
 
 	# update
 	for e in enemies:
@@ -7083,7 +7086,8 @@ func _create_skills_ui() -> void:
 	
 	var skill5_desc = Label.new()
 	skill5_desc.name = "Skill5Desc"
-	skill5_desc.text = "Coleta moedas automaticamente ao passar o mouse por %.0fs" % GameConstants.SKILL_MAGNETISM_DURATION
+	skill5_desc.text = "Coleta moedas automaticamente\nao passar o mouse por %.0fs" % GameConstants.SKILL_MAGNETISM_DURATION
+	skill5_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	skill5_desc.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	skill5_desc.add_theme_font_size_override("font_size", 11)
 	skill5_text.add_child(skill5_desc)
@@ -7455,37 +7459,6 @@ func _update_skills_ui() -> void:
 			cooldown_label.text = "Perk Ativo"
 			var btn_style = StyleBoxFlat.new()
 			btn_style.bg_color = Color(0.2, 0.5, 0.2)
-			btn_style.border_color = Color(0.3, 0.7, 0.3)
-			btn_style.border_width_left = 1
-			btn_style.border_width_top = 1
-			btn_style.border_width_right = 1
-			btn_style.border_width_bottom = 1
-			btn.add_theme_stylebox_override("normal", btn_style)
-		elif skill_magnetism_cooldown > 0.0 or skill_magnetism_active:
-			btn.disabled = true
-			if skill_magnetism_active:
-				cooldown_label.text = "Ativo: %.1fs" % skill_magnetism_time
-			else:
-				cooldown_label.text = "Cooldown: %.1fs" % skill_magnetism_cooldown
-			var btn_style = StyleBoxFlat.new()
-			btn_style.bg_color = Color(0.3, 0.3, 0.3)
-			btn_style.border_color = Color(0.5, 0.5, 0.5)
-			btn_style.border_width_left = 1
-			btn_style.border_width_top = 1
-			btn_style.border_width_right = 1
-			btn_style.border_width_bottom = 1
-			btn.add_theme_stylebox_override("normal", btn_style)
-		else:
-			btn.disabled = false
-			cooldown_label.text = ""
-			var btn_style = StyleBoxFlat.new()
-			btn_style.bg_color = Color(0.4, 0.2, 0.6)
-			btn_style.border_color = Color(0.5, 0.3, 0.7)
-			btn_style.border_width_left = 1
-			btn_style.border_width_top = 1
-			btn_style.border_width_right = 1
-			btn_style.border_width_bottom = 1
-			btn.add_theme_stylebox_override("normal", btn_style)
 			btn_style.border_color = Color(0.3, 0.7, 0.3)
 			btn_style.border_width_left = 1
 			btn_style.border_width_top = 1
@@ -8210,9 +8183,6 @@ func _adjust_shop_and_skills_panels() -> void:
 		
 		# Atualizar conteúdo visível
 		_update_skills_panel_collapse()
-	
-	# Atualizar DPS das torres periodicamente
-	_update_tower_dps(delta)
 
 # ========== SISTEMA DE DPS DAS TORRES ==========
 

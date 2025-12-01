@@ -1,27 +1,8 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1764604325
-ASSETS_RECOMMENDATIONS.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-BALANCE_ANALYSIS.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-BALANCE_ANALYSIS_COMPLETE.md::TextFile::-1::1764594219::0::1::::<><><>0<>0<><>::
-BALANCE_CHANGES_IMPLEMENTED.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-BALANCE_DETAILED_CALCULATIONS.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-BALANCE_IMPLEMENTATION_PROPOSAL.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-BALANCE_SUMMARY.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-CHANGES_SUMMARY.md::TextFile::-1::1764594219::0::1::::<><><>0<>0<><>::
-EXPORTACAO_RAPIDA.md::TextFile::-1::1764604151::0::1::::<><><>0<>0<><>::
-export_presets.cfg::TextFile::-1::1764604325::0::1::::<><><>0<>0<><>::
-GAME_IMPROVEMENTS.md::TextFile::-1::1764593169::0::1::::<><><>0<>0<><>::
-GUIA_EXPORTACAO_DISTRIBUICAO.md::TextFile::-1::1764603378::0::1::::<><><>0<>0<><>::
-HERO_FIRERATE_AND_BARRACKS_CHANGES.md::TextFile::-1::1764598399::0::1::::<><><>0<>0<><>::
-INICIO_AQUI_EXPORTAR.md::TextFile::-1::1764603378::0::1::::<><><>0<>0<><>::
-PERKS_RESET_CHANGES.md::TextFile::-1::1764594807::0::1::::<><><>0<>0<><>::
-PREPARACAO_ANTES_EXPORTAR.md::TextFile::-1::1764603378::0::1::::<><><>0<>0<><>::
-README_DISTRIBUICAO.txt::TextFile::-1::1764603378::0::1::::<><><>0<>0<><>::
-RESOLVER_ERRO_TEMPLATES.md::TextFile::-1::1764604151::0::1::::<><><>0<>0<><>::
-SPEED_AND_SCALE_CHANGES.md::TextFile::-1::1764597450::0::1::::<><><>0<>0<><>::
-WALL_COST_AND_SNIPER_CHANGES.md::TextFile::-1::1764597990::0::1::::<><><>0<>0<><>::
+::res://::1764629455
+export_presets.cfg::TextFile::-1::1764619464::0::1::::<><><>0<>0<><>::
 ::res://assets/::1764604544
-::res://assets/icon/::1764604553
+::res://assets/icon/::1764604557
 icone.png::CompressedTexture2D::6924304942502698758::1764604524::1764604557::1::::<><><>0<>0<>a377c1731137d9c6d310e6582d50b208<>res://.godot/imported/icone.png-bda5cc887b82f0f1f60dc73e23928631.ctex::
 ::res://assets/images/::1764332376
 aoe_tower.png::CompressedTexture2D::7576499118864927443::1762463783::1762463812::1::::<><><>0<>0<>7fc6e9e21d0867841c228c70e30f087e<>res://.godot/imported/aoe_tower.png-9906059a62506fafd41d2b7fa90c5e73.ctex::
@@ -49,54 +30,27 @@ menu_music.mp3::AudioStreamMP3::869393469211750395::1762448244::1762448279::1:::
 aproaching.wav::AudioStreamWAV::2072672866861540551::1764076620::1764076916::1::::<><><>0<>0<>12471851b9eaea35f986d17c2d776e45<>res://.godot/imported/aproaching.wav-842e2f94e5bf4e66e95d22d43090ccda.sample::
 coin_collect.wav::AudioStreamWAV::4618764038705419438::1764001134::1764001169::1::::<><><>0<>0<>85232d21afc5e0e7665f5a429f2fe548<>res://.godot/imported/coin_collect.wav-7e6c40f617dfbddf4fc4e079e72cc9bb.sample::
 ::res://scenes/::1764344885
-Main.tscn::PackedScene::-1::1764593169::0::1::::<><><>0<>0<><>::res://scripts/Game.gd
-Menu.tscn::PackedScene::8645702157982717301::1764593169::0::1::::<><><>0<>0<><>::uid://bif2rcjr5a3pi::::res://scripts/Menu.gd
+Main.tscn::PackedScene::-1::1764619464::0::1::::<><><>0<>0<><>::res://scripts/Game.gd
+Menu.tscn::PackedScene::8645702157982717301::1764619464::0::1::::<><><>0<>0<><>::uid://bif2rcjr5a3pi::::res://scripts/Menu.gd
 ::res://scripts/::1764344885
-Constants.gd::GDScript::4896370792011949774::1764598399::0::1::::GameConstants<>RefCounted<><>0<>0<><>::
-Game.gd::GDScript::807216183804962965::1764598399::0::1::::<>Node2D<><>0<>0<><>::
-GridManager.gd::GDScript::4582275908054114677::1764593169::0::1::::GridManager<>RefCounted<><>0<>0<><>::
-Menu.gd::GDScript::2959923158631201974::1764598825::0::1::::<>Control<><>0<>0<><>::
-Pathfinder.gd::GDScript::655567533368060027::1764593169::0::1::::Pathfinder<>RefCounted<><>0<>0<><>::
+Constants.gd::GDScript::4896370792011949774::1764629287::0::1::::GameConstants<>RefCounted<><>0<>0<><>::
+Game.gd::GDScript::807216183804962965::1764629390::0::1::::<>Node2D<><>0<>0<><>::
+GridManager.gd::GDScript::4582275908054114677::1764619464::0::1::::GridManager<>RefCounted<><>0<>0<><>::
+Menu.gd::GDScript::2959923158631201974::1764619778::0::1::::<>Control<><>0<>0<><>::
+Pathfinder.gd::GDScript::655567533368060027::1764619464::0::1::::Pathfinder<>RefCounted<><>0<>0<><>::
 ProjectileManager.gd::GDScript::3222176340695259074::1762437265::0::1::::ProjectileManager<>RefCounted<><>0<>0<><>::
-WaveManager.gd::GDScript::820183367342066971::1762437805::0::1::::WaveManager<>RefCounted<><>0<>0<><>::
+WaveManager.gd::GDScript::820183367342066971::1764619464::0::1::::WaveManager<>RefCounted<><>0<>0<><>::
 ::res://scripts/managers/::1764333164
-AchievementManager.gd::GDScript::7279695492519897990::1764594219::0::1::::AchievementManager<>RefCounted<><>0<>0<><>::
+AchievementManager.gd::GDScript::7279695492519897990::1764619464::0::1::::AchievementManager<>RefCounted<><>0<>0<><>::
 CoinManager.gd::GDScript::8217870001968736878::1764000457::0::1::::CoinManager<>RefCounted<><>0<>0<><>::
 CombatManager.gd::GDScript::702755420822741407::1764000457::0::1::::CombatManager<>RefCounted<><>0<>0<><>::
 EffectsManager.gd::GDScript::8880506438752700667::1764000457::0::1::::EffectsManager<>RefCounted<><>0<>0<><>::
 EnemyManager.gd::GDScript::8323249537442754142::1764000457::0::1::::EnemyManager<>RefCounted<><>0<>0<><>::
-PerkManager.gd::GDScript::2821552653051974308::1764598645::0::1::::PerkManager<>RefCounted<><>0<>0<><>::
+PerkManager.gd::GDScript::2821552653051974308::1764623160::0::1::::PerkManager<>RefCounted<><>0<>0<><>::
 PlacementManager.gd::GDScript::4699143470991060270::1764000457::0::1::::PlacementManager<>RefCounted<><>0<>0<><>::
-ResourceManager.gd::GDScript::2110922732927384478::1764593169::0::1::::ResourceManager<>RefCounted<><>0<>0<><>::
-SaveManager.gd::GDScript::8093261269369649326::1764593169::0::1::::SaveManager<>RefCounted<><>0<>0<><>::
+ResourceManager.gd::GDScript::2110922732927384478::1764619464::0::1::::ResourceManager<>RefCounted<><>0<>0<><>::
+SaveManager.gd::GDScript::8093261269369649326::1764619464::0::1::::SaveManager<>RefCounted<><>0<>0<><>::
 StructureManager.gd::GDScript::5738914033743695554::1764000457::0::1::::StructureManager<>RefCounted<><>0<>0<><>::
-TowerManager.gd::GDScript::3465503288867824995::1764000457::0::1::::TowerManager<>RefCounted<><>0<>0<><>::
+TowerManager.gd::GDScript::3465503288867824995::1764619464::0::1::::TowerManager<>RefCounted<><>0<>0<><>::
 UIManager.gd::GDScript::1197939644377561491::1764000457::0::1::::UIManager<>RefCounted<><>0<>0<><>::
-::res://versions/::1764604262
-::res://versions/Defesa do Labirinto/::1764604263
-::res://versions/Defesa do Labirinto/assets/::1764604263
-::res://versions/Defesa do Labirinto/assets/images/::1764604263
-::res://versions/Defesa do Labirinto/assets/music/::1764604263
-::res://versions/Defesa do Labirinto/assets/sounds/::1764604263
-::res://versions/Defesa do Labirinto/scenes/::1764604263
-::res://versions/Defesa do Labirinto/scripts/::1764604276
-Constants.gdc::GDScript::3932151102137116668::0::0::1::::<>RefCounted<><>0<>0<><>::
-Game.gdc::GDScript::7821218705314604243::0::0::1::::<>RefCounted<><>0<>0<><>::
-GridManager.gdc::GDScript::501363841729156471::0::0::1::::<>RefCounted<><>0<>0<><>::
-Menu.gdc::GDScript::4402037733611022945::0::0::1::::<>RefCounted<><>0<>0<><>::
-Pathfinder.gdc::GDScript::3041173185576720494::0::0::1::::<>RefCounted<><>0<>0<><>::
-ProjectileManager.gdc::GDScript::3127679081278486541::0::0::1::::<>RefCounted<><>0<>0<><>::
-WaveManager.gdc::GDScript::5410881445661329596::0::0::1::::<>RefCounted<><>0<>0<><>::
-::res://versions/Defesa do Labirinto/scripts/managers/::1764604276
-AchievementManager.gdc::GDScript::642833701721275511::0::0::1::::<>RefCounted<><>0<>0<><>::
-CoinManager.gdc::GDScript::7288991562562713584::0::0::1::::<>RefCounted<><>0<>0<><>::
-CombatManager.gdc::GDScript::3295144001231817978::0::0::1::::<>RefCounted<><>0<>0<><>::
-EffectsManager.gdc::GDScript::2091527463765857421::0::0::1::::<>RefCounted<><>0<>0<><>::
-EnemyManager.gdc::GDScript::9144894579726840737::0::0::1::::<>RefCounted<><>0<>0<><>::
-PerkManager.gdc::GDScript::8202836719758302506::0::0::1::::<>RefCounted<><>0<>0<><>::
-PlacementManager.gdc::GDScript::7173865573818313953::0::0::1::::<>RefCounted<><>0<>0<><>::
-ResourceManager.gdc::GDScript::2064660638340322773::0::0::1::::<>RefCounted<><>0<>0<><>::
-SaveManager.gdc::GDScript::3608626850606437004::0::0::1::::<>RefCounted<><>0<>0<><>::
-StructureManager.gdc::GDScript::1650102735111649290::0::0::1::::<>RefCounted<><>0<>0<><>::
-TowerManager.gdc::GDScript::496049762475558267::0::0::1::::<>RefCounted<><>0<>0<><>::
-UIManager.gdc::GDScript::259282912733938544::0::0::1::::<>RefCounted<><>0<>0<><>::
+::res://versions/::1764622996
