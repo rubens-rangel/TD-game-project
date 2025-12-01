@@ -99,18 +99,24 @@ var placing_tower_dir := Vector2(1, 0)  # direção inicial ao colocar torre
 # Constantes de barracks agora em GameConstants
 var barracks_menu: PopupMenu
 var barracks_selected_index := -1
+var keep_barracks_menu_open := false  # Flag para manter menu quartel aberto após upgrade
 
 # Menus de upgrade para sniper, AOE, Shock, Slow e Boost
 var sniper_menu: PopupMenu
 var sniper_selected_index := -1
+var keep_sniper_menu_open := false  # Flag para manter menu sniper aberto após upgrade
 var aoe_menu: PopupMenu
 var aoe_selected_index := -1
+var keep_aoe_menu_open := false  # Flag para manter menu AOE aberto após upgrade
 var shock_menu: PopupMenu
 var shock_selected_index := -1
+var keep_shock_menu_open := false  # Flag para manter menu shock aberto após upgrade
 var slow_menu: PopupMenu
 var slow_selected_index := -1
+var keep_slow_menu_open := false  # Flag para manter menu slow aberto após upgrade
 var boost_menu: PopupMenu
 var boost_selected_index := -1
+var keep_boost_menu_open := false  # Flag para manter menu boost aberto após upgrade
 
 # Drag and drop state
 var dragging_tower := false
@@ -3598,7 +3604,42 @@ func _on_barracks_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	barracks[barracks_selected_index] = b
-	barracks_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = barracks_menu.position if barracks_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_barracks_menu_open = true
+	_reopen_barracks_menu_immediately(saved_menu_pos)
+
+func _reopen_barracks_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de quartel na mesma posição após um upgrade"""
+	if not keep_barracks_menu_open:
+		return
+	if barracks_selected_index < 0 or barracks_selected_index >= barracks.size():
+		keep_barracks_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_barracks_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_barracks_menu", menu_pos)
+
+func _actually_reopen_barracks_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu quartel após o fechamento"""
+	if not keep_barracks_menu_open:
+		return
+	if barracks_selected_index < 0 or barracks_selected_index >= barracks.size():
+		keep_barracks_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_barracks_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_barracks_menu(barracks_selected_index, menu_pos)
+	keep_barracks_menu_open = false
 
 func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	if sniper_menu == null:
@@ -3653,10 +3694,42 @@ func _on_sniper_menu_pressed(id: int) -> void:
 		4:  # Alvo: Mais Próximo ao Centro
 			s["target_mode"] = 1
 	sniper_towers[sniper_selected_index] = s
-	# Atualizar o menu com os novos valores e manter aberto
-	if sniper_menu and sniper_menu.visible:
-		var screen_pos = sniper_menu.position
-		_open_sniper_menu(sniper_selected_index, screen_pos)
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = sniper_menu.position if sniper_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_sniper_menu_open = true
+	_reopen_sniper_menu_immediately(saved_menu_pos)
+
+func _reopen_sniper_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de sniper na mesma posição após um upgrade"""
+	if not keep_sniper_menu_open:
+		return
+	if sniper_selected_index < 0 or sniper_selected_index >= sniper_towers.size():
+		keep_sniper_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_sniper_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_sniper_menu", menu_pos)
+
+func _actually_reopen_sniper_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu sniper após o fechamento"""
+	if not keep_sniper_menu_open:
+		return
+	if sniper_selected_index < 0 or sniper_selected_index >= sniper_towers.size():
+		keep_sniper_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_sniper_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_sniper_menu(sniper_selected_index, menu_pos)
+	keep_sniper_menu_open = false
 
 func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	if aoe_menu == null:
@@ -3717,9 +3790,42 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	aoe_towers[aoe_selected_index] = a
-	# Não fechar o menu automaticamente - só fecha ao clicar fora
-	# _hide_range_indicator()
-	# aoe_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = aoe_menu.position if aoe_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_aoe_menu_open = true
+	_reopen_aoe_menu_immediately(saved_menu_pos)
+
+func _reopen_aoe_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de AOE na mesma posição após um upgrade"""
+	if not keep_aoe_menu_open:
+		return
+	if aoe_selected_index < 0 or aoe_selected_index >= aoe_towers.size():
+		keep_aoe_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_aoe_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_aoe_menu", menu_pos)
+
+func _actually_reopen_aoe_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu AOE após o fechamento"""
+	if not keep_aoe_menu_open:
+		return
+	if aoe_selected_index < 0 or aoe_selected_index >= aoe_towers.size():
+		keep_aoe_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_aoe_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_aoe_menu(aoe_selected_index, menu_pos)
+	keep_aoe_menu_open = false
 
 func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	if shock_menu == null:
@@ -3780,9 +3886,42 @@ func _on_shock_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	shock_towers[shock_selected_index] = s
-	# Não fechar o menu automaticamente - só fecha ao clicar fora
-	# _hide_range_indicator()
-	# shock_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = shock_menu.position if shock_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_shock_menu_open = true
+	_reopen_shock_menu_immediately(saved_menu_pos)
+
+func _reopen_shock_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de shock na mesma posição após um upgrade"""
+	if not keep_shock_menu_open:
+		return
+	if shock_selected_index < 0 or shock_selected_index >= shock_towers.size():
+		keep_shock_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_shock_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_shock_menu", menu_pos)
+
+func _actually_reopen_shock_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu shock após o fechamento"""
+	if not keep_shock_menu_open:
+		return
+	if shock_selected_index < 0 or shock_selected_index >= shock_towers.size():
+		keep_shock_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_shock_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_shock_menu(shock_selected_index, menu_pos)
+	keep_shock_menu_open = false
 
 func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	if slow_menu == null:
@@ -3835,9 +3974,42 @@ func _on_slow_menu_pressed(id: int) -> void:
 		# Removido upgrade de Duração (id 3) - funciona enquanto está dentro da área
 		# Removido upgrade de Taxa de Aplicação (id 4)
 	slow_towers[slow_selected_index] = s
-	# Não fechar o menu automaticamente - só fecha ao clicar fora
-	# _hide_range_indicator()
-	# slow_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = slow_menu.position if slow_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_slow_menu_open = true
+	_reopen_slow_menu_immediately(saved_menu_pos)
+
+func _reopen_slow_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de slow na mesma posição após um upgrade"""
+	if not keep_slow_menu_open:
+		return
+	if slow_selected_index < 0 or slow_selected_index >= slow_towers.size():
+		keep_slow_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_slow_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_slow_menu", menu_pos)
+
+func _actually_reopen_slow_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu slow após o fechamento"""
+	if not keep_slow_menu_open:
+		return
+	if slow_selected_index < 0 or slow_selected_index >= slow_towers.size():
+		keep_slow_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_slow_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_slow_menu(slow_selected_index, menu_pos)
+	keep_slow_menu_open = false
 
 func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	if boost_menu == null:
@@ -3887,9 +4059,42 @@ func _on_boost_menu_pressed(id: int) -> void:
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 	boost_towers[boost_selected_index] = b
-	# Não fechar o menu automaticamente - só fecha ao clicar fora
-	# _hide_range_indicator()
-	# boost_selected_index = -1
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = boost_menu.position if boost_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_boost_menu_open = true
+	_reopen_boost_menu_immediately(saved_menu_pos)
+
+func _reopen_boost_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de boost na mesma posição após um upgrade"""
+	if not keep_boost_menu_open:
+		return
+	if boost_selected_index < 0 or boost_selected_index >= boost_towers.size():
+		keep_boost_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_boost_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_boost_menu", menu_pos)
+
+func _actually_reopen_boost_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu boost após o fechamento"""
+	if not keep_boost_menu_open:
+		return
+	if boost_selected_index < 0 or boost_selected_index >= boost_towers.size():
+		keep_boost_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_boost_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_boost_menu(boost_selected_index, menu_pos)
+	keep_boost_menu_open = false
 
 func _is_inside_base_point(p: Vector2) -> bool:
 	return grid_manager.is_inside_base_point(p)
@@ -6735,9 +6940,27 @@ func _close_all_upgrade_menus() -> void:
 	barracks_selected_index = -1
 
 func _on_upgrade_menu_closed() -> void:
-	# Se a flag está ativa, não fechar completamente - o menu será reaberto
+	# Verificar qual menu está fechando e se deve ser mantido aberto
 	if keep_menu_open:
 		keep_menu_open = false
+		return
+	if keep_barracks_menu_open:
+		keep_barracks_menu_open = false
+		return
+	if keep_sniper_menu_open:
+		keep_sniper_menu_open = false
+		return
+	if keep_aoe_menu_open:
+		keep_aoe_menu_open = false
+		return
+	if keep_shock_menu_open:
+		keep_shock_menu_open = false
+		return
+	if keep_slow_menu_open:
+		keep_slow_menu_open = false
+		return
+	if keep_boost_menu_open:
+		keep_boost_menu_open = false
 		return
 	_hide_range_indicator()
 
@@ -7394,13 +7617,16 @@ func _adjust_hud_to_screen_size() -> void:
 		lbl_center.offset_top = 10
 	
 	if lbl_right:
-		# Usar posicionamento simples e fixo para garantir visibilidade
-		lbl_right.layout_mode = 0  # Layout manual (posicionamento absoluto)
-		# Posição fixa: entre 500 e 650 pixels da esquerda (antes dos painéis colapsados)
-		# Garantir que não seja coberto pelos painéis quando colapsados
-		var label_x = max(500.0, min(650.0, screen_size.x * 0.5))
-		lbl_right.position = Vector2(label_x, 10)
-		lbl_right.size = Vector2(120, 24)  # Tamanho fixo
+		# Ancorar no lado direito da tela
+		lbl_right.layout_mode = 1  # Layout com anchors
+		lbl_right.anchor_left = 1.0
+		lbl_right.anchor_top = 0.0
+		lbl_right.anchor_right = 1.0
+		lbl_right.anchor_bottom = 0.0
+		lbl_right.offset_left = -150  # Largura do label (negativo para começar da direita)
+		lbl_right.offset_right = -12  # Margem direita de 12 pixels
+		lbl_right.offset_top = 10
+		lbl_right.offset_bottom = 34
 		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl_right.visible = true  # Garantir que sempre esteja visível
 		lbl_right.z_index = 10  # Acima dos painéis
