@@ -1141,11 +1141,10 @@ func _process(delta: float) -> void:
 		if not lbl_right.visible:
 			lbl_right.show()
 	
-	# Atualizar slider de vida se existir
+	# Remover slider de vida se existir (não é mais necessário)
 	var life_slider = tb.get_node_or_null("LifeSlider")
 	if life_slider:
-		life_slider.value = float(base_hp)
-		life_slider.max_value = 100.0  # Garantir que o max seja 100
+		life_slider.queue_free()
 	
 	# Atualizar UI melhorada - Menu lateral de torres
 	_update_tower_shop_ui()
@@ -3326,7 +3325,7 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 	var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5  # Metade da diagonal
 	var can_range: bool = hero["coins"] >= range_cost and t.range < max_range
-	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.4  # Limite mínimo de 0.4s
+	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.25  # Limite mínimo de 0.25s
 	var can_dirs: bool = hero["coins"] >= dirs_cost and dirs_count < 4
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_freeze: bool = hero["coins"] >= freeze_cost and not t.get("has_freeze", false)
@@ -3373,8 +3372,8 @@ func _on_tower_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Cadência (reduz tempo entre tiros)
 			var cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
-			if hero["coins"] >= cost and t.fire_rate > 0.4:  # Limite mínimo de 0.4s
-				t.fire_rate = max(0.4, t.fire_rate - 0.05)  # Limite mínimo de 0.4s
+			if hero["coins"] >= cost and t.fire_rate > 0.25:  # Limite mínimo de 0.25s
+				t.fire_rate = max(0.25, t.fire_rate - 0.05)  # Limite mínimo de 0.25s
 				t.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -5202,8 +5201,8 @@ func _physics_process(delta: float) -> void:
 			rate_multiplier *= skills_manager.get_speed_multiplier()
 		
 		var effective_fire_rate = t.fire_rate / rate_multiplier
-		# Garantir que o effective_fire_rate nunca seja menor que 0.4s (limite mínimo)
-		effective_fire_rate = max(0.4, effective_fire_rate)
+		# Garantir que o effective_fire_rate nunca seja menor que 0.25s (limite mínimo)
+		effective_fire_rate = max(0.25, effective_fire_rate)
 		t.cooldown = max(0.0, t.cooldown - delta)
 		if t.cooldown <= 0.0:
 			_tower_fire_cross(t)
@@ -8072,7 +8071,7 @@ func _adjust_hud_to_screen_size() -> void:
 		lbl_center.offset_top = 10
 		lbl_center.offset_bottom = 34
 	
-	# 3. Vida (LblRight + LifeSlider) - após Moeda
+	# 3. Vida (LblRight) - após Moeda
 	if lbl_right:
 		lbl_right.layout_mode = 1
 		lbl_right.anchor_left = 0.0
@@ -8087,43 +8086,8 @@ func _adjust_hud_to_screen_size() -> void:
 		lbl_right.visible = true
 		lbl_right.z_index = 10
 		lbl_right.text = "Vida %d" % [base_hp]
-		
-		# Criar ou atualizar slider de vida ao lado do label
-		var life_slider = tb.get_node_or_null("LifeSlider")
-		if not life_slider:
-			life_slider = HSlider.new()
-			life_slider.name = "LifeSlider"
-			tb.add_child(life_slider)
-		
-		# Configurar slider de vida
-		life_slider.layout_mode = 1
-		life_slider.anchor_left = 0.0
-		life_slider.anchor_top = 0.0
-		life_slider.anchor_right = 0.0
-		life_slider.anchor_bottom = 0.0
-		life_slider.offset_left = 430  # Ao lado do label Vida
-		life_slider.offset_right = 530
-		life_slider.offset_top = 12
-		life_slider.offset_bottom = 32
-		life_slider.min_value = 0.0
-		life_slider.max_value = 100.0
-		life_slider.value = float(base_hp)
-		life_slider.editable = false
-		life_slider.step = 1.0
-		life_slider.z_index = 10
-		
-		# Estilizar slider de vida
-		var slider_style = StyleBoxFlat.new()
-		slider_style.bg_color = Color(0.3, 0.1, 0.1, 0.8)
-		life_slider.add_theme_stylebox_override("slider", slider_style)
-		
-		var fill_style = StyleBoxFlat.new()
-		fill_style.bg_color = Color(0.9, 0.2, 0.2, 0.9)
-		life_slider.add_theme_stylebox_override("fill", fill_style)
-		
-		life_slider.visible = true
 	
-	# 4. Botão Mute - após Vida/Slider
+	# 4. Botão Mute - após Vida
 	var btn_mute = tb.get_node_or_null("BtnMuteMusic")
 	if btn_mute:
 		btn_mute.layout_mode = 1
@@ -8131,7 +8095,7 @@ func _adjust_hud_to_screen_size() -> void:
 		btn_mute.anchor_top = 0.0
 		btn_mute.anchor_right = 0.0
 		btn_mute.anchor_bottom = 0.0
-		btn_mute.offset_left = 540  # Após slider de vida
+		btn_mute.offset_left = 430  # Após label Vida
 		btn_mute.offset_right = 580
 		btn_mute.offset_top = 8
 		btn_mute.offset_bottom = 36
@@ -8144,7 +8108,7 @@ func _adjust_hud_to_screen_size() -> void:
 		volume_container.anchor_top = 0.0
 		volume_container.anchor_right = 0.0
 		volume_container.anchor_bottom = 0.0
-		volume_container.offset_left = 590  # Após botão Mute
+		volume_container.offset_left = 480  # Após botão Mute
 		volume_container.offset_right = 740
 		volume_container.offset_top = 8
 		volume_container.offset_bottom = 36
@@ -8156,7 +8120,7 @@ func _adjust_hud_to_screen_size() -> void:
 		admin_menu_button.anchor_top = 0.0
 		admin_menu_button.anchor_right = 0.0
 		admin_menu_button.anchor_bottom = 0.0
-		admin_menu_button.offset_left = 750  # Após slider de volume
+		admin_menu_button.offset_left = 630  # Após slider de volume
 		admin_menu_button.offset_right = 850
 		admin_menu_button.offset_top = 8
 		admin_menu_button.offset_bottom = 36
