@@ -18,7 +18,7 @@ const SLOW_TOWER_COST := 80
 const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
 const BOOST_TOWER_COST := 100  # Aumentado de 80 para 100
-const SHOCK_TOWER_COST := 40
+const SHOCK_TOWER_COST := 48  # Aumentado em 20% (de 40 para 48)
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
 
@@ -91,11 +91,12 @@ const BOOST_DMG_COST := 50  # Aumentado de 40 para 50
 const BOOST_RATE_COST := 40  # Aumentado de 30 para 40
 
 # Waves
-const WAVE_SCALE := 1.04  # Reduzido de 1.06 para 1.04 - crescimento mais suave
-const INTERMISSION := 8.0  # Aumentado de 5.0 para 8.0 para dar mais tempo entre waves
+const WAVE_SCALE := 1.045  # Reduzido de 1.06 para 1.04 - crescimento mais suave
+const INTERMISSION := 12.0  # Aumentado de 5.0 para 8.0 para dar mais tempo entre waves
 
 # Enemy stats
 const ENEMY_BASE_SPEED := 38.0  # Aumentado de 30.0 para 38.0 (~27% mais rápido)
+const ENEMY_MAX_SPEED := 210.0  # Velocidade máxima dos inimigos (limite para evitar bugs em waves muito altas)
 const BOSS_SPEED_MULTIPLIER := 0.5
 const ENEMY_BASE_HP := 3  # Aumentado de 2 para 3 para aumentar dificuldade inicial
 const BOSS_BASE_HP := 28  # Reduzido de 35 para 28 (~20% menos) para melhor balanceamento
@@ -106,7 +107,7 @@ const NORMAL_REWARD := 2
 const REWARD_SCALE := 1.03  # Recompensas crescem 2% por wave (reduzido de 1.05 para balancear níveis altos)
 const REWARD_SCALE_SOFT_CAP := 50  # A partir da wave 30, a escala diminui ainda mais
 const REWARD_SCALE_AFTER_CAP := 1.02  # Após o soft cap, cresce apenas 2% por wave
-const UPGRADE_COST_MULTIPLIER := 1.15  # Upgrades ficam 15% mais caros por nível (aumentado de 1.12)
+const UPGRADE_COST_MULTIPLIER := 1.20  # Upgrades ficam 15% mais caros por nível (aumentado de 1.12)
 const WAVE_COMPLETION_BONUS_BASE := 10
 const WAVE_COMPLETION_BONUS_PER_WAVE := 1  # Reduzido de 2 para 1 (crescimento mais lento)
 const WAVE_COMPLETION_BONUS_MAX := 100  # Cap máximo de bônus por wave (evita valores muito altos)
@@ -120,7 +121,7 @@ const HERO_BASE_DAMAGE := 0.8  # Reduzido de 1 para 0.8 para balancear dano da b
 const COIN_DROP_CHANCE := 0.10  # 10% de chance base de dropar moeda
 const COIN_MIN_VALUE := 3
 const COIN_MAX_VALUE := 20
-const COIN_LIFETIME := 12.0  # tempo que a moeda fica no chão antes de desaparecer
+const COIN_LIFETIME := 14.0  # tempo que a moeda fica no chão antes de desaparecer
 
 # Skills
 const SKILL_COLLECT_COINS_COST := 0  # Gratuita
@@ -137,7 +138,7 @@ const SKILL_COLLECT_COINS_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_DAMAGE_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SPEED_BOOST_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_SLOW_ALL_COOLDOWN := 60.0  # segundos de cooldown
-const SKILL_MAGNETISM_COOLDOWN := 45.0  # segundos de cooldown
+const SKILL_MAGNETISM_COOLDOWN := 60.0  # segundos de cooldown
 const SKILL_MAGNETISM_DURATION := 30.0  # segundos de duração
 const COIN_MAGNETISM_RANGE := 20.0  # Raio de coleta automática de moedas
 
@@ -171,7 +172,7 @@ const MUSIC_VOLUME_DEFAULT := -7.0
 # Visual Effects
 const EFFECT_DAMAGE_NUMBER_DURATION := 1.0
 const EFFECT_COIN_COLLECT_DURATION := 0.5
-const EFFECT_DEATH_ANIMATION_DURATION := 0.8
+const EFFECT_DEATH_ANIMATION_DURATION := 0.6
 
 # Wall Costs (acumulativo)
 const WALL_COST_1ST := 100
@@ -181,3 +182,35 @@ const WALL_COST_4TH := 1000
 
 # Tower Cost Scaling
 const TOWER_COST_SCALE_PER_WAVE := 1.02  # 2% por wave
+
+# Tower Fire Rate Limits (minimum fire rate - towers can't shoot faster than this)
+const TOWER_MIN_FIRE_RATE := 0.35  # Limite mínimo de fire_rate para torres básicas (em segundos)
+const SNIPER_MIN_FIRE_RATE := 1.5  # Limite mínimo de fire_rate para sniper towers (em segundos)
+const AOE_MIN_FIRE_RATE := 1.0  # Limite mínimo de fire_rate para AOE towers (em segundos)
+const SHOCK_MIN_FIRE_RATE := 0.8 # Limite mínimo de fire_rate para shock towers (em segundos)
+const HERO_MIN_FIRE_RATE := 0.1  # Limite mínimo de fire_rate para o herói (em segundos)
+
+# Tower Upgrade Maximums
+const SHOCK_MAX_CHAIN_COUNT := 15  # Máximo de corrente para shock towers
+const AOE_MAX_RADIUS := 250.0  # Máximo de raio AOE (reduzido de ~320 para 250)
+
+# Tower Fire Rate Upgrade Reductions (quanto reduz por upgrade)
+const TOWER_FIRE_RATE_REDUCTION := 0.05  # Redução de fire_rate por upgrade de torre básica
+const SNIPER_FIRE_RATE_REDUCTION := 0.5  # Redução de fire_rate por upgrade de sniper
+const AOE_FIRE_RATE_REDUCTION := 0.3  # Redução de fire_rate por upgrade de AOE
+const SHOCK_FIRE_RATE_REDUCTION := 0.2  # Redução de fire_rate por upgrade de shock
+const HERO_FIRE_RATE_REDUCTION := 0.03  # Redução de fire_rate por upgrade do herói
+
+# Base HP
+const BASE_MAX_HP := 100.0  # Limite máximo de HP da base (usado por healing stations)
+
+# Barracks (Quartéis)
+const BARRACKS_INITIAL_SPAWN_RATE := 3.0  # Taxa inicial de spawn de soldados (em segundos)
+const BARRACKS_MIN_SPAWN_RATE := 1.0  # Limite mínimo de spawn rate (em segundos)
+const BARRACKS_SPAWN_RATE_REDUCTION := 0.5  # Redução de spawn rate por upgrade
+const BARRACKS_INITIAL_HOLD_TIME := 2.0  # Tempo inicial que soldado segura monstro (em segundos)
+const BARRACKS_HOLD_TIME_INCREASE := 1.0  # Aumento de hold time por upgrade
+const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.3  # Dano por segundo do soldado inicial
+const BARRACKS_INITIAL_PROJECTILE_SPEED := 80.0  # Velocidade inicial do projetil do soldado
+const BARRACKS_PROJECTILE_SPEED_INCREASE := 20.0  # Aumento de velocidade do projetil por upgrade
+const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.2  # Aumento de dano do soldado por upgrade

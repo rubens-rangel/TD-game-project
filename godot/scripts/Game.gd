@@ -341,7 +341,7 @@ func _get_hero_home_benefits_text(level: int) -> String:
 func _apply_hero_home_upgrade_effects(level: int) -> void:
 	"""Delegado para HeroManager"""
 	if hero_manager:
-		var changes = hero_manager.apply_hero_home_upgrade(level)
+		hero_manager.apply_hero_home_upgrade(level)
 		# Aplicar mudanças no jogo
 		global_tower_damage_boost = hero_manager.global_tower_damage_boost
 		base_hp = hero_manager.base_hp
@@ -359,7 +359,7 @@ func _apply_hero_home_upgrade_effects(level: int) -> void:
 		3:
 			global_tower_damage_boost *= 1.10
 			hero["pierce"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)
+			hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] - GameConstants.HERO_FIRE_RATE_REDUCTION)
 			base_hp += 60
 
 
@@ -1058,7 +1058,7 @@ func _process(delta: float) -> void:
 				var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 				var dist_to_base = hs.pos.distance_to(base_center)
 				if dist_to_base <= hs.range:
-					base_hp = min(100.0, base_hp + hs.heal_amount)
+					base_hp = min(GameConstants.BASE_MAX_HP, base_hp + hs.heal_amount)
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
 			# Usar pool do HeroManager se disponível
@@ -2087,7 +2087,8 @@ func _draw() -> void:
 	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
 		if grid_manager.is_inside_base_point(preview_mouse_pos):
 			var preview_grid_coord = grid_manager.world_to_base_grid(preview_mouse_pos)
-			var preview_world_pos = grid_manager.base_grid_to_world(preview_grid_coord.x, preview_grid_coord.y)
+			# Usar tamanho padrão de 3 para preview (maioria das torres)
+			var preview_world_pos = grid_manager.base_grid_to_world(preview_grid_coord.x, preview_grid_coord.y, 3)
 			
 			if placing_tower:
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1):
@@ -2606,7 +2607,7 @@ func _resume_after_upgrade() -> void:
 					hero["damage"] += 1
 				"FIRERATE":
 					hero["levels"]["FIRERATE"] += 1
-					hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)
+					hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] - GameConstants.HERO_FIRE_RATE_REDUCTION)
 				"PIERCE":
 					hero["levels"]["PIERCE"] += 1
 					hero["pierce"] += 1
@@ -2754,9 +2755,8 @@ func _enemy_new(col: int, row: int) -> Dictionary:
 		path_copy = [pos, base_center]
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
 	var base_speed = GameConstants.ENEMY_BASE_SPEED * f
-	var max_speed = 200.0  # Velocidade máxima
-	if base_speed > max_speed:
-		base_speed = max_speed
+	if base_speed > GameConstants.ENEMY_MAX_SPEED:
+		base_speed = GameConstants.ENEMY_MAX_SPEED
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 9, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = false }
 	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
@@ -2786,9 +2786,8 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 		path_copy = [pos, base_center]
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
 	var base_speed = GameConstants.ENEMY_BASE_SPEED * f * GameConstants.BOSS_SPEED_MULTIPLIER
-	var max_speed = 200.0  # Velocidade máxima
-	if base_speed > max_speed:
-		base_speed = max_speed
+	if base_speed > GameConstants.ENEMY_MAX_SPEED:
+		base_speed = GameConstants.ENEMY_MAX_SPEED
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 12, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = true }
 	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
@@ -2846,11 +2845,9 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				return
 	
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
-	# Velocidade máxima de 200 pixels/segundo (ajustável)
-	var max_speed = 200.0
-	if e["speed"] > max_speed:
-		e["speed"] = max_speed
-		e["base_speed"] = min(e["base_speed"], max_speed)
+	if e["speed"] > GameConstants.ENEMY_MAX_SPEED:
+		e["speed"] = GameConstants.ENEMY_MAX_SPEED
+		e["base_speed"] = min(e["base_speed"], GameConstants.ENEMY_MAX_SPEED)
 	
 	# Verificar se o path está vazio ou inválido
 	if not e.has("path") or e["path"].is_empty():
@@ -3108,7 +3105,6 @@ func _handle_collisions() -> void:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
 			if a["pos"].distance_to(e["pos"]) < (a["radius"] + e["radius"]):
-				var old_hp = e["hp"]
 				var damage = a["damage"]
 				e["hp"] -= damage
 				# Criar indicador de dano (amarelo se crítico)
@@ -3138,7 +3134,6 @@ func _handle_collisions() -> void:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
 			if b["pos"].distance_to(e["pos"]) < (b["radius"] + e["radius"]):
-				var old_hp = e["hp"]
 				var damage_dealt = b["damage"]
 				e["hp"] -= damage_dealt
 				
@@ -3254,11 +3249,79 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 	if not dragging_tower:
 		return
 	
-	var new_pos = mouse_pos - drag_offset
+	# Usar a posição do mouse diretamente para fazer o snap
+	# O mouse_pos já está em coordenadas do mundo (convertido com to_local)
+	# Precisamos calcular onde o centro da torre deve estar baseado na posição do mouse
+	# Considerando o offset do drag (a diferença entre onde o mouse estava quando começou o drag e o centro da torre)
+	var tower_center_pos = mouse_pos - drag_offset
 	
-	# Fazer snap para o grid antes de tentar mover (correção do bug de reposicionamento)
-	var grid_coord = grid_manager.world_to_base_grid(new_pos)
-	var snapped_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	# Determinar tamanho baseado no tipo de torre sendo arrastada
+	var tower_size = 3  # padrão
+	match dragged_tower_type:
+		"tower":
+			tower_size = GameConstants.TOWER_SIZE_GRID
+		"slow_tower":
+			tower_size = GameConstants.SLOW_TOWER_SIZE_GRID
+		"aoe_tower":
+			tower_size = GameConstants.AOE_TOWER_SIZE_GRID
+		"sniper_tower":
+			tower_size = GameConstants.SNIPER_TOWER_SIZE_GRID
+		"boost_tower":
+			tower_size = GameConstants.BOOST_TOWER_SIZE_GRID
+		"shock_tower":
+			tower_size = GameConstants.SHOCK_TOWER_SIZE_GRID
+		"barracks":
+			tower_size = GameConstants.BARRACKS_SIZE_GRID
+	
+	# Verificar se está dentro da área da base
+	if not grid_manager.is_inside_base_point(tower_center_pos):
+		# Se não estiver dentro, restaurar posição original
+		dragging_tower = false
+		dragged_tower_type = ""
+		dragged_tower_index = -1
+		drag_start_pos = Vector2.ZERO
+		drag_offset = Vector2.ZERO
+		drag_current_pos = Vector2.ZERO
+		queue_redraw()
+		return
+	
+	# Fazer snap para o grid
+	# tower_center_pos é onde o centro da torre estaria baseado na posição do mouse
+	# Precisamos calcular o canto superior esquerdo da área ocupada pela torre no grid
+	# e depois converter de volta para a posição do mundo (centro)
+	
+	# Converter o centro da torre para coordenadas do grid interno
+	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
+	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)
+	var base_start_col = grid_manager.center.x - base_half_size
+	var base_start_row = grid_manager.center.y - base_half_size
+	
+	# Converter posição do mundo (centro) para coordenadas de tile
+	var tile_col = tower_center_pos.x / GameConstants.TILE_SIZE
+	var tile_row = tower_center_pos.y / GameConstants.TILE_SIZE
+	
+	# Calcular posição relativa dentro da base
+	var relative_col = tile_col - float(base_start_col)
+	var relative_row = tile_row - float(base_start_row)
+	
+	# Converter para coordenadas do grid interno (em float para precisão)
+	var grid_center_x_float = relative_col / grid_size_tiles
+	var grid_center_y_float = relative_row / grid_size_tiles
+	
+	# Calcular o canto superior esquerdo: subtrair metade do tamanho da torre
+	var half_size_float = float(tower_size) / 2.0
+	var top_left_x_float = grid_center_x_float - half_size_float
+	var top_left_y_float = grid_center_y_float - half_size_float
+	
+	# Converter para inteiro (canto superior esquerdo da área ocupada)
+	var grid_coord = Vector2i(int(floor(top_left_x_float)), int(floor(top_left_y_float)))
+	
+	# Clampar para garantir que a torre inteira fique dentro do grid
+	grid_coord.x = clamp(grid_coord.x, 0, GameConstants.BASE_GRID_SIZE - tower_size)
+	grid_coord.y = clamp(grid_coord.y, 0, GameConstants.BASE_GRID_SIZE - tower_size)
+	
+	# Converter de volta para posição do mundo (centro da torre)
+	var snapped_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, tower_size)
 	
 	# Tentar mover a torre com posição ajustada ao grid
 	var moved = false
@@ -3277,10 +3340,11 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			moved = _try_move_shock_tower(dragged_tower_index, snapped_world_pos)
 		"mine":
 			# Para minas, não fazer snap (elas ficam em posições livres)
-			moved = _try_move_mine(dragged_tower_index, new_pos)
+			# Usar a posição do mouse diretamente (sem snap)
+			moved = _try_move_mine(dragged_tower_index, tower_center_pos)
 		"wall":
 			# Para walls, fazer snap para tile coordinates
-			var wall_tile = _world_to_tile_coords(new_pos)
+			var wall_tile = _world_to_tile_coords(tower_center_pos)
 			var wall_world_pos = Vector2(wall_tile.x * GameConstants.TILE_SIZE, wall_tile.y * GameConstants.TILE_SIZE)
 			moved = _try_move_wall(dragged_tower_index, wall_world_pos)
 		"barracks":
@@ -3325,7 +3389,7 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 	var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5  # Metade da diagonal
 	var can_range: bool = hero["coins"] >= range_cost and t.range < max_range
-	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.25  # Limite mínimo de 0.25s
+	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > GameConstants.TOWER_MIN_FIRE_RATE
 	var can_dirs: bool = hero["coins"] >= dirs_cost and dirs_count < 4
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_freeze: bool = hero["coins"] >= freeze_cost and not t.get("has_freeze", false)
@@ -3372,8 +3436,8 @@ func _on_tower_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Cadência (reduz tempo entre tiros)
 			var cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
-			if hero["coins"] >= cost and t.fire_rate > 0.25:  # Limite mínimo de 0.25s
-				t.fire_rate = max(0.25, t.fire_rate - 0.05)  # Limite mínimo de 0.25s
+			if hero["coins"] >= cost and t.fire_rate > GameConstants.TOWER_MIN_FIRE_RATE:
+				t.fire_rate = max(GameConstants.TOWER_MIN_FIRE_RATE, t.fire_rate - GameConstants.TOWER_FIRE_RATE_REDUCTION)
 				t.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -3623,7 +3687,7 @@ func _on_upgrade_hero_home() -> void:
 	_update_hero_home_panel_ui()
 	queue_redraw()
 
-func _on_wave_started(wave_number: int, is_boss_wave: bool):
+func _on_wave_started(wave_number: int, _is_boss_wave: bool):
 	# Resetar dados de DPS da wave anterior
 	for tower_id in tower_dps_data.keys():
 		if tower_dps_data[tower_id].has("wave_damage"):
@@ -3709,7 +3773,7 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_hold: bool = hero["coins"] >= hold_cost
-	var can_spawn_rate: bool = hero["coins"] >= spawn_rate_cost and b.soldier_spawn_rate > 1.0
+	var can_spawn_rate: bool = hero["coins"] >= spawn_rate_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE
 	var can_projectile_speed: bool = hero["coins"] >= projectile_speed_cost
 	
 	barracks_menu.set_item_text(0, "Dano +0.2 (%d)" % dmg_cost)
@@ -3736,28 +3800,28 @@ func _on_barracks_menu_pressed(id: int) -> void:
 		1:  # Dano
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
-				b.damage += 0.2
+				b.damage += GameConstants.BARRACKS_SOLDIER_DAMAGE_INCREASE
 				b.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		2:  # Tempo Hold
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_HOLD_COST, hold_level)
 			if hero["coins"] >= cost:
-				b.hold_time += 1.0
+				b.hold_time += GameConstants.BARRACKS_HOLD_TIME_INCREASE
 				b.levels["HOLD"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		3:  # Spawn Rate
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_SPAWN_RATE_COST, spawn_rate_level)
-			if hero["coins"] >= cost and b.soldier_spawn_rate > 1.0:
-				b.soldier_spawn_rate = max(1.0, b.soldier_spawn_rate - 0.5)
+			if hero["coins"] >= cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE:
+				b.soldier_spawn_rate = max(GameConstants.BARRACKS_MIN_SPAWN_RATE, b.soldier_spawn_rate - GameConstants.BARRACKS_SPAWN_RATE_REDUCTION)
 				b.levels["SPAWN_RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		4:  # Velocidade Projétil
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_PROJECTILE_SPEED_COST, projectile_speed_level)
 			if hero["coins"] >= cost:
-				b.projectile_speed += 20.0
+				b.projectile_speed += GameConstants.BARRACKS_PROJECTILE_SPEED_INCREASE
 				b.levels["PROJECTILE_SPEED"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -3813,7 +3877,7 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	var rate_cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 1.5  # Limite mínimo de 1.5s
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE
 	
 	sniper_menu.set_item_text(0, "Dano +2 (%d)" % dmg_cost)
 	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
@@ -3842,8 +3906,8 @@ func _on_sniper_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
 			var cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
-			if hero["coins"] >= cost and s.fire_rate > 1.5:  # Limite mínimo de 1.5s
-				s.fire_rate = max(1.5, s.fire_rate - 0.5)  # Limite mínimo de 1.5s
+			if hero["coins"] >= cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE:
+				s.fire_rate = max(GameConstants.SNIPER_MIN_FIRE_RATE, s.fire_rate - GameConstants.SNIPER_FIRE_RATE_REDUCTION)
 				s.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -3905,8 +3969,8 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	var area_cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_rate: bool = hero["coins"] >= rate_cost and a.fire_rate > 0.5
-	var can_area: bool = hero["coins"] >= area_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE
+	var can_area: bool = hero["coins"] >= area_cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS
 	
 	aoe_menu.set_item_text(0, "Dano +1 (%d)" % dmg_cost)
 	aoe_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, a.fire_rate])
@@ -3935,15 +3999,15 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
 			var cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
-			if hero["coins"] >= cost and a.fire_rate > 0.5:
-				a.fire_rate = max(0.5, a.fire_rate - 0.3)
+			if hero["coins"] >= cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE:
+				a.fire_rate = max(GameConstants.AOE_MIN_FIRE_RATE, a.fire_rate - GameConstants.AOE_FIRE_RATE_REDUCTION)
 				a.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		3:  # Área
 			var cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
-			if hero["coins"] >= cost:
-				a.aoe_radius += 20.0
+			if hero["coins"] >= cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS:
+				a.aoe_radius = min(GameConstants.AOE_MAX_RADIUS, a.aoe_radius + 20.0)
 				a.levels["AREA"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -4001,8 +4065,8 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	var chain_cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 0.5
-	var can_chain: bool = hero["coins"] >= chain_cost
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE
+	var can_chain: bool = hero["coins"] >= chain_cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT
 	
 	shock_menu.set_item_text(0, "Dano +0.5 (%d)" % dmg_cost)
 	shock_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
@@ -4031,15 +4095,15 @@ func _on_shock_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
 			var cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
-			if hero["coins"] >= cost and s.fire_rate > 0.5:
-				s.fire_rate = max(0.5, s.fire_rate - 0.2)
+			if hero["coins"] >= cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE:
+				s.fire_rate = max(GameConstants.SHOCK_MIN_FIRE_RATE, s.fire_rate - GameConstants.SHOCK_FIRE_RATE_REDUCTION)
 				s.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		3:  # Corrente
 			var cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
-			if hero["coins"] >= cost:
-				s.chain_count += 1
+			if hero["coins"] >= cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT:
+				s.chain_count = min(GameConstants.SHOCK_MAX_CHAIN_COUNT, s.chain_count + 1)
 				s.levels["CHAIN"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -4288,7 +4352,7 @@ func _try_place_tower(pos: Vector2) -> void:
 	pathfinder.invalidate_cache()  # invalidar cache quando grid muda
 	
 	# calcular posição central da torre
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.TOWER_SIZE_GRID)
 	
 	# calcular direção baseada na posição relativa ao centro da base
 	var bc = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
@@ -4343,9 +4407,9 @@ func _try_place_barracks(pos: Vector2) -> void:
 	pathfinder.invalidate_cache()  # invalidar cache quando grid muda
 	
 	# calcular posição central do quartel
-	var barracks_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var barracks_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.BARRACKS_SIZE_GRID)
 	
-	var initial_spawn_rate = 3.0  # spawna soldado a cada 3 segundos
+	var initial_spawn_rate = GameConstants.BARRACKS_INITIAL_SPAWN_RATE
 	barracks.append({
 		"pos": barracks_world_pos,
 		"grid_x": grid_coord.x,
@@ -4353,9 +4417,9 @@ func _try_place_barracks(pos: Vector2) -> void:
 		"soldier_spawn_cd": initial_spawn_rate,  # inicializar com o tempo de spawn para não spawnar imediatamente
 		"soldier_spawn_rate": initial_spawn_rate,
 		"soldiers": [],
-		"hold_time": 2.0,  # tempo que soldado segura monstro
-		"damage": 0.3,  # dano por segundo do soldado
-		"projectile_speed": 80.0,  # velocidade do projetil do soldado
+		"hold_time": GameConstants.BARRACKS_INITIAL_HOLD_TIME,
+		"damage": GameConstants.BARRACKS_INITIAL_SOLDIER_DAMAGE,
+		"projectile_speed": GameConstants.BARRACKS_INITIAL_PROJECTILE_SPEED,
 		"levels": { "HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0 }
 	})
 	hero["coins"] -= barracks_cost
@@ -4531,7 +4595,7 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 	pathfinder.invalidate_cache()
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID)
 	slow_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
@@ -4583,7 +4647,7 @@ func _try_place_aoe_tower(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	pathfinder.invalidate_cache()
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID)
 	aoe_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
@@ -4635,7 +4699,7 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
 	pathfinder.invalidate_cache()
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID)
 	sniper_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
@@ -4688,7 +4752,7 @@ func _try_place_boost_tower(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
 	pathfinder.invalidate_cache()
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID)
 	boost_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
@@ -4739,7 +4803,7 @@ func _try_place_shock_tower(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
-	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID)
 	shock_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
@@ -4927,27 +4991,32 @@ func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	
 	var tower = towers[tower_idx]
 	
-	# Limpar grid na posição antiga
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID)
-	
-	# Verificar nova posição
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		# Restaurar grid antigo
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID, 1)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1):
-		# Restaurar grid antigo
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID, 1)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID, GameConstants.TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1, ignore_area):
 		return false
+	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.TOWER_SIZE_GRID)
 	
 	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
 	pathfinder.invalidate_cache()
 	
 	# Atualizar posição da torre
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -4960,21 +5029,32 @@ func _try_move_slow_tower(tower_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var tower = slow_towers[tower_idx]
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, GameConstants.SLOW_TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -4987,21 +5067,32 @@ func _try_move_aoe_tower(tower_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var tower = aoe_towers[tower_idx]
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, GameConstants.AOE_TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -5014,21 +5105,32 @@ func _try_move_sniper_tower(tower_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var tower = sniper_towers[tower_idx]
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, GameConstants.SNIPER_TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -5041,21 +5143,32 @@ func _try_move_boost_tower(tower_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var tower = boost_towers[tower_idx]
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, GameConstants.BOOST_TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -5068,21 +5181,32 @@ func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var tower = shock_towers[tower_idx]
-	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9):
-		grid_manager.set_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga da torre)
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, GameConstants.SHOCK_TOWER_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
 	tower.grid_y = new_grid_coord.y
@@ -5095,21 +5219,32 @@ func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
 		return false
 	
 	var b = barracks[barracks_idx]
-	grid_manager.clear_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID)
 	
+	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
-		grid_manager.set_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, 3)
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3):
-		grid_manager.set_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, 3)
+	
+	# Se a nova posição é a mesma da antiga, não precisa fazer nada
+	if new_grid_coord.x == b.grid_x and new_grid_coord.y == b.grid_y:
+		return true
+	
+	# Criar área a ignorar (posição antiga do quartel)
+	var ignore_area = Rect2i(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, GameConstants.BARRACKS_SIZE_GRID)
+	
+	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3, ignore_area):
 		return false
 	
+	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
+	grid_manager.clear_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID)
+	
+	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3)
 	pathfinder.invalidate_cache()
 	
-	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y)
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID)
 	b.pos = new_world_pos
 	b.grid_x = new_grid_coord.x
 	b.grid_y = new_grid_coord.y
@@ -5201,8 +5336,8 @@ func _physics_process(delta: float) -> void:
 			rate_multiplier *= skills_manager.get_speed_multiplier()
 		
 		var effective_fire_rate = t.fire_rate / rate_multiplier
-		# Garantir que o effective_fire_rate nunca seja menor que 0.25s (limite mínimo)
-		effective_fire_rate = max(0.25, effective_fire_rate)
+		# Garantir que o effective_fire_rate nunca seja menor que o limite mínimo
+		effective_fire_rate = max(GameConstants.TOWER_MIN_FIRE_RATE, effective_fire_rate)
 		t.cooldown = max(0.0, t.cooldown - delta)
 		if t.cooldown <= 0.0:
 			_tower_fire_cross(t)
@@ -5230,12 +5365,10 @@ func _tower_fire_cross(tower: Dictionary) -> void:
 	
 	# aplicar boost de boost towers próximos
 	var damage_multiplier = 1.0
-	var rate_multiplier = 1.0
 	for boost in boost_towers:
 		var dist = tower.pos.distance_to(boost.pos)
 		if dist <= boost.range:
 			damage_multiplier += boost.damage_boost
-			rate_multiplier += boost.rate_boost
 	
 	# aplicar skill de boost de dano
 	if skills_manager:
@@ -5316,7 +5449,7 @@ func _update_barracks(delta: float) -> void:
 
 # ========== FUNÇÕES DE ATUALIZAÇÃO DAS NOVAS TORRES ==========
 
-func _update_mines(delta: float) -> void:
+func _update_mines(_delta: float) -> void:
 	var mines_to_remove: Array = []
 	for i in range(mines.size()):
 		var m = mines[i]
@@ -5374,7 +5507,7 @@ func _detonate_mine(mine: Dictionary) -> void:
 				_try_drop_coin(e["pos"])
 				_track_enemy_kill(is_boss)
 
-func _update_slow_towers(delta: float) -> void:
+func _update_slow_towers(_delta: float) -> void:
 	for st in slow_towers:
 		# aplicar skill de boost de velocidade
 		var slow_rate_multiplier = 1.0
@@ -5517,7 +5650,6 @@ func _update_sniper_towers(delta: float) -> void:
 						var dist = sniper.pos.distance_to(e["pos"])
 						if dist <= sniper.range:
 							target_enemy = e
-							target_dist = dist
 							boss_found = true
 							break
 				# Se não encontrou boss, procurar mais próximo ao centro
@@ -5610,7 +5742,7 @@ func _update_sniper_towers(delta: float) -> void:
 				# se não encontrou alvo, manter cooldown em 0 para tentar novamente no próximo frame
 				sniper.cooldown = 0.0
 
-func _update_boost_towers(delta: float) -> void:
+func _update_boost_towers(_delta: float) -> void:
 	# boost towers não precisam de atualização - o efeito é aplicado quando torres atiram
 	pass
 
@@ -5755,7 +5887,7 @@ func _update_walls(delta: float) -> void:
 		pathfinder.set_wall_tiles(wall_tiles)
 		_recalculate_all_enemy_paths()
 
-func _update_healing_stations(delta: float) -> void:
+func _update_healing_stations(_delta: float) -> void:
 	# Healing stations não precisam de atualização contínua
 	# A cura será aplicada no final da wave
 	pass
@@ -6581,7 +6713,8 @@ func _create_tower_shop_ui() -> void:
 	tooltip_label.name = "TooltipLabel"
 	tooltip_label.visible = false
 	tooltip_label.position = Vector2(10, 10)
-	tooltip_label.size = Vector2(180, 100)
+	tooltip_label.custom_minimum_size = Vector2(250, 120)  # Aumentado de 180x100 para 250x120
+	tooltip_label.size = Vector2(250, 120)
 	tooltip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var tooltip_style = StyleBoxFlat.new()
 	tooltip_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
@@ -6605,6 +6738,7 @@ func _create_game_tooltip() -> void:
 	
 	# Painel de fundo
 	var tooltip_panel = Panel.new()
+	tooltip_panel.name = "Panel"
 	tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var panel_style = StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
@@ -6627,13 +6761,19 @@ func _create_game_tooltip() -> void:
 	tooltip_text_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tooltip_text_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	tooltip_text_label.add_theme_font_size_override("font_size", 12)
+	tooltip_text_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	tooltip_text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	tooltip_panel.add_child(tooltip_text_label)
 	
-	# Configurar layout
+	# Configurar layout - aumentar tamanho do tooltip
+	tooltip_panel.custom_minimum_size = Vector2(280, 0)  # Largura mínima maior, altura automática
 	tooltip_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	tooltip_text_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	tooltip_text_label.position = Vector2(8, 8)
-	tooltip_text_label.size = Vector2(-16, -16)
+	# Usar anchors para preencher o painel com padding
+	tooltip_text_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tooltip_text_label.offset_left = 10
+	tooltip_text_label.offset_top = 10
+	tooltip_text_label.offset_right = -10
+	tooltip_text_label.offset_bottom = -10
 
 func _create_hero_home_card(vbox: VBoxContainer, card_height: float) -> void:
 	hero_home_panel_data = {}
@@ -7239,9 +7379,7 @@ func _show_range_indicator(world_pos: Vector2, radius: float, color: Color = Col
 	if radius <= 0.0:
 		_hide_range_indicator()
 		return
-	# Só mostrar se algum menu de upgrade estiver aberto
-	if not _is_any_upgrade_menu_visible():
-		return
+	# Mostrar range indicator quando menu está aberto OU quando hover sobre torre
 	if range_indicator == null or not range_indicator.is_inside_tree():
 		_create_range_indicator()
 	range_indicator.position = world_pos
@@ -7829,7 +7967,34 @@ func _update_game_tooltip(delta: float) -> void:
 			# Posicionar tooltip próximo ao mouse
 			var viewport = get_viewport()
 			var screen_mouse = viewport.get_mouse_position()
-			var tooltip_size = Vector2(250, 100)
+			
+			# Atualizar texto do tooltip
+			tooltip_text_label.text = tooltip_info
+			
+			# Calcular tamanho dinâmico baseado no conteúdo
+			# Estimar tamanho necessário baseado no número de linhas e caracteres
+			var lines = tooltip_info.split("\n")
+			var max_line_length = 0
+			for line in lines:
+				if line.length() > max_line_length:
+					max_line_length = line.length()
+			
+			# Tamanho mínimo e máximo do tooltip
+			var min_width = 280.0
+			var min_height = 80.0
+			var max_width = 450.0
+			var max_height = 350.0
+			
+			# Estimar largura baseada no número de caracteres (aproximadamente 8 pixels por caractere)
+			var estimated_width = max_line_length * 8.0 + 40.0  # 40 pixels de padding
+			var estimated_height = lines.size() * 20.0 + 30.0  # 20 pixels por linha + padding
+			
+			# Calcular tamanho final com padding
+			var tooltip_size = Vector2(
+				clamp(estimated_width, min_width, max_width),
+				clamp(estimated_height, min_height, max_height)
+			)
+			
 			var offset = Vector2(15, 15)  # Offset menor para ficar mais próximo
 			
 			# Ajustar posição para não sair da tela
@@ -7844,6 +8009,17 @@ func _update_game_tooltip(delta: float) -> void:
 			var panel = game_tooltip.get_node("Panel") as Panel
 			if panel:
 				panel.size = tooltip_size
+				# Garantir que o painel use o tamanho correto
+				panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			# Garantir que o label de texto esteja configurado corretamente
+			if tooltip_text_label:
+				tooltip_text_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+				tooltip_text_label.offset_left = 10
+				tooltip_text_label.offset_top = 10
+				tooltip_text_label.offset_right = -10
+				tooltip_text_label.offset_bottom = -10
+				tooltip_text_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+				tooltip_text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		else:
 			game_tooltip.visible = false
 	else:
@@ -7914,11 +8090,13 @@ func _get_tooltip_for_position(world_pos: Vector2) -> String:
 	return ""
 
 func _get_tower_tooltip(t: Dictionary) -> String:
-	var dmg = t.get("damage", 1)
+	var dmg = t.get("damage", 1.0)
 	var rate = t.get("fire_rate", 1.0)
 	var range_val = t.get("range", 100.0)
-	var dirs = t.get("dirs", 1)
-	return "Torre Básica\n\nDano: %d\nCadência: %.1fs\nAlcance: %.0f\nDireções: %d" % [dmg, rate, range_val, dirs]
+	var dirs_value = t.get("dirs", 1)
+	# dirs pode ser um array ou um número
+	var dirs_count = dirs_value.size() if dirs_value is Array else (dirs_value if dirs_value is int else 1)
+	return "Torre Básica\n\nDano: %.1f\nCadência: %.1fs\nAlcance: %.0f\nDireções: %d" % [dmg, rate, range_val, dirs_count]
 
 func _get_slow_tower_tooltip(st: Dictionary) -> String:
 	var slow_amount = st.get("slow_amount", 0.0) * 100
@@ -8314,7 +8492,7 @@ func _get_tower_id(tower: Dictionary, tower_type: String) -> String:
 	"""Gera um ID único para uma torre baseado em sua posição e tipo"""
 	return "%s_%d_%d" % [tower_type, int(tower.pos.x), int(tower.pos.y)]
 
-func _calculate_tower_dps(tower: Dictionary, tower_type: String) -> float:
+func _calculate_tower_dps(tower: Dictionary, _tower_type: String) -> float:
 	"""Calcula o DPS teórico de uma torre baseado em dano e fire_rate"""
 	var damage = tower.get("damage", 0.5)
 	var fire_rate = tower.get("fire_rate", 1.5)
@@ -8352,7 +8530,6 @@ func _calculate_sniper_dps(sniper: Dictionary) -> float:
 	"""Calcula o DPS teórico de uma sniper tower"""
 	var damage = sniper.get("damage", 2.0)
 	var fire_rate = sniper.get("fire_rate", 2.0)
-	var pierce = sniper.get("pierce", 0)
 	
 	# Aplicar multiplicadores globais
 	damage *= global_tower_damage_boost
@@ -8449,9 +8626,40 @@ func _calculate_shock_dps(shock: Dictionary) -> float:
 		return (damage * chain_count) / effective_fire_rate
 	return 0.0
 
-func _update_tower_dps(delta: float) -> void:
+func _calculate_barracks_dps(barracks_item: Dictionary) -> float:
+	"""Calcula o DPS teórico de um quartel baseado nos soldados"""
+	var soldier_damage = barracks_item.get("damage", 1.0)
+	var soldier_spawn_rate = barracks_item.get("soldier_spawn_rate", 3.0)
+	var hold_time = barracks_item.get("hold_time", 2.0)
+	
+	# Aplicar multiplicadores globais
+	soldier_damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = barracks_item.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+	
+	# Aplicar skill de boost de dano
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
+	
+	soldier_damage *= damage_multiplier
+	
+	# Calcular quantos soldados podem estar ativos simultaneamente
+	# Assumindo que cada soldado vive pelo menos hold_time segundos
+	# e que novos soldados são spawnados a cada soldier_spawn_rate segundos
+	# O número máximo de soldados ativos é aproximadamente hold_time / soldier_spawn_rate
+	var max_active_soldiers = max(1.0, hold_time / soldier_spawn_rate)
+	
+	# DPS = dano por soldado * número de soldados ativos
+	# Cada soldado causa dano continuamente enquanto segura um inimigo
+	return soldier_damage * max_active_soldiers
+
+func _update_tower_dps(_delta: float) -> void:
 	"""Atualiza o DPS calculado de todas as torres"""
-	var current_time = Time.get_ticks_msec() / 1000.0
 	
 	# Atualizar DPS das torres normais
 	for i in range(towers.size()):
@@ -8597,10 +8805,18 @@ func _create_dps_menu() -> void:
 	scroll.custom_minimum_size = Vector2(330, 350)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	
+	# Container com padding à esquerda
+	var scroll_content = MarginContainer.new()
+	scroll_content.add_theme_constant_override("margin_left", 10)
+	scroll_content.add_theme_constant_override("margin_right", 10)
+	scroll_content.add_theme_constant_override("margin_top", 5)
+	scroll_content.add_theme_constant_override("margin_bottom", 5)
+	
 	var content_vbox = VBoxContainer.new()
 	content_vbox.name = "DPSContent"
 	content_vbox.add_theme_constant_override("separation", 5)
-	scroll.add_child(content_vbox)
+	scroll_content.add_child(content_vbox)
+	scroll.add_child(scroll_content)
 	
 	main_vbox.add_child(scroll)
 	
@@ -8610,10 +8826,39 @@ func _create_dps_menu() -> void:
 func _update_dps_menu() -> void:
 	"""Atualiza o conteúdo do menu de DPS"""
 	if dps_menu_panel == null or not dps_menu_panel.is_inside_tree():
+		print("DPS Menu: dps_menu_panel é null ou não está na árvore")
 		return
 	
-	var content_vbox = dps_menu_panel.get_node_or_null("DPSContent")
+	# DPSContent está dentro de ScrollContainer que está dentro de main_vbox
+	var main_vbox = dps_menu_panel.get_child(0) if dps_menu_panel.get_child_count() > 0 else null
+	if main_vbox == null:
+		print("DPS Menu: ERRO - main_vbox não encontrado!")
+		return
+	
+	var scroll = null
+	for child in main_vbox.get_children():
+		if child is ScrollContainer:
+			scroll = child
+			break
+	
+	if scroll == null:
+		print("DPS Menu: ERRO - ScrollContainer não encontrado!")
+		return
+	
+	# DPSContent agora está dentro de um MarginContainer dentro do ScrollContainer
+	var content_vbox = null
+	if scroll.get_child_count() > 0:
+		var margin_container = scroll.get_child(0)
+		if margin_container is MarginContainer:
+			# Procurar DPSContent dentro do MarginContainer
+			content_vbox = margin_container.get_node_or_null("DPSContent")
+			if content_vbox == null and margin_container.get_child_count() > 0:
+				content_vbox = margin_container.get_child(0)
+				if content_vbox.name != "DPSContent":
+					content_vbox.name = "DPSContent"
+	
 	if content_vbox == null:
+		print("DPS Menu: ERRO - DPSContent não encontrado!")
 		return
 	
 	# Limpar conteúdo anterior
@@ -8633,9 +8878,14 @@ func _update_dps_menu() -> void:
 				"tower_type": "tower",
 				"pos": tower.pos
 			}
-		tower_dps_data[tower_id]["dps"] = _calculate_tower_dps(tower, "tower")
+		var calculated_dps = _calculate_tower_dps(tower, "tower")
+		tower_dps_data[tower_id]["dps"] = calculated_dps
 		tower_dps_data[tower_id]["tower_type"] = "tower"
 		tower_dps_data[tower_id]["pos"] = tower.pos
+		# Debug: verificar se o dano está atualizado
+		var tower_damage = tower.get("damage", 0.5)
+		if calculated_dps > 0:
+			print("Torre DPS: damage=%.2f, fire_rate=%.2f, dirs=%d, dps_calculado=%.2f" % [tower_damage, tower.get("fire_rate", 1.5), tower.get("dirs", []).size(), calculated_dps])
 	
 	for sniper in sniper_towers:
 		var tower_id = _get_tower_id(sniper, "sniper")
@@ -8682,12 +8932,29 @@ func _update_dps_menu() -> void:
 		tower_dps_data[tower_id]["tower_type"] = "shock"
 		tower_dps_data[tower_id]["pos"] = shock.pos
 	
+	# Atualizar DPS dos quartéis
+	for barracks_item in barracks:
+		var barracks_id = _get_tower_id(barracks_item, "barracks")
+		if not tower_dps_data.has(barracks_id):
+			tower_dps_data[barracks_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "barracks",
+				"pos": barracks_item.pos
+			}
+		tower_dps_data[barracks_id]["dps"] = _calculate_barracks_dps(barracks_item)
+		tower_dps_data[barracks_id]["tower_type"] = "barracks"
+		tower_dps_data[barracks_id]["pos"] = barracks_item.pos
+	
 	# Ordenar torres por DPS (maior primeiro)
 	var sorted_towers = []
 	for tower_id in tower_dps_data.keys():
 		var data = tower_dps_data[tower_id]
 		var dps_value = data.get("dps", 0.0)
 		
+		# Incluir todas as torres, mesmo com DPS 0
 		sorted_towers.append({
 			"id": tower_id,
 			"dps": dps_value,
@@ -8696,7 +8963,24 @@ func _update_dps_menu() -> void:
 			"pos": data.get("pos", Vector2.ZERO)
 		})
 	
+	# Ordenar por DPS (maior primeiro), mas incluir todas as torres
 	sorted_towers.sort_custom(func(a, b): return a.dps > b.dps)
+	
+	# Debug: imprimir quantas torres foram encontradas
+	print("DPS Menu: Debug Info")
+	print("  - tower_dps_data tem %d entradas" % tower_dps_data.size())
+	print("  - towers.size() = %d" % towers.size())
+	print("  - sniper_towers.size() = %d" % sniper_towers.size())
+	print("  - aoe_towers.size() = %d" % aoe_towers.size())
+	print("  - shock_towers.size() = %d" % shock_towers.size())
+	print("  - barracks.size() = %d" % barracks.size())
+	print("  - sorted_towers.size() = %d" % sorted_towers.size())
+	
+	if sorted_towers.size() > 0:
+		for tower_info in sorted_towers:
+			print("  - Torre %s: DPS=%.2f, Tipo=%s" % [tower_info.id, tower_info.dps, tower_info.tower_type])
+	else:
+		print("  - ERRO: NENHUMA TORRE PARA EXIBIR!")
 	
 	# Criar painéis para cada torre
 	for tower_info in sorted_towers:
@@ -8725,7 +9009,8 @@ func _update_dps_menu() -> void:
 			"tower": "Torre",
 			"sniper": "Sniper",
 			"aoe": "AOE",
-			"shock": "Shock"
+			"shock": "Shock",
+			"barracks": "Quartel"
 		}
 		type_label.text = type_names.get(tower_info.tower_type, "Desconhecida")
 		type_label.custom_minimum_size = Vector2(60, 0)
@@ -8737,10 +9022,15 @@ func _update_dps_menu() -> void:
 		info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		
 		var dps_label = Label.new()
-		dps_label.text = "DPS: %.1f" % tower_info.dps
+		# Garantir que o DPS seja exibido mesmo se for 0
+		var dps_display = tower_info.dps
+		if dps_display < 0.01:
+			dps_display = 0.0
+		dps_label.text = "DPS: %.1f" % dps_display
 		dps_label.add_theme_font_size_override("font_size", 13)
 		dps_label.add_theme_color_override("font_color", Color(0.8, 1.0, 0.8))
 		info_vbox.add_child(dps_label)
+		
 		
 		var damage_label = Label.new()
 		var current_wave = wave_manager.wave if wave_manager else 0

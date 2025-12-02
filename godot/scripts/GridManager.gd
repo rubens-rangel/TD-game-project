@@ -178,7 +178,7 @@ func world_to_base_grid(world_pos: Vector2) -> Vector2i:
 	gy = clamp(gy, 0, GameConstants.BASE_GRID_SIZE - 1)
 	return Vector2i(gx, gy)
 
-func base_grid_to_world(grid_x: int, grid_y: int) -> Vector2:
+func base_grid_to_world(grid_x: int, grid_y: int, size: int = 3) -> Vector2:
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)
 	var base_start_col = center.x - base_half_size
 	var base_start_row = center.y - base_half_size
@@ -187,9 +187,10 @@ func base_grid_to_world(grid_x: int, grid_y: int) -> Vector2:
 	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
 	
 	# Calcular posição central da área ocupada no grid
-	# Para torres de tamanho 3x3, calcular o centro da área ocupada (grid_x + 1.5, grid_y + 1.5)
-	var relative_col = (float(grid_x) + 1.5) * grid_size_tiles
-	var relative_row = (float(grid_y) + 1.5) * grid_size_tiles
+	# Para torres de tamanho 'size', calcular o centro da área ocupada (grid_x + size/2.0, grid_y + size/2.0)
+	var center_offset = float(size) / 2.0
+	var relative_col = (float(grid_x) + center_offset) * grid_size_tiles
+	var relative_row = (float(grid_y) + center_offset) * grid_size_tiles
 	
 	# Converter para coordenadas absolutas de tile e depois para pixels
 	var world_col_tiles = base_start_col + relative_col
@@ -201,7 +202,7 @@ func base_grid_to_world(grid_x: int, grid_y: int) -> Vector2:
 		world_row_tiles * GameConstants.TILE_SIZE
 	)
 
-func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int) -> bool:
+func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int, ignore_area: Rect2i = Rect2i()) -> bool:
 	# Verificar se a posição inicial está dentro dos limites válidos
 	# Para uma torre de tamanho 'size', ela precisa caber completamente no grid
 	# Então grid_x + size <= BASE_GRID_SIZE e grid_y + size <= BASE_GRID_SIZE
@@ -221,6 +222,11 @@ func can_place_in_grid(grid_x: int, grid_y: int, size: int, item_type: int) -> b
 				return false
 			if base_grid.size() <= gy or base_grid[gy].size() <= gx:
 				return false
+			
+			# Se esta célula está na área a ser ignorada (ex: posição antiga da torre sendo movida), pular verificação
+			if ignore_area.size.x > 0 and ignore_area.size.y > 0 and ignore_area.has_point(Vector2i(gx, gy)):
+				continue
+			
 			var cell_value = base_grid[gy][gx]
 			# Permitir apenas se a célula estiver livre (valor 0)
 			# Estruturas adjacentes são permitidas porque não verificamos células fora da área ocupada
@@ -248,4 +254,3 @@ func clear_grid_area(grid_x: int, grid_y: int, size: int):
 
 func reset_base_grid():
 	_init_base_grid()
-

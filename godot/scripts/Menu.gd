@@ -903,6 +903,9 @@ func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement
 	var buy_button = Button.new()
 	buy_button.custom_minimum_size = Vector2(150, 50)
 	buy_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+	# Armazenar o custo como metadata para facilitar atualização
+	buy_button.set_meta("perk_cost", perk.cost)
+	buy_button.set_meta("perk_id", perk.id)
 	
 	if perk.is_max_level:
 		buy_button.text = "✓ Máximo"
@@ -964,16 +967,21 @@ func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement
 	buy_button.add_theme_font_size_override("font_size", 12)
 	buy_button.pressed.connect(func():
 		if perk_manager.purchase_perk(perk.id, achievement_manager):
-			# Atualizar pontos na UI imediatamente
-			var points_label = dialog.get_node_or_null("*/PointsLabel")
+			# Atualizar pontos na UI imediatamente - encontrar o label corretamente
+			var points_label = _find_points_label_recursive(dialog)
 			if points_label:
 				points_label.text = "Pontos Disponíveis: %d" % achievement_manager.total_points
-			# Recriar painel do perk
+			
+			# Atualizar todos os botões de compra para refletir o novo valor de pontos
+			_update_all_perk_buttons(dialog, achievement_manager)
+			
+			# Recriar painel do perk comprado
 			var parent = panel.get_parent()
 			var index = parent.get_children().find(panel)
 			panel.queue_free()
 			await get_tree().process_frame
-			var new_panel = await _create_perk_panel(perk_manager.get_perk_info(perk.id), perk_manager, achievement_manager, dialog)
+			var updated_perk = perk_manager.get_perk_info(perk.id)
+			var new_panel = await _create_perk_panel(updated_perk, perk_manager, achievement_manager, dialog)
 			parent.add_child(new_panel)
 			parent.move_child(new_panel, index)
 	)
@@ -1001,6 +1009,105 @@ func _create_perk_panel(perk: Dictionary, perk_manager: PerkManager, achievement
 	main_margin.set_offsets_preset(Control.PRESET_FULL_RECT)
 	
 	return panel
+
+func _find_points_label_recursive(node: Node) -> Label:
+	"""Encontra o label de pontos recursivamente"""
+	if node is Label and node.name == "PointsLabel":
+		return node as Label
+	for child in node.get_children():
+		var found = _find_points_label_recursive(child)
+		if found:
+			return found
+	return null
+
+func _update_all_perk_buttons(dialog: Window, achievement_manager: AchievementManager) -> void:
+	"""Atualiza todos os botões de compra de perks para refletir o novo valor de pontos disponíveis"""
+	# Encontrar todos os ScrollContainers (um por categoria)
+	var tab_container = dialog.get_node_or_null("*/MarginContainer/VBoxContainer/TabContainer")
+	if not tab_container:
+		return
+	
+	# Iterar sobre todas as abas
+	for tab_idx in range(tab_container.get_tab_count()):
+		var scroll = tab_container.get_child(tab_idx) as ScrollContainer
+		if not scroll:
+			continue
+		
+		var perk_list = scroll.get_child(0) as VBoxContainer
+		if not perk_list:
+			continue
+		
+		# Atualizar cada botão de compra
+		for child in perk_list.get_children():
+			if child is Panel:
+				var panel = child as Panel
+				var buy_button = _find_buy_button_recursive(panel)
+				if buy_button and not buy_button.text.contains("Máximo"):
+					# Obter custo do metadata ou do texto
+					var cost = buy_button.get_meta("perk_cost", -1)
+					if cost < 0:
+						# Tentar extrair do texto como fallback
+						var button_text = buy_button.text
+						var cost_match = button_text.get_slice("💰", 1).strip_edges()
+						if cost_match.is_valid_int():
+							cost = int(cost_match)
+					
+					if cost > 0:
+						if achievement_manager.total_points < cost:
+							# Desabilitar botão e atualizar texto
+							buy_button.disabled = true
+							buy_button.text = "💰 %d" % cost
+							var disabled_style = StyleBoxFlat.new()
+							disabled_style.bg_color = Color(0.3, 0.3, 0.3, 1.0)
+							disabled_style.corner_radius_top_left = 6
+							disabled_style.corner_radius_top_right = 6
+							disabled_style.corner_radius_bottom_left = 6
+							disabled_style.corner_radius_bottom_right = 6
+							disabled_style.border_color = Color(0.4, 0.4, 0.4, 1.0)
+							disabled_style.border_width_left = 2
+							disabled_style.border_width_top = 2
+							disabled_style.border_width_right = 2
+							disabled_style.border_width_bottom = 2
+							buy_button.add_theme_stylebox_override("normal", disabled_style)
+							buy_button.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+						else:
+							# Habilitar botão se tinha sido desabilitado antes
+							buy_button.disabled = false
+							buy_button.text = "Comprar\n💰 %d" % cost
+							var buy_style = StyleBoxFlat.new()
+							buy_style.bg_color = Color(0.2, 0.5, 0.8, 1.0)
+							buy_style.corner_radius_top_left = 6
+							buy_style.corner_radius_top_right = 6
+							buy_style.corner_radius_bottom_left = 6
+							buy_style.corner_radius_bottom_right = 6
+							buy_style.border_color = Color(0.3, 0.6, 0.9, 1.0)
+							buy_style.border_width_left = 2
+							buy_style.border_width_top = 2
+							buy_style.border_width_right = 2
+							buy_style.border_width_bottom = 2
+							buy_button.add_theme_stylebox_override("normal", buy_style)
+							
+							var buy_hover_style = buy_style.duplicate()
+							buy_hover_style.bg_color = Color(0.3, 0.6, 0.9, 1.0)
+							buy_button.add_theme_stylebox_override("hover", buy_hover_style)
+							
+							var buy_pressed_style = buy_style.duplicate()
+							buy_pressed_style.bg_color = Color(0.15, 0.4, 0.7, 1.0)
+							buy_button.add_theme_stylebox_override("pressed", buy_pressed_style)
+							
+							buy_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+
+func _find_buy_button_recursive(node: Node) -> Button:
+	"""Encontra o botão de compra recursivamente"""
+	if node is Button:
+		var btn = node as Button
+		if btn.text.contains("Comprar") or btn.text.contains("💰"):
+			return btn
+	for child in node.get_children():
+		var found = _find_buy_button_recursive(child)
+		if found:
+			return found
+	return null
 
 func _show_reset_perks_confirmation(dialog: Window, perk_manager, achievement_manager) -> void:
 	# Criar diálogo de confirmação como Window para garantir que apareça acima
