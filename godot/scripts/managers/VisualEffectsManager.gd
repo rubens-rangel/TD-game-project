@@ -145,3 +145,4 @@ func get_death_animations() -> Array:
 func get_shock_effects() -> Array:
 	return shock_effects
 
+

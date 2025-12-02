@@ -602,9 +602,15 @@ func _ready() -> void:
 	# Menu de Admin (apenas para testes/debug)
 	_create_admin_menu(tb)
 	
-	# top bar fixa: posição X=0 (alinhada à esquerda) e Y=0 (topo), mesma largura do grid
-	tb.position = Vector2(0.0, 0.0)
-	tb.size = Vector2(grid_px_w, bar_height)
+	# top bar fixa: usar anchors para ocupar toda a largura da tela
+	# A configuração será feita pela função _adjust_hud_to_screen_size() que já foi chamada antes
+	# Mas vamos garantir que os anchors estejam configurados aqui também
+	tb.layout_mode = 1  # Usar layout com anchors
+	tb.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	tb.offset_left = 0.0
+	tb.offset_right = 0.0
+	tb.offset_top = 0.0
+	tb.offset_bottom = 44.0
 	
 	# Remover botão de comprar antigo (não é mais necessário com o menu lateral)
 	if tb.has_node("BuyMenuButton"):
@@ -1038,13 +1044,11 @@ func _process(delta: float) -> void:
 				# índice inválido, resetar para procurar novo
 				s.target_enemy_idx = -1
 	
-	# atualizar quartéis e soldados usando TowerSystemManager
-	if tower_system_manager:
-		tower_system_manager.update_all_towers(delta)
-	else:
-		# Fallback (código antigo)
-		_update_barracks(delta)
-		_update_soldiers(delta)
+	# atualizar quartéis e soldados
+	# Nota: TowerSystemManager ainda não implementa completamente as torres,
+	# então chamamos as funções reais diretamente do Game.gd
+	_update_barracks(delta)
+	_update_soldiers(delta)
 
 	# waves
 	if not wave_manager.spawning and enemies.is_empty() and not choosing_upgrade:
@@ -1136,6 +1140,12 @@ func _process(delta: float) -> void:
 		# Garantir que o texto seja atualizado mesmo se o label estiver escondido
 		if not lbl_right.visible:
 			lbl_right.show()
+	
+	# Atualizar slider de vida se existir
+	var life_slider = tb.get_node_or_null("LifeSlider")
+	if life_slider:
+		life_slider.value = float(base_hp)
+		life_slider.max_value = 100.0  # Garantir que o max seja 100
 	
 	# Atualizar UI melhorada - Menu lateral de torres
 	_update_tower_shop_ui()
@@ -3316,7 +3326,7 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 	var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5  # Metade da diagonal
 	var can_range: bool = hero["coins"] >= range_cost and t.range < max_range
-	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.12
+	var can_rate: bool = hero["coins"] >= rate_cost and t.fire_rate > 0.4  # Limite mínimo de 0.4s
 	var can_dirs: bool = hero["coins"] >= dirs_cost and dirs_count < 4
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_freeze: bool = hero["coins"] >= freeze_cost and not t.get("has_freeze", false)
@@ -3363,8 +3373,8 @@ func _on_tower_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Cadência (reduz tempo entre tiros)
 			var cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
-			if hero["coins"] >= cost and t.fire_rate > 0.12:
-				t.fire_rate = max(0.1, t.fire_rate - 0.05)
+			if hero["coins"] >= cost and t.fire_rate > 0.4:  # Limite mínimo de 0.4s
+				t.fire_rate = max(0.4, t.fire_rate - 0.05)  # Limite mínimo de 0.4s
 				t.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -3804,7 +3814,7 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	var rate_cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 1.0
+	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > 1.5  # Limite mínimo de 1.5s
 	
 	sniper_menu.set_item_text(0, "Dano +2 (%d)" % dmg_cost)
 	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
@@ -3833,8 +3843,8 @@ func _on_sniper_menu_pressed(id: int) -> void:
 				_track_coin_spent(cost)
 		2:  # Taxa de Tiro
 			var cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
-			if hero["coins"] >= cost and s.fire_rate > 1.0:
-				s.fire_rate = max(1.0, s.fire_rate - 0.5)
+			if hero["coins"] >= cost and s.fire_rate > 1.5:  # Limite mínimo de 1.5s
+				s.fire_rate = max(1.5, s.fire_rate - 0.5)  # Limite mínimo de 1.5s
 				s.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -4171,10 +4181,11 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	# Calcular custos progressivos (sem range - range é global)
 	var dmg_level = b.levels.get("DMG", 0)
 	var rate_level = b.levels.get("RATE", 0)
-	var dmg_cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
+	# Custo de dano com multiplicador maior (1.25x por nível ao invés de 1.15x padrão)
+	var dmg_cost = int(GameConstants.BOOST_DMG_COST * pow(1.25, dmg_level))
 	var rate_cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
 	
-	var can_dmg: bool = hero["coins"] >= dmg_cost and b.damage_boost < 1.5  # Máximo 150%
+	var can_dmg: bool = hero["coins"] >= dmg_cost and b.damage_boost < 1.0  # Máximo 100%
 	var can_rate: bool = hero["coins"] >= rate_cost and b.rate_boost < 1.0  # Máximo 100%
 	
 	# Apenas dano e cadência (sem alcance)
@@ -4194,9 +4205,10 @@ func _on_boost_menu_pressed(id: int) -> void:
 	
 	match id:
 		1:  # Boost Dano (ID mudou de 0 para 1 após remover alcance)
-			var cost = get_upgrade_cost(GameConstants.BOOST_DMG_COST, dmg_level)
-			if hero["coins"] >= cost and b.damage_boost < 1.5:  # Máximo 150%
-				b.damage_boost = min(1.5, b.damage_boost + 0.05)  # Reduzido de +0.1 para +0.05 (+5%)
+			# Custo com multiplicador maior (1.25x por nível)
+			var cost = int(GameConstants.BOOST_DMG_COST * pow(1.25, dmg_level))
+			if hero["coins"] >= cost and b.damage_boost < 1.0:  # Máximo 100%
+				b.damage_boost = min(1.0, b.damage_boost + 0.05)  # Limite máximo de 100%
 				b.levels["DMG"] = b.levels.get("DMG", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -5190,6 +5202,8 @@ func _physics_process(delta: float) -> void:
 			rate_multiplier *= skills_manager.get_speed_multiplier()
 		
 		var effective_fire_rate = t.fire_rate / rate_multiplier
+		# Garantir que o effective_fire_rate nunca seja menor que 0.4s (limite mínimo)
+		effective_fire_rate = max(0.4, effective_fire_rate)
 		t.cooldown = max(0.0, t.cooldown - delta)
 		if t.cooldown <= 0.0:
 			_tower_fire_cross(t)
@@ -5197,15 +5211,14 @@ func _physics_process(delta: float) -> void:
 	
 	# atualizar novas torres (apenas se não estiver pausado)
 	if not paused and not game_over:
-		# Usar TowerSystemManager se disponível (já atualiza todas as torres)
-		if not tower_system_manager:
-			# Fallback (código antigo)
-			_update_mines(delta)
-			_update_slow_towers(delta)
-			_update_aoe_towers(delta)
-			_update_sniper_towers(delta)
-			_update_shock_towers(delta)
-			_update_boost_towers(delta)
+		# Nota: TowerSystemManager ainda não implementa completamente as torres,
+		# então usamos as implementações reais do Game.gd
+		_update_mines(delta)
+		_update_slow_towers(delta)
+		_update_aoe_towers(delta)
+		_update_sniper_towers(delta)
+		_update_shock_towers(delta)
+		_update_boost_towers(delta)
 		_update_walls(delta)
 		_update_healing_stations(delta)
 
@@ -8008,6 +8021,17 @@ func _adjust_hud_to_screen_size() -> void:
 		return
 	
 	var screen_size = viewport.get_visible_rect().size
+	
+	# Ajustar o HUD para ocupar toda a largura
+	var hud = $CanvasLayer/HUD
+	if hud:
+		hud.layout_mode = 1  # Layout com anchors
+		hud.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hud.offset_left = 0.0
+		hud.offset_right = 0.0
+		hud.offset_top = 0.0
+		hud.offset_bottom = 60.0
+	
 	var tb = $CanvasLayer/HUD/TopBar
 	if tb == null:
 		return
@@ -8015,7 +8039,8 @@ func _adjust_hud_to_screen_size() -> void:
 	# Garantir que a TopBar fique acima dos painéis (onde está o label de vida)
 	tb.z_index = 100
 	
-	# Ajustar TopBar para usar toda a largura (sem margens laterais)
+	# Ajustar TopBar para usar toda a largura da tela (sem margens laterais)
+	tb.layout_mode = 1  # Layout com anchors
 	tb.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	tb.offset_left = 0.0
 	tb.offset_right = 0.0
@@ -8024,54 +8049,130 @@ func _adjust_hud_to_screen_size() -> void:
 	
 	# Ajustar labels usando anchors
 	var lbl_left = tb.get_node_or_null("LblLeft")
-	var lbl_center = tb.get_node_or_null("LblCenter")
-	var lbl_right = tb.get_node_or_null("LblRight")
+	var lbl_center = tb.get_node_or_null("LblCenter")  # Moeda
+	var lbl_right = tb.get_node_or_null("LblRight")  # Vida
 	
+	# Posicionar elementos da esquerda para a direita:
+	# 1. LblLeft (Onda/Inimigos) - à esquerda
 	if lbl_left:
 		lbl_left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
 		lbl_left.offset_left = 12
 		lbl_left.offset_right = -screen_size.x * 0.5
 		lbl_left.offset_top = 10
 	
+	# 2. Moeda (LblCenter) - após LblLeft
 	if lbl_center:
-		lbl_center.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		lbl_center.offset_left = -100
-		lbl_center.offset_right = 100
+		lbl_center.layout_mode = 1
+		lbl_center.anchor_left = 0.0
+		lbl_center.anchor_top = 0.0
+		lbl_center.anchor_right = 0.0
+		lbl_center.anchor_bottom = 0.0
+		lbl_center.offset_left = 250  # Posição fixa após LblLeft
+		lbl_center.offset_right = 350
 		lbl_center.offset_top = 10
+		lbl_center.offset_bottom = 34
 	
+	# 3. Vida (LblRight + LifeSlider) - após Moeda
 	if lbl_right:
-		# Ancorar no lado direito da tela
-		lbl_right.layout_mode = 1  # Layout com anchors
-		lbl_right.anchor_left = 1.0
+		lbl_right.layout_mode = 1
+		lbl_right.anchor_left = 0.0
 		lbl_right.anchor_top = 0.0
-		lbl_right.anchor_right = 1.0
+		lbl_right.anchor_right = 0.0
 		lbl_right.anchor_bottom = 0.0
-		lbl_right.offset_left = -150  # Largura do label (negativo para começar da direita)
-		lbl_right.offset_right = -12  # Margem direita de 12 pixels
+		lbl_right.offset_left = 360  # Após Moeda
+		lbl_right.offset_right = 420
 		lbl_right.offset_top = 10
 		lbl_right.offset_bottom = 34
-		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		lbl_right.visible = true  # Garantir que sempre esteja visível
-		lbl_right.z_index = 10  # Acima dos painéis
-		# Mover para o final para garantir que fique acima dos painéis
-		if lbl_right.get_parent():
-			lbl_right.get_parent().move_child(lbl_right, -1)
-		# Atualizar texto também aqui para garantir que esteja sempre atualizado
+		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl_right.visible = true
+		lbl_right.z_index = 10
 		lbl_right.text = "Vida %d" % [base_hp]
+		
+		# Criar ou atualizar slider de vida ao lado do label
+		var life_slider = tb.get_node_or_null("LifeSlider")
+		if not life_slider:
+			life_slider = HSlider.new()
+			life_slider.name = "LifeSlider"
+			tb.add_child(life_slider)
+		
+		# Configurar slider de vida
+		life_slider.layout_mode = 1
+		life_slider.anchor_left = 0.0
+		life_slider.anchor_top = 0.0
+		life_slider.anchor_right = 0.0
+		life_slider.anchor_bottom = 0.0
+		life_slider.offset_left = 430  # Ao lado do label Vida
+		life_slider.offset_right = 530
+		life_slider.offset_top = 12
+		life_slider.offset_bottom = 32
+		life_slider.min_value = 0.0
+		life_slider.max_value = 100.0
+		life_slider.value = float(base_hp)
+		life_slider.editable = false
+		life_slider.step = 1.0
+		life_slider.z_index = 10
+		
+		# Estilizar slider de vida
+		var slider_style = StyleBoxFlat.new()
+		slider_style.bg_color = Color(0.3, 0.1, 0.1, 0.8)
+		life_slider.add_theme_stylebox_override("slider", slider_style)
+		
+		var fill_style = StyleBoxFlat.new()
+		fill_style.bg_color = Color(0.9, 0.2, 0.2, 0.9)
+		life_slider.add_theme_stylebox_override("fill", fill_style)
+		
+		life_slider.visible = true
 	
-	# Ajustar botões admin (se existirem)
-	var btn_kill_all = tb.get_node_or_null("BtnKillAll")
-	if btn_kill_all:
-		# Configurar anchors manualmente - usar porcentagem da largura para posicionar
-		btn_kill_all.layout_mode = 1
-		btn_kill_all.anchor_left = 0.65
-		btn_kill_all.anchor_top = 0.0
-		btn_kill_all.anchor_right = 0.65
-		btn_kill_all.anchor_bottom = 0.0
-		btn_kill_all.offset_left = 0
-		btn_kill_all.offset_top = 8
-		btn_kill_all.offset_right = 90
-		btn_kill_all.offset_bottom = 36
+	# 4. Botão Mute - após Vida/Slider
+	var btn_mute = tb.get_node_or_null("BtnMuteMusic")
+	if btn_mute:
+		btn_mute.layout_mode = 1
+		btn_mute.anchor_left = 0.0
+		btn_mute.anchor_top = 0.0
+		btn_mute.anchor_right = 0.0
+		btn_mute.anchor_bottom = 0.0
+		btn_mute.offset_left = 540  # Após slider de vida
+		btn_mute.offset_right = 580
+		btn_mute.offset_top = 8
+		btn_mute.offset_bottom = 36
+	
+	# 5. Slider de Volume - após Mute
+	var volume_container = tb.get_node_or_null("MusicVolumeContainer")
+	if volume_container:
+		volume_container.layout_mode = 1
+		volume_container.anchor_left = 0.0
+		volume_container.anchor_top = 0.0
+		volume_container.anchor_right = 0.0
+		volume_container.anchor_bottom = 0.0
+		volume_container.offset_left = 590  # Após botão Mute
+		volume_container.offset_right = 740
+		volume_container.offset_top = 8
+		volume_container.offset_bottom = 36
+	
+	# 6. Menu Admin - após Slider de Volume
+	if admin_menu_button:
+		admin_menu_button.layout_mode = 1
+		admin_menu_button.anchor_left = 0.0
+		admin_menu_button.anchor_top = 0.0
+		admin_menu_button.anchor_right = 0.0
+		admin_menu_button.anchor_bottom = 0.0
+		admin_menu_button.offset_left = 750  # Após slider de volume
+		admin_menu_button.offset_right = 850
+		admin_menu_button.offset_top = 8
+		admin_menu_button.offset_bottom = 36
+	
+	# 7. Botão DPS - por último, à direita
+	var btn_dps = tb.get_node_or_null("BtnDPS")
+	if btn_dps:
+		btn_dps.layout_mode = 1
+		btn_dps.anchor_left = 1.0  # Ancorar à direita
+		btn_dps.anchor_top = 0.0
+		btn_dps.anchor_right = 1.0
+		btn_dps.anchor_bottom = 0.0
+		btn_dps.offset_left = -70  # Largura do botão (negativo)
+		btn_dps.offset_right = -12  # Margem direita
+		btn_dps.offset_top = 8
+		btn_dps.offset_bottom = 36
 
 func _on_viewport_size_changed() -> void:
 	"""Chamado quando o tamanho da viewport muda (incluindo tela cheia)"""
@@ -8555,13 +8656,77 @@ func _update_dps_menu() -> void:
 	for child in content_vbox.get_children():
 		child.queue_free()
 	
+	# Garantir que todas as torres existentes estejam no tower_dps_data
+	# e recalcular DPS para todas elas
+	for tower in towers:
+		var tower_id = _get_tower_id(tower, "tower")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "tower",
+				"pos": tower.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_tower_dps(tower, "tower")
+		tower_dps_data[tower_id]["tower_type"] = "tower"
+		tower_dps_data[tower_id]["pos"] = tower.pos
+	
+	for sniper in sniper_towers:
+		var tower_id = _get_tower_id(sniper, "sniper")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "sniper",
+				"pos": sniper.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_sniper_dps(sniper)
+		tower_dps_data[tower_id]["tower_type"] = "sniper"
+		tower_dps_data[tower_id]["pos"] = sniper.pos
+	
+	for aoe in aoe_towers:
+		var tower_id = _get_tower_id(aoe, "aoe")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "aoe",
+				"pos": aoe.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_aoe_dps(aoe)
+		tower_dps_data[tower_id]["tower_type"] = "aoe"
+		tower_dps_data[tower_id]["pos"] = aoe.pos
+	
+	for shock in shock_towers:
+		var tower_id = _get_tower_id(shock, "shock")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "shock",
+				"pos": shock.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_shock_dps(shock)
+		tower_dps_data[tower_id]["tower_type"] = "shock"
+		tower_dps_data[tower_id]["pos"] = shock.pos
+	
 	# Ordenar torres por DPS (maior primeiro)
 	var sorted_towers = []
 	for tower_id in tower_dps_data.keys():
 		var data = tower_dps_data[tower_id]
+		var dps_value = data.get("dps", 0.0)
+		
 		sorted_towers.append({
 			"id": tower_id,
-			"dps": data.get("dps", 0.0),
+			"dps": dps_value,
 			"damage_dealt": data.get("damage_dealt", 0.0),
 			"tower_type": data.get("tower_type", "unknown"),
 			"pos": data.get("pos", Vector2.ZERO)

@@ -273,3 +273,4 @@ func get_slow_multiplier() -> float:
 func is_magnetism_active() -> bool:
 	return skill_magnetism_active or has_coin_magnetism_perk
 
+

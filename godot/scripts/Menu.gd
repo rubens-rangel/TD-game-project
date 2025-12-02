@@ -1,5 +1,10 @@
 extends Control
 
+var music_muted: bool = false
+var music_volume: float = -7.0  # Volume padrão 20% mais baixo (-7.0 dB)
+var music_volume_slider: HSlider = null
+var music_mute_button: Button = null
+
 func _try_load(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):
 		return load(path)
@@ -143,6 +148,9 @@ func _ready() -> void:
 			if overlay:
 				overlay.color = Color(0.1, 0.1, 0.15, 0.6)
 	
+	# Criar controles de música no canto inferior direito
+	_create_music_controls()
+	
 	# Carregar e tocar música de fundo
 	var music_player = get_node_or_null("MusicPlayer")
 	if music_player:
@@ -160,10 +168,26 @@ func _ready() -> void:
 			# Carregar configurações de volume e aplicar
 			var config = ConfigFile.new()
 			var config_path = "user://audio_settings.cfg"
-			var music_volume = -7.0  # Volume padrão 20% mais baixo
 			if config.load(config_path) == OK:
 				music_volume = config.get_value("audio", "music_volume", -7.0)
-			music_player.volume_db = music_volume
+				music_muted = config.get_value("audio", "music_muted", false)
+			else:
+				# Volume padrão 20% mais baixo
+				music_volume = -7.0
+				music_muted = false
+			
+			# Aplicar volume e mute
+			if music_muted:
+				music_player.volume_db = -80.0
+			else:
+				music_player.volume_db = music_volume
+			
+			# Atualizar UI dos controles
+			if music_volume_slider:
+				music_volume_slider.value = music_volume
+			if music_mute_button:
+				music_mute_button.text = "🔇" if music_muted else "🔊"
+			
 			music_player.play()
 			print("Menu: Música de fundo iniciada")
 		else:
@@ -1063,3 +1087,104 @@ func _show_reset_perks_confirmation(dialog: Window, perk_manager, achievement_ma
 	
 	# Mostrar janela
 	confirm_window.show()
+
+func _create_music_controls() -> void:
+	"""Cria os controles de música (mute e slider) no canto inferior direito"""
+	# Container para os controles de música
+	var music_container = HBoxContainer.new()
+	music_container.name = "MusicControls"
+	music_container.add_theme_constant_override("separation", 10)
+	
+	# Posicionar no canto inferior direito
+	music_container.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	music_container.offset_left = -200
+	music_container.offset_top = -50
+	music_container.offset_right = -10
+	music_container.offset_bottom = -10
+	
+	# Botão de mute
+	music_mute_button = Button.new()
+	music_mute_button.name = "BtnMuteMusic"
+	music_mute_button.custom_minimum_size = Vector2(40, 30)
+	music_mute_button.text = "🔊"
+	music_mute_button.tooltip_text = "Mutar/Desmutar música"
+	
+	# Estilo do botão
+	var btn_style = StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.3, 0.3, 0.4, 0.8)
+	btn_style.corner_radius_top_left = 5
+	btn_style.corner_radius_top_right = 5
+	btn_style.corner_radius_bottom_left = 5
+	btn_style.corner_radius_bottom_right = 5
+	btn_style.border_width_left = 1
+	btn_style.border_width_top = 1
+	btn_style.border_width_right = 1
+	btn_style.border_width_bottom = 1
+	btn_style.border_color = Color(0.5, 0.5, 0.6, 1.0)
+	music_mute_button.add_theme_stylebox_override("normal", btn_style)
+	
+	var btn_hover_style = btn_style.duplicate()
+	btn_hover_style.bg_color = Color(0.4, 0.4, 0.5, 0.9)
+	music_mute_button.add_theme_stylebox_override("hover", btn_hover_style)
+	
+	var btn_pressed_style = btn_style.duplicate()
+	btn_pressed_style.bg_color = Color(0.2, 0.2, 0.3, 0.9)
+	music_mute_button.add_theme_stylebox_override("pressed", btn_pressed_style)
+	
+	music_mute_button.add_theme_font_size_override("font_size", 16)
+	music_mute_button.pressed.connect(_on_mute_music)
+	music_container.add_child(music_mute_button)
+	
+	# Slider de volume
+	music_volume_slider = HSlider.new()
+	music_volume_slider.name = "MusicVolumeSlider"
+	music_volume_slider.custom_minimum_size = Vector2(150, 30)
+	music_volume_slider.min_value = -40.0
+	music_volume_slider.max_value = 0.0
+	music_volume_slider.step = 1.0
+	music_volume_slider.value = music_volume
+	music_volume_slider.tooltip_text = "Volume da música"
+	music_volume_slider.value_changed.connect(_on_music_volume_changed)
+	music_container.add_child(music_volume_slider)
+	
+	add_child(music_container)
+
+func _on_mute_music() -> void:
+	"""Alterna o estado de mute da música"""
+	music_muted = not music_muted
+	var music_player = get_node_or_null("MusicPlayer")
+	if music_player:
+		if music_muted:
+			music_player.volume_db = -80.0
+			music_mute_button.text = "🔇"
+		else:
+			music_player.volume_db = music_volume
+			music_mute_button.text = "🔊"
+	
+	# Salvar configuração
+	_save_audio_settings()
+
+func _on_music_volume_changed(value: float) -> void:
+	"""Atualiza o volume da música quando o slider é movido"""
+	music_volume = value
+	var music_player = get_node_or_null("MusicPlayer")
+	if music_player and not music_muted:
+		music_player.volume_db = music_volume
+	
+	# Salvar configuração
+	_save_audio_settings()
+
+func _save_audio_settings() -> void:
+	"""Salva as configurações de áudio em arquivo"""
+	var config = ConfigFile.new()
+	var config_path = "user://audio_settings.cfg"
+	
+	# Carregar configurações existentes se houver
+	config.load(config_path)
+	
+	# Salvar configurações de música
+	config.set_value("audio", "music_volume", music_volume)
+	config.set_value("audio", "music_muted", music_muted)
+	
+	# Salvar arquivo
+	config.save(config_path)

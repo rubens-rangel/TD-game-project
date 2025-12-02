@@ -202,3 +202,4 @@ func get_position() -> Vector2:
 	"""Retorna a posição do herói"""
 	return Vector2(hero["x"], hero["y"])
 
+

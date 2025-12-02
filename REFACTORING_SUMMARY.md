@@ -115,3 +115,4 @@ A refatoração do código do Game.gd foi concluída com sucesso! Todos os manag
 
 A refatoração foi concluída com sucesso! O código está agora muito mais organizado, modular e fácil de manter. Todos os managers estão prontos para serem integrados no Game.gd quando necessário, permitindo uma migração gradual e segura.
 
+

@@ -65,3 +65,4 @@ static func get_wall_cost(current_wall_count: int) -> int:
 		_:  # Caso de segurança
 			return GameConstants.WALL_COST_4TH
 
+
