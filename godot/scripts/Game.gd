@@ -3601,6 +3601,7 @@ func _create_admin_menu(tb: Panel) -> void:
 	admin_menu.add_item("Kill All", 1)
 	admin_menu.add_item("+10 Waves", 2)
 	admin_menu.add_item("+100 Moedas", 3)
+	admin_menu.add_item("+1000 Moedas", 4)
 	admin_menu.id_pressed.connect(_on_admin_menu_pressed)
 	menu_container.add_child(admin_menu)
 	
@@ -3651,6 +3652,8 @@ func _on_admin_menu_pressed(id: int) -> void:
 			_jump_10_waves()
 		3:  # +100 Moedas
 			_add_100_coins()
+		4:  # +1000 Moedas
+			_add_1000_coins()
 
 func _jump_10_waves() -> void:
 	# Pular 10 waves a partir da wave atual
@@ -3666,6 +3669,11 @@ func _add_100_coins() -> void:
 	# Adicionar 100 moedas ao jogador
 	hero["coins"] += 100
 	print("Admin: +100 moedas adicionadas (total: %d)" % hero["coins"])
+
+func _add_1000_coins() -> void:
+	# Adicionar 1000 moedas ao jogador
+	hero["coins"] += 1000
+	print("Admin: +1000 moedas adicionadas (total: %d)" % hero["coins"])
 
 # Variáveis de reset de perks removidas - agora no Menu.gd
 
