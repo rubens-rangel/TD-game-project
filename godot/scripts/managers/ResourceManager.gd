@@ -26,6 +26,9 @@ func load_all_textures() -> void:
 	_update_progress(0.25)
 	
 	textures["enemy_robot"] = load_texture("res://assets/images/enemy_robot.png", true)
+	_update_progress(0.30)
+	
+	textures["enemy_alien"] = load_texture("res://assets/images/enemy_alien.png", true)
 	_update_progress(0.35)
 	
 	# Carregar texturas de estruturas

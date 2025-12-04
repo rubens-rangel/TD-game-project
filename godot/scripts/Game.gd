@@ -149,6 +149,7 @@ var tex_hero: Texture2D
 var tex_enemy_zombie: Texture2D
 var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
+var tex_enemy_alien: Texture2D
 var tex_tent: Texture2D  # Base/tenda no centro
 var tex_house: Texture2D
 var tex_castle: Texture2D
@@ -501,11 +502,11 @@ func _ready() -> void:
 	# Por padrão inicia em janela, mas pode alternar
 	get_viewport().size_changed.connect(_on_viewport_size_changed)
 	
-	# Tornar HUD responsiva
-	_adjust_hud_to_screen_size()
+	# Tornar HUD responsiva - usar call_deferred para garantir que viewport esteja pronto
+	call_deferred("_adjust_hud_to_screen_size")
 	
-	# Ajustar painéis da loja e skills
-	_adjust_shop_and_skills_panels()
+	# Ajustar painéis da loja e skills - usar call_deferred para garantir que viewport esteja pronto
+	call_deferred("_adjust_shop_and_skills_panels")
 	
 	# aguardar um frame para viewport atualizar
 	await get_tree().process_frame
@@ -532,6 +533,7 @@ func _ready() -> void:
 	tex_enemy_zombie = resource_manager.get_texture("enemy_zombie")
 	tex_enemy_humanoid = resource_manager.get_texture("enemy_humanoid")
 	tex_enemy_robot = resource_manager.get_texture("enemy_robot")
+	tex_enemy_alien = resource_manager.get_texture("enemy_alien")
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
@@ -1643,8 +1645,10 @@ func _draw() -> void:
 		# corpo - desenhar sprite do monstro
 		var enemy_idx = e.get("idx", -1)
 		var enemy_tex: Texture2D = tex_enemy_zombie
-		# Selecionar sprite baseado na wave
-		if wave_manager.wave >= 11 and tex_enemy_robot != null:
+		# Selecionar sprite baseado na wave (prioridade: alien > robot > humanoid > zombie)
+		if wave_manager.wave >= 50 and tex_enemy_alien != null:
+			enemy_tex = tex_enemy_alien
+		elif wave_manager.wave >= 11 and tex_enemy_robot != null:
 			enemy_tex = tex_enemy_robot
 		elif wave_manager.wave >= 6 and tex_enemy_humanoid != null:
 			enemy_tex = tex_enemy_humanoid
@@ -1673,8 +1677,41 @@ func _draw() -> void:
 				elif effects.fire_time > 0.0:
 					modulate_color = Color(1.2, 0.7, 0.5, 1.0)  # laranja quando em chamas
 			
-			# Desenhar sprite
-			draw_texture_rect(enemy_tex, Rect2(pos, size), false, modulate_color)
+			# Desenhar sprite com direção
+			var tex_size = enemy_tex.get_size()
+			# Verificar se é sprite sheet (2x2 grid = 128x128 ou similar)
+			# Se a textura for grande o suficiente, assumir que é sprite sheet
+			if tex_size.x >= 128 and tex_size.y >= 128:
+				# Sprite sheet 2x2: cada quadro é metade da textura
+				var frame_size = tex_size / 2.0
+				var direction = _get_enemy_direction(e)
+				var src_rect: Rect2
+				
+				# Calcular região do sprite sheet baseada na direção
+				# Grid 2x2: Layout pode variar, ajustando mapeamento baseado no feedback
+				# Se cima→baixo e esquerda→direita, o sprite sheet pode ter layout diferente
+				# Tentando mapeamento corrigido: up e down trocados, left e right trocados
+				match direction:
+					"up":
+						# Se "up" mostra baixo, então up deve pegar a posição de baixo no sprite
+						src_rect = Rect2(frame_size.x, frame_size.y, frame_size.x, frame_size.y)  # Posição de BAIXO no sprite
+					"down":
+						# Se "down" mostra cima, então down deve pegar a posição de cima no sprite
+						src_rect = Rect2(0, 0, frame_size.x, frame_size.y)  # Posição de CIMA no sprite
+					"left":
+						# Corrigido: left deve pegar a posição de ESQUERDA no sprite
+						src_rect = Rect2(0, frame_size.y, frame_size.x, frame_size.y)  # Posição de ESQUERDA no sprite
+					"right":
+						# Corrigido: right deve pegar a posição de DIREITA no sprite
+						src_rect = Rect2(frame_size.x, 0, frame_size.x, frame_size.y)  # Posição de DIREITA no sprite
+					_:
+						src_rect = Rect2(0, 0, frame_size.x, frame_size.y)  # Default: cima
+				
+				# Desenhar região específica do sprite sheet
+				draw_texture_rect_region(enemy_tex, Rect2(pos, size), src_rect, modulate_color)
+			else:
+				# Textura normal (não é sprite sheet), desenhar inteira
+				draw_texture_rect(enemy_tex, Rect2(pos, size), false, modulate_color)
 			
 			# Desenhar borda especial para boss
 			if is_boss:
@@ -3557,6 +3594,30 @@ func _get_enemy_velocity(enemy: Dictionary) -> Vector2:
 	if to_base.length() > 0.01:
 		return to_base.normalized() * speed
 	return Vector2.ZERO
+
+# Retorna a direção do inimigo como string: "up", "down", "left", "right"
+func _get_enemy_direction(enemy: Dictionary) -> String:
+	var velocity = _get_enemy_velocity(enemy)
+	if velocity.length() < 0.01:
+		return "down"  # direção padrão
+	
+	var dir = velocity.normalized()
+	var angle = atan2(dir.y, dir.x)
+	
+	# Converter ângulo para direção cardinal
+	# -45 a 45 graus = direita (→)
+	# 45 a 135 graus = baixo (↓)
+	# 135 a 225 ou -135 a -180 = esquerda (←)
+	# -135 a -45 graus = cima (↑)
+	
+	if angle >= -PI/4 and angle < PI/4:
+		return "right"
+	elif angle >= PI/4 and angle < 3*PI/4:
+		return "down"
+	elif angle >= 3*PI/4 or angle < -3*PI/4:
+		return "left"
+	else:  # -3*PI/4 a -PI/4
+		return "up"
 
 func _find_mine_at(world_pos: Vector2, radius: float = 12.0) -> int:
 	for i in range(mines.size()):
@@ -8232,7 +8293,7 @@ func _adjust_hud_to_screen_size() -> void:
 	tb.offset_top = 0.0
 	tb.offset_bottom = 44.0
 	
-	# Ajustar labels usando anchors
+	# Ajustar labels usando anchors - garantir que sejam configurados mesmo em telas pequenas
 	var lbl_left = tb.get_node_or_null("LblLeft")
 	var lbl_center = tb.get_node_or_null("LblCenter")  # Moeda
 	var lbl_right = tb.get_node_or_null("LblRight")  # Vida
@@ -8240,32 +8301,37 @@ func _adjust_hud_to_screen_size() -> void:
 	# Posicionar elementos da esquerda para a direita:
 	# 1. LblLeft (Onda/Inimigos) - à esquerda
 	if lbl_left:
-		lbl_left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		lbl_left.layout_mode = 1  # Mudar para layout com anchors
+		lbl_left.anchor_left = 0.0
+		lbl_left.anchor_top = 0.0
+		lbl_left.anchor_right = 0.0
+		lbl_left.anchor_bottom = 0.0
 		lbl_left.offset_left = 12
-		lbl_left.offset_right = -screen_size.x * 0.5
+		lbl_left.offset_right = 250  # Largura fixa
 		lbl_left.offset_top = 10
+		lbl_left.offset_bottom = 34
 	
-	# 2. Moeda (LblCenter) - após LblLeft
+	# 2. Moeda (LblCenter) - após LblLeft, mesmo tamanho que Vida
 	if lbl_center:
-		lbl_center.layout_mode = 1
+		lbl_center.layout_mode = 1  # Mudar para layout com anchors
 		lbl_center.anchor_left = 0.0
 		lbl_center.anchor_top = 0.0
 		lbl_center.anchor_right = 0.0
 		lbl_center.anchor_bottom = 0.0
 		lbl_center.offset_left = 250  # Posição fixa após LblLeft
-		lbl_center.offset_right = 350
+		lbl_center.offset_right = 350  # Largura de 100 (mesmo tamanho que Vida)
 		lbl_center.offset_top = 10
 		lbl_center.offset_bottom = 34
 	
-	# 3. Vida (LblRight) - após Moeda
+	# 3. Vida (LblRight) - após Moeda, mesmo tamanho com pequena separação
 	if lbl_right:
-		lbl_right.layout_mode = 1
+		lbl_right.layout_mode = 1  # Mudar para layout com anchors
 		lbl_right.anchor_left = 0.0
 		lbl_right.anchor_top = 0.0
 		lbl_right.anchor_right = 0.0
 		lbl_right.anchor_bottom = 0.0
-		lbl_right.offset_left = 360  # Após Moeda
-		lbl_right.offset_right = 420
+		lbl_right.offset_left = 360  # 10px de separação após Moeda (350 + 10)
+		lbl_right.offset_right = 460  # Mesmo tamanho que Moedas (100 de largura)
 		lbl_right.offset_top = 10
 		lbl_right.offset_bottom = 34
 		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -8281,8 +8347,8 @@ func _adjust_hud_to_screen_size() -> void:
 		btn_mute.anchor_top = 0.0
 		btn_mute.anchor_right = 0.0
 		btn_mute.anchor_bottom = 0.0
-		btn_mute.offset_left = 430  # Após label Vida
-		btn_mute.offset_right = 580
+		btn_mute.offset_left = 470  # Após label Vida (460 + 10 de separação)
+		btn_mute.offset_right = 620
 		btn_mute.offset_top = 8
 		btn_mute.offset_bottom = 36
 	
@@ -8294,8 +8360,8 @@ func _adjust_hud_to_screen_size() -> void:
 		volume_container.anchor_top = 0.0
 		volume_container.anchor_right = 0.0
 		volume_container.anchor_bottom = 0.0
-		volume_container.offset_left = 480  # Após botão Mute
-		volume_container.offset_right = 740
+		volume_container.offset_left = 630  # Após botão Mute (620 + 10 de separação)
+		volume_container.offset_right = 890
 		volume_container.offset_top = 8
 		volume_container.offset_bottom = 36
 	
@@ -8306,8 +8372,8 @@ func _adjust_hud_to_screen_size() -> void:
 		admin_menu_button.anchor_top = 0.0
 		admin_menu_button.anchor_right = 0.0
 		admin_menu_button.anchor_bottom = 0.0
-		admin_menu_button.offset_left = 630  # Após slider de volume
-		admin_menu_button.offset_right = 850
+		admin_menu_button.offset_left = 900  # Após slider de volume (890 + 10 de separação)
+		admin_menu_button.offset_right = 1120
 		admin_menu_button.offset_top = 8
 		admin_menu_button.offset_bottom = 36
 	
@@ -8435,11 +8501,20 @@ func _adjust_shop_and_skills_panels() -> void:
 		tower_shop_panel.position = Vector2(x_pos, 44.0)
 		tower_shop_panel.size = Vector2(panel_width, panel_height)
 		
-		# Ajustar container do título quando colapsado
+		# Ajustar container do título
 		var title_container = tower_shop_panel.get_node_or_null("TitleContainer")
 		if title_container != null:
 			if tower_shop_collapsed:
 				title_container.size = Vector2(panel_width - 10, 30)
+			else:
+				title_container.size = Vector2(panel_width - 20, 30)
+			title_container.position = Vector2(10, 10)
+		
+		# Ajustar scroll container para o novo tamanho do painel
+		var scroll = tower_shop_panel.get_node_or_null("TowerScroll")
+		if scroll != null:
+			scroll.position = Vector2(10, 45)
+			scroll.size = Vector2(panel_width - 20, panel_height - 45)
 		
 		# Atualizar conteúdo visível
 		_update_tower_shop_collapse()
@@ -8485,11 +8560,20 @@ func _adjust_shop_and_skills_panels() -> void:
 		skills_panel.position = Vector2(x_pos, 44.0)
 		skills_panel.size = Vector2(panel_width, panel_height)
 		
-		# Ajustar container do título quando colapsado
+		# Ajustar container do título
 		var title_container = skills_panel.get_node_or_null("TitleContainer")
 		if title_container != null:
 			if skills_panel_collapsed:
 				title_container.size = Vector2(panel_width - 10, 35)
+			else:
+				title_container.size = Vector2(panel_width - 20, 35)
+			title_container.position = Vector2(10, 10)
+		
+		# Ajustar container de skills se existir
+		var skills_container = skills_panel.get_node_or_null("SkillsButtonsContainer")
+		if skills_container != null:
+			skills_container.position = Vector2(10, 50)
+			skills_container.size = Vector2(panel_width - 20, panel_height - 50)
 		
 		# Atualizar conteúdo visível
 		_update_skills_panel_collapse()
