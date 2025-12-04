@@ -167,6 +167,7 @@ var tex_mine: Texture2D  # Mina
 var tex_wall_structure: Texture2D  # Muralha/barreira
 var tex_healing_station: Texture2D  # Estação de cura
 var tex_coin: Texture2D  # Moeda dropada
+var tex_game_over: Texture2D  # Imagem de Game Over
 
 # Tela de carregamento
 var loading_screen: Control
@@ -570,6 +571,7 @@ func _ready() -> void:
 	tex_wall_structure = resource_manager.get_texture("wall_structure")
 	tex_healing_station = resource_manager.get_texture("healing_station")
 	tex_coin = resource_manager.get_texture("coin")
+	tex_game_over = resource_manager.get_texture("game_over")
 	
 	# Aguardar um pouco antes de esconder a tela de carregamento
 	await get_tree().create_timer(0.3).timeout
@@ -842,6 +844,88 @@ func _ready() -> void:
 		go.get_node("Panel/BtnMenu").pressed.connect(_on_game_over_menu)
 		go.get_node("Panel/BtnRestart").pressed.connect(_on_game_over_restart)
 		go.visible = false
+		
+		# Adicionar camada preta para cobrir o labirinto e a loja
+		var black_overlay = ColorRect.new()
+		black_overlay.name = "BlackOverlay"
+		black_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		black_overlay.color = Color(0, 0, 0, 1.0)  # Preto opaco
+		black_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Não bloquear cliques
+		go.add_child(black_overlay)
+		
+		# Adicionar imagem de fundo do Game Over (tela toda, sem cortar)
+		var bg_texture_rect = TextureRect.new()
+		bg_texture_rect.name = "BackgroundImage"
+		bg_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bg_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED  # Manter proporção, centralizar, não cortar
+		bg_texture_rect.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		bg_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Não bloquear cliques
+		go.add_child(bg_texture_rect)
+		
+		# Ordem: BlackOverlay (fundo) -> BackgroundImage (meio) -> Panel (frente)
+		go.move_child(black_overlay, 0)  # Camada preta atrás de tudo
+		go.move_child(bg_texture_rect, 1)  # Imagem do Game Over no meio
+		
+		# Ocultar o título "Fim de Jogo" (a imagem já tem)
+		if go.has_node("Panel/Title"):
+			go.get_node("Panel/Title").visible = false
+		
+		# Melhorar estilo do Panel
+		var panel = go.get_node("Panel")
+		# Adicionar estilo ao Panel com bordas arredondadas e sombra
+		var style_box = StyleBoxFlat.new()
+		style_box.bg_color = Color(0.1, 0.1, 0.15, 0.85)  # Fundo escuro semi-transparente
+		style_box.border_color = Color(0.0, 0.2, 0.4, 1.0)  # Borda azul marinho
+		style_box.border_width_left = 3
+		style_box.border_width_top = 3
+		style_box.border_width_right = 3
+		style_box.border_width_bottom = 3
+		style_box.corner_radius_top_left = 10
+		style_box.corner_radius_top_right = 10
+		style_box.corner_radius_bottom_left = 10
+		style_box.corner_radius_bottom_right = 10
+		style_box.shadow_color = Color(0, 0, 0, 0.5)
+		style_box.shadow_size = 8
+		style_box.shadow_offset = Vector2(4, 4)
+		panel.add_theme_stylebox_override("panel", style_box)
+		
+		# Melhorar estilo dos botões
+		var btn_restart = go.get_node("Panel/BtnRestart")
+		var btn_menu = go.get_node("Panel/BtnMenu")
+		
+		var btn_style = StyleBoxFlat.new()
+		btn_style.bg_color = Color(0.2, 0.4, 0.6, 0.9)
+		btn_style.border_color = Color(0.4, 0.6, 0.8, 1.0)
+		btn_style.border_width_left = 2
+		btn_style.border_width_top = 2
+		btn_style.border_width_right = 2
+		btn_style.border_width_bottom = 2
+		btn_style.corner_radius_top_left = 5
+		btn_style.corner_radius_top_right = 5
+		btn_style.corner_radius_bottom_left = 5
+		btn_style.corner_radius_bottom_right = 5
+		
+		var btn_hover_style = StyleBoxFlat.new()
+		btn_hover_style.bg_color = Color(0.3, 0.5, 0.7, 0.95)
+		btn_hover_style.border_color = Color(0.5, 0.7, 0.9, 1.0)
+		btn_hover_style.border_width_left = 2
+		btn_hover_style.border_width_top = 2
+		btn_hover_style.border_width_right = 2
+		btn_hover_style.border_width_bottom = 2
+		btn_hover_style.corner_radius_top_left = 5
+		btn_hover_style.corner_radius_top_right = 5
+		btn_hover_style.corner_radius_bottom_left = 5
+		btn_hover_style.corner_radius_bottom_right = 5
+		
+		btn_restart.add_theme_stylebox_override("normal", btn_style)
+		btn_restart.add_theme_stylebox_override("hover", btn_hover_style)
+		btn_menu.add_theme_stylebox_override("normal", btn_style)
+		btn_menu.add_theme_stylebox_override("hover", btn_hover_style)
+		
+		# Melhorar estilo do label de onda
+		var lbl_wave = go.get_node("Panel/LblWave")
+		lbl_wave.add_theme_color_override("font_color", Color(1.0, 0.9, 0.7, 1.0))  # Cor dourada
+		lbl_wave.add_theme_font_size_override("font_size", 18)
 
 	# Carregar e tocar música de fundo do jogo
 	var music_player = get_node_or_null("MusicPlayer")
@@ -1661,6 +1745,13 @@ func _draw() -> void:
 			var size := Vector2(GameConstants.TILE_SIZE * enemy_size_multiplier, GameConstants.TILE_SIZE * enemy_size_multiplier)
 			var pos: Vector2 = e["pos"] - size/2
 			
+			# Desenhar sombra abaixo do sprite (antes do sprite para ficar atrás)
+			var shadow_offset = Vector2(0, size.y * 0.25)  # Offset para baixo (reduzido, mais próximo)
+			var shadow_pos = e["pos"] + shadow_offset
+			var shadow_radius = size.x * 0.28  # Raio da sombra reduzido em 20% (0.35 * 0.8)
+			var shadow_color = Color(0.0, 0.0, 0.0, 0.3)  # Preto com 30% de opacidade
+			draw_circle(shadow_pos, shadow_radius, shadow_color)
+			
 			# Aplicar efeitos visuais através de modulate
 			var modulate_color = Color.WHITE
 			
@@ -1731,6 +1822,14 @@ func _draw() -> void:
 					enemy_color = Color(1.0,0.5,0.2)  # laranja quando em chamas
 			
 			var enemy_radius = e.get("radius", 9)
+			
+			# Desenhar sombra abaixo do círculo (antes do círculo para ficar atrás)
+			var shadow_offset = Vector2(0, enemy_radius * 0.4)  # Offset para baixo (reduzido, mais próximo)
+			var shadow_pos = e["pos"] + shadow_offset
+			var shadow_radius = enemy_radius * 0.50  # Raio da sombra reduzido em 20% (0.6 * 0.8)
+			var shadow_color = Color(0.0, 0.0, 0.0, 0.25)  # Preto com 30% de opacidade
+			draw_circle(shadow_pos, shadow_radius, shadow_color)
+			
 			draw_circle(e["pos"], enemy_radius, enemy_color)
 			
 			# desenhar borda mais grossa para chefe
@@ -2901,8 +3000,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			if base_hp <= 0 and not game_over:
 				game_over = true
 				paused = true
-				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
+				_show_game_over_screen()
 			return
 		# Limitar movimento para não ultrapassar o alvo
 		var move_dist = e["speed"] * dt
@@ -2932,8 +3030,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			if base_hp <= 0 and not game_over:
 				game_over = true
 				paused = true
-				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
+				_show_game_over_screen()
 			return
 		# Limitar movimento para não ultrapassar o alvo
 		var move_dist = e["speed"] * dt
@@ -2973,8 +3070,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 		if base_hp <= 0 and not game_over:
 			game_over = true
 			paused = true
-			$CanvasLayer/GameOverOverlay.visible = true
-			$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Wave %d" % wave_manager.wave
+			_show_game_over_screen()
 		return
 	
 	# Verificar colisão com muralhas
@@ -3058,8 +3154,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			if base_hp <= 0 and not game_over:
 				game_over = true
 				paused = true
-				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
+				_show_game_over_screen()
 			return
 		# Garantir que não ultrapasse o tamanho do array
 		if e["path_index"] >= e["path"].size():
@@ -3081,8 +3176,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			if base_hp <= 0 and not game_over:
 				game_over = true
 				paused = true
-				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
+				_show_game_over_screen()
 			return
 		if e["path_index"] >= e["path"].size():
 			e["path_index"] = e["path"].size() - 1
@@ -3099,8 +3193,7 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 			if base_hp <= 0 and not game_over:
 				game_over = true
 				paused = true
-				$CanvasLayer/GameOverOverlay.visible = true
-				$CanvasLayer/GameOverOverlay/Panel/LblWave.text = "Onda %d" % wave_manager.wave
+				_show_game_over_screen()
 			return
 
 func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
@@ -6063,6 +6156,53 @@ func _update_soldiers(delta: float) -> void:
 			if not found_in_global and s.hp > 0:
 				alive_barracks_soldiers.append(s)
 		b.soldiers = alive_barracks_soldiers
+
+func _show_game_over_screen() -> void:
+	"""Mostra a tela de Game Over com a imagem de fundo"""
+	if has_node("CanvasLayer/GameOverOverlay"):
+		var go = $CanvasLayer/GameOverOverlay
+		go.visible = true
+		go.get_node("Panel/LblWave").text = "Onda %d" % wave_manager.wave
+		
+		# Atualizar imagem de fundo se existir (tela toda, sem cortar)
+		if has_node("CanvasLayer/GameOverOverlay/BackgroundImage") and tex_game_over != null:
+			var bg = go.get_node("BackgroundImage")
+			bg.texture = tex_game_over
+			# Garantir que a imagem inteira fique visível sem cortar
+			var viewport_size = get_viewport().get_visible_rect().size
+			bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+			bg.size = viewport_size
+			bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED  # Não cortar a imagem
+		
+		# Ajustar posição do Panel para ficar mais centralizado e maior
+		var panel = go.get_node("Panel")
+		var viewport_size = get_viewport().get_visible_rect().size
+		var panel_width = 500
+		var panel_height = 200
+		panel.position = Vector2(
+			(viewport_size.x - panel_width) / 2,
+			viewport_size.y * 0.65  # Mais para baixo para não cobrir a imagem
+		)
+		panel.size = Vector2(panel_width, panel_height)
+		
+		# Ajustar posições dos elementos dentro do Panel
+		var lbl_wave = go.get_node("Panel/LblWave")
+		lbl_wave.position = Vector2((panel_width - 400) / 2, 30)
+		lbl_wave.size = Vector2(400, 40)
+		
+		var btn_restart = go.get_node("Panel/BtnRestart")
+		var btn_menu = go.get_node("Panel/BtnMenu")
+		var btn_width = 200
+		var btn_height = 45
+		var btn_spacing = 30
+		var total_btn_width = btn_width * 2 + btn_spacing
+		var btn_start_x = (panel_width - total_btn_width) / 2
+		
+		btn_restart.position = Vector2(btn_start_x, 100)
+		btn_restart.size = Vector2(btn_width, btn_height)
+		
+		btn_menu.position = Vector2(btn_start_x + btn_width + btn_spacing, 100)
+		btn_menu.size = Vector2(btn_width, btn_height)
 
 func _on_game_over_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/Menu.tscn")

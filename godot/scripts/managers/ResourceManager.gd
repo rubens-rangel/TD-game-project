@@ -66,6 +66,7 @@ func load_all_textures() -> void:
 	textures["coin"] = load_texture("res://assets/images/coin.png", true)
 	textures["house"] = load_texture("res://assets/images/house.png", true)
 	textures["castle"] = load_texture("res://assets/images/castle.png", true)
+	textures["game_over"] = load_texture("res://assets/images/GameOver.png", false)
 	_update_progress(1.0)
 
 func _update_progress(progress: float) -> void:

@@ -4,7 +4,7 @@ export_presets.cfg::TextFile::-1::1764857412::0::1::::<><><>0<>0<><>::
 ::res://assets/::1764604544
 ::res://assets/icon/::1764604557
 icone.png::CompressedTexture2D::6924304942502698758::1764604524::1764604557::1::::<><><>0<>0<>a377c1731137d9c6d310e6582d50b208<>res://.godot/imported/icone.png-bda5cc887b82f0f1f60dc73e23928631.ctex::
-::res://assets/images/::1764878015
+::res://assets/images/::1764879857
 aoe_tower.png::CompressedTexture2D::7576499118864927443::1762463783::1762463812::1::::<><><>0<>0<>7fc6e9e21d0867841c228c70e30f087e<>res://.godot/imported/aoe_tower.png-9906059a62506fafd41d2b7fa90c5e73.ctex::
 barracks.png::CompressedTexture2D::7541488835324938766::1762464225::1762464251::1::::<><><>0<>0<>fdc08a47dca47fe5e5fac907c4cfe826<>res://.godot/imported/barracks.png-d85680f6e9db21b1bf02aea3416220e3.ctex::
 boost_tower.png::CompressedTexture2D::7595737811097054092::1764011039::1764011062::1::::<><><>0<>0<>0815fae6a31ff5f147b92bb2786eb075<>res://.godot/imported/boost_tower.png-2b0f2d3e59a58dd440b15ade0d70dd0c.ctex::
@@ -12,6 +12,7 @@ castle.png::CompressedTexture2D::4154547587090229541::1764245683::1764245730::1:
 coin.png::CompressedTexture2D::5807670015220771635::1763400632::1763400653::1::::<><><>0<>0<>1ab56b6c90c7abd08d960e37a56bfd28<>res://.godot/imported/coin.png-742f433fdb40c23302668963ccede222.ctex::
 enemy_alien.png::CompressedTexture2D::1778125365219355099::1764877997::1764878059::1::::<><><>0<>0<>8d0bed5a87cfdb604d46912dba176ab0<>res://.godot/imported/enemy_alien.png-5d4485384c710e219d15d6cd56e7787a.ctex::
 enemy_zombie.png::CompressedTexture2D::1257479954640182178::1764877375::1764877396::1::::<><><>0<>0<>cda63a3be58d4b087d6f5221385f4bb8<>res://.godot/imported/enemy_zombie.png-487eb20c1c85ffc85ff939779179825e.ctex::
+GameOver.png::CompressedTexture2D::4527347994765283636::1764879832::1764880062::1::::<><><>0<>0<>605260ad9d937f695aedcf4b00595865<>res://.godot/imported/GameOver.png-22c84358de092e86ed3b8bd51b2fede8.ctex::
 healing_station.png::CompressedTexture2D::2994848420777288601::1762464473::1762464496::1::::<><><>0<>0<>cbb82878e2c36114c122616d6266e79c<>res://.godot/imported/healing_station.png-ce99dee92aad38f92847a00aa2b8609b.ctex::
 house.png::CompressedTexture2D::4050632537838862880::1764245528::1764245571::1::::<><><>0<>0<>9b6a851b6d624a1a194ef7abf15127a2<>res://.godot/imported/house.png-ef300ba6e6c19490d004f7d86aace4ca.ctex::
 menu_background.png::CompressedTexture2D::6922876249658777968::1762447756::1764025074::1::::<><><>0<>0<>832c78b91aa8324dcfe0de962bb9d62c<>res://.godot/imported/menu_background.png-f64e89e1fa6fbecea6149f323dd67638.ctex::
@@ -35,7 +36,7 @@ Main.tscn::PackedScene::-1::1764857412::0::1::::<><><>0<>0<><>::res://scripts/Ga
 Menu.tscn::PackedScene::8645702157982717301::1764857412::0::1::::<><><>0<>0<><>::uid://bif2rcjr5a3pi::::res://scripts/Menu.gd
 ::res://scripts/::1764706640
 Constants.gd::GDScript::4896370792011949774::1764857412::0::1::::GameConstants<>RefCounted<><>0<>0<><>::
-Game.gd::GDScript::807216183804962965::1764877462::0::1::::<>Node2D<><>0<>0<><>::
+Game.gd::GDScript::807216183804962965::1764880049::0::1::::<>Node2D<><>0<>0<><>::
 GridManager.gd::GDScript::4582275908054114677::1764857412::0::1::::GridManager<>RefCounted<><>0<>0<><>::
 Menu.gd::GDScript::2959923158631201974::1764857412::0::1::::<>Control<><>0<>0<><>::
 Pathfinder.gd::GDScript::655567533368060027::1764857412::0::1::::Pathfinder<>RefCounted<><>0<>0<><>::
@@ -52,7 +53,7 @@ EnemyManager.gd::GDScript::8323249537442754142::1764000457::0::1::::EnemyManager
 HeroManager.gd::GDScript::859169171469433491::1764680737::0::1::::HeroManager<>RefCounted<><>0<>0<><>::
 PerkManager.gd::GDScript::2821552653051974308::1764680737::0::1::::PerkManager<>RefCounted<><>0<>0<><>::
 PlacementManager.gd::GDScript::4699143470991060270::1764680737::0::1::::PlacementManager<>RefCounted<><>0<>0<><>::
-ResourceManager.gd::GDScript::2110922732927384478::1764857412::0::1::::ResourceManager<>RefCounted<><>0<>0<><>::
+ResourceManager.gd::GDScript::2110922732927384478::1764880049::0::1::::ResourceManager<>RefCounted<><>0<>0<><>::
 RewardCalculator.gd::GDScript::8636486389404748020::1764680737::0::1::::RewardCalculator<>RefCounted<><>0<>0<><>::
 SaveManager.gd::GDScript::8093261269369649326::1764857412::0::1::::SaveManager<>RefCounted<><>0<>0<><>::
 SkillsManager.gd::GDScript::7233154755744296044::1764680737::0::1::::SkillsManager<>RefCounted<><>0<>0<><>::
