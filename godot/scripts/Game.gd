@@ -280,6 +280,7 @@ func get_wall_cost() -> int:
 var choosing_upgrade := false
 var benefit_applied := false
 var selected_benefit_index := -1  # Índice do benefício selecionado (mas não aplicado ainda)
+var auto_choose_benefits := false  # Se true, escolhe benefício aleatório automaticamente sem pausar
 var upgrade_options := [
 	{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
 	{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
@@ -482,6 +483,7 @@ func _ready() -> void:
 	
 	# Carregar configurações de áudio
 	_load_music_settings()
+	_load_user_preferences()
 	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
@@ -827,6 +829,12 @@ func _ready() -> void:
 	ov.get_node("Panel/Btn3").pressed.connect(func(): _apply_benefit(2))
 	ov.get_node("Panel/Btn4").pressed.connect(func(): _apply_benefit(3))
 	ov.get_node("Panel/BtnResume").pressed.connect(func(): _resume_after_upgrade())
+	
+	# Conectar botão de auto benefício
+	if tb.has_node("BtnAutoBenefit"):
+		var btn_auto = tb.get_node("BtnAutoBenefit")
+		btn_auto.pressed.connect(_toggle_auto_benefit)
+		_update_auto_benefit_button()
 
 	# wire Pause overlay
 	pause_overlay = $CanvasLayer/PauseOverlay
@@ -1179,7 +1187,7 @@ func _process(delta: float) -> void:
 				# Continuar para próxima wave sem mostrar overlay
 				wave_manager.start_next_wave()
 			else:
-				# Há upgrades disponíveis - mostrar overlay
+				# Há upgrades disponíveis
 				available_upgrades.shuffle()
 				# Mostrar apenas 3 upgrades aleatórios (ou menos se não houver)
 				upgrade_options = available_upgrades.slice(0, min(3, available_upgrades.size()))
@@ -1189,12 +1197,28 @@ func _process(delta: float) -> void:
 				var wave_bonus = get_wave_completion_bonus()
 				hero["coins"] += wave_bonus
 				_track_coin_collected(wave_bonus)
-				choosing_upgrade = true
-				# Resetar seleção anterior
-				benefit_applied = false
-				selected_benefit_index = -1
-				$CanvasLayer/UpgradeOverlay.visible = true
-				_update_upgrade_labels()
+				
+				# Se auto_choose_benefits estiver ativo, escolher automaticamente
+				if auto_choose_benefits:
+					# Escolher um benefício aleatório dos disponíveis
+					var random_index = randi() % upgrade_options.size()
+					selected_benefit_index = random_index
+					benefit_applied = true
+					# Aplicar o benefício diretamente
+					_apply_selected_benefit()
+					# Continuar para próxima wave sem mostrar overlay
+					choosing_upgrade = false
+					benefit_applied = false
+					selected_benefit_index = -1
+					wave_manager.start_next_wave()
+				else:
+					# Mostrar overlay para escolha manual
+					choosing_upgrade = true
+					# Resetar seleção anterior
+					benefit_applied = false
+					selected_benefit_index = -1
+					$CanvasLayer/UpgradeOverlay.visible = true
+					_update_upgrade_labels()
 		else:
 			wave_manager.time_to_next_wave = 0.0
 
@@ -2709,28 +2733,17 @@ func _apply_benefit(i: int) -> void:
 			resume_hover.bg_color = Color(0.4, 0.4, 0.4, 0.9)
 		resume_btn.add_theme_stylebox_override("hover", resume_hover)
 
-func _resume_after_upgrade() -> void:
-	# Se não há upgrades disponíveis, permitir continuar sem aplicar benefício
-	if upgrade_options.is_empty():
-		# Resetar estado e continuar
-		$CanvasLayer/UpgradeOverlay.visible = false
-		choosing_upgrade = false
-		benefit_applied = false
-		selected_benefit_index = -1
-		wave_manager.start_next_wave()
+func _apply_selected_benefit() -> void:
+	# Aplicar o benefício selecionado
+	if upgrade_options.is_empty() or selected_benefit_index < 0 or selected_benefit_index >= upgrade_options.size():
 		return
 	
-	# Se há upgrades mas nenhum foi selecionado, não pode continuar
-	if not benefit_applied or selected_benefit_index < 0:
-		return
-	
-	# Aplicar o benefício selecionado agora (ao confirmar com Continuar)
 	var upgrade = upgrade_options[selected_benefit_index]
 	var code: String = upgrade["code"]
 	var current_level = hero["levels"].get(code, 0)
 	var max_level = upgrade.get("max_level", 999)
 	
-	# Verificar novamente se atingiu o limite (pode ter mudado)
+	# Verificar se atingiu o limite
 	if current_level < max_level:
 		# Aplicar upgrade usando HeroManager
 		if hero_manager:
@@ -2753,6 +2766,24 @@ func _resume_after_upgrade() -> void:
 				"CRIT_DMG":
 					hero["levels"]["CRIT_DMG"] += 1
 					hero["crit_multiplier"] += 0.2
+
+func _resume_after_upgrade() -> void:
+	# Se não há upgrades disponíveis, permitir continuar sem aplicar benefício
+	if upgrade_options.is_empty():
+		# Resetar estado e continuar
+		$CanvasLayer/UpgradeOverlay.visible = false
+		choosing_upgrade = false
+		benefit_applied = false
+		selected_benefit_index = -1
+		wave_manager.start_next_wave()
+		return
+	
+	# Se há upgrades mas nenhum foi selecionado, não pode continuar
+	if not benefit_applied or selected_benefit_index < 0:
+		return
+	
+	# Aplicar o benefício selecionado
+	_apply_selected_benefit()
 	
 	# Resetar estado
 	$CanvasLayer/UpgradeOverlay.visible = false
@@ -6747,21 +6778,38 @@ func _create_tower_shop_ui() -> void:
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_container.add_child(title_label)
 	
-	# Botão de toggle para colapsar/expandir
+	# Botão de toggle para colapsar/expandir (melhorado e estilizado)
 	tower_shop_toggle_button = Button.new()
 	tower_shop_toggle_button.name = "ToggleButton"
-	tower_shop_toggle_button.text = "◄"
-	tower_shop_toggle_button.custom_minimum_size = Vector2(25, 25)
+	tower_shop_toggle_button.text = "►"  # Quando expandido, mostra seta para direita (colapsar)
+	tower_shop_toggle_button.custom_minimum_size = Vector2(22, 22)  # Menor para caber melhor
 	tower_shop_toggle_button.pressed.connect(_toggle_tower_shop)
 	var toggle_style = StyleBoxFlat.new()
-	toggle_style.bg_color = Color(0.3, 0.3, 0.4)
-	toggle_style.border_color = Color(0.5, 0.5, 0.6)
-	toggle_style.border_width_left = 1
-	toggle_style.border_width_top = 1
-	toggle_style.border_width_right = 1
-	toggle_style.border_width_bottom = 1
+	toggle_style.bg_color = Color(0.2, 0.4, 0.6, 0.9)  # Azul mais bonito
+	toggle_style.border_color = Color(0.3, 0.5, 0.7, 1.0)
+	toggle_style.border_width_left = 2
+	toggle_style.border_width_top = 2
+	toggle_style.border_width_right = 2
+	toggle_style.border_width_bottom = 2
+	toggle_style.corner_radius_top_left = 4
+	toggle_style.corner_radius_top_right = 4
+	toggle_style.corner_radius_bottom_left = 4
+	toggle_style.corner_radius_bottom_right = 4
+	var toggle_hover_style = StyleBoxFlat.new()
+	toggle_hover_style.bg_color = Color(0.3, 0.5, 0.7, 0.95)
+	toggle_hover_style.border_color = Color(0.4, 0.6, 0.8, 1.0)
+	toggle_hover_style.border_width_left = 2
+	toggle_hover_style.border_width_top = 2
+	toggle_hover_style.border_width_right = 2
+	toggle_hover_style.border_width_bottom = 2
+	toggle_hover_style.corner_radius_top_left = 4
+	toggle_hover_style.corner_radius_top_right = 4
+	toggle_hover_style.corner_radius_bottom_left = 4
+	toggle_hover_style.corner_radius_bottom_right = 4
 	tower_shop_toggle_button.add_theme_stylebox_override("normal", toggle_style)
-	tower_shop_toggle_button.add_theme_font_size_override("font_size", 12)
+	tower_shop_toggle_button.add_theme_stylebox_override("hover", toggle_hover_style)
+	tower_shop_toggle_button.add_theme_font_size_override("font_size", 14)
+	tower_shop_toggle_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	title_container.add_child(tower_shop_toggle_button)
 	
 	# Container para botões de torres (sem scroll - tamanho fixo para mostrar tudo)
@@ -7125,21 +7173,38 @@ func _create_skills_ui() -> void:
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_container.add_child(title_label)
 	
-	# Botão de toggle para colapsar/expandir
+	# Botão de toggle para colapsar/expandir (melhorado e estilizado)
 	skills_panel_toggle_button = Button.new()
 	skills_panel_toggle_button.name = "ToggleButton"
-	skills_panel_toggle_button.text = "►"
-	skills_panel_toggle_button.custom_minimum_size = Vector2(25, 25)
+	skills_panel_toggle_button.text = "◄"  # Quando expandido, mostra seta para esquerda (colapsar)
+	skills_panel_toggle_button.custom_minimum_size = Vector2(22, 22)  # Menor para caber melhor
 	skills_panel_toggle_button.pressed.connect(_toggle_skills_panel)
 	var toggle_style = StyleBoxFlat.new()
-	toggle_style.bg_color = Color(0.3, 0.3, 0.4)
-	toggle_style.border_color = Color(0.5, 0.5, 0.6)
-	toggle_style.border_width_left = 1
-	toggle_style.border_width_top = 1
-	toggle_style.border_width_right = 1
-	toggle_style.border_width_bottom = 1
+	toggle_style.bg_color = Color(0.2, 0.5, 0.7, 0.9)  # Azul ciano mais bonito
+	toggle_style.border_color = Color(0.3, 0.6, 0.8, 1.0)
+	toggle_style.border_width_left = 2
+	toggle_style.border_width_top = 2
+	toggle_style.border_width_right = 2
+	toggle_style.border_width_bottom = 2
+	toggle_style.corner_radius_top_left = 4
+	toggle_style.corner_radius_top_right = 4
+	toggle_style.corner_radius_bottom_left = 4
+	toggle_style.corner_radius_bottom_right = 4
+	var toggle_hover_style = StyleBoxFlat.new()
+	toggle_hover_style.bg_color = Color(0.3, 0.6, 0.8, 0.95)
+	toggle_hover_style.border_color = Color(0.4, 0.7, 0.9, 1.0)
+	toggle_hover_style.border_width_left = 2
+	toggle_hover_style.border_width_top = 2
+	toggle_hover_style.border_width_right = 2
+	toggle_hover_style.border_width_bottom = 2
+	toggle_hover_style.corner_radius_top_left = 4
+	toggle_hover_style.corner_radius_top_right = 4
+	toggle_hover_style.corner_radius_bottom_left = 4
+	toggle_hover_style.corner_radius_bottom_right = 4
 	skills_panel_toggle_button.add_theme_stylebox_override("normal", toggle_style)
-	skills_panel_toggle_button.add_theme_font_size_override("font_size", 12)
+	skills_panel_toggle_button.add_theme_stylebox_override("hover", toggle_hover_style)
+	skills_panel_toggle_button.add_theme_font_size_override("font_size", 14)
+	skills_panel_toggle_button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	title_container.add_child(skills_panel_toggle_button)
 	
 	# Container para botões de skills
@@ -7917,7 +7982,12 @@ func _create_dps_button() -> void:
 	btn_dps.name = "BtnDPS"
 	btn_dps.text = "DPS"
 	btn_dps.custom_minimum_size = Vector2(60, 28)
-	btn_dps.position = Vector2(1100, 8)
+	# Posicionar usando anchors para ser responsivo (canto superior direito)
+	btn_dps.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	btn_dps.offset_left = -70
+	btn_dps.offset_top = 8
+	btn_dps.offset_right = -10
+	btn_dps.offset_bottom = 36
 	btn_dps.pressed.connect(_toggle_dps_menu)
 	
 	# Estilo do botão
@@ -8003,6 +8073,61 @@ func _toggle_music() -> void:
 		var btn_mute = tb.get_node("BtnMuteMusic")
 		btn_mute.text = "🔇" if music_muted else "🔊"
 
+func _toggle_auto_benefit() -> void:
+	"""Alterna entre escolha manual e automática de benefícios"""
+	auto_choose_benefits = not auto_choose_benefits
+	_save_user_preferences()
+	_update_auto_benefit_button()
+
+func _update_auto_benefit_button() -> void:
+	"""Atualiza o texto e estilo do botão de auto benefício"""
+	var tb = $CanvasLayer/HUD/TopBar
+	if not tb.has_node("BtnAutoBenefit"):
+		return
+	
+	var btn = tb.get_node("BtnAutoBenefit")
+	
+	# Garantir que o botão use anchors para ser responsivo (antes do botão DPS)
+	# layout_mode = 1 significa LAYOUT_MODE_ANCHORS em Godot 4
+	if btn.layout_mode != 1:
+		btn.layout_mode = 1  # Layout com anchors
+		btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		btn.offset_left = -270
+		btn.offset_top = 8
+		btn.offset_right = -140
+		btn.offset_bottom = 36
+	
+	# Ajustar texto baseado no tamanho da tela
+	var screen_width = get_viewport().get_visible_rect().size.x
+	var short_text = screen_width < 1200
+	
+	if auto_choose_benefits:
+		btn.text = "Auto: ON" if short_text else "Auto Benefício: ON"
+		var style = StyleBoxFlat.new()
+		style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
+		style.border_color = Color(0.3, 0.8, 0.3)
+		style.border_width_left = 2
+		style.border_width_top = 2
+		style.border_width_right = 2
+		style.border_width_bottom = 2
+		btn.add_theme_stylebox_override("normal", style)
+		var hover_style = style.duplicate()
+		hover_style.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		btn.add_theme_stylebox_override("hover", hover_style)
+	else:
+		btn.text = "Auto: OFF" if short_text else "Auto Benefício: OFF"
+		var style = StyleBoxFlat.new()
+		style.bg_color = Color(0.3, 0.3, 0.3, 0.9)
+		style.border_color = Color(0.5, 0.5, 0.5)
+		style.border_width_left = 2
+		style.border_width_top = 2
+		style.border_width_right = 2
+		style.border_width_bottom = 2
+		btn.add_theme_stylebox_override("normal", style)
+		var hover_style = style.duplicate()
+		hover_style.bg_color = Color(0.4, 0.4, 0.4, 0.9)
+		btn.add_theme_stylebox_override("hover", hover_style)
+
 func _on_music_volume_changed(value: float) -> void:
 	music_volume = value
 	var music_player = get_node_or_null("MusicPlayer")
@@ -8011,6 +8136,21 @@ func _on_music_volume_changed(value: float) -> void:
 	
 	# Salvar preferência
 	_save_music_settings()
+
+func _save_user_preferences() -> void:
+	"""Salva preferências do usuário (incluindo auto benefício)"""
+	var config = ConfigFile.new()
+	config.set_value("game", "auto_choose_benefits", auto_choose_benefits)
+	var config_path = "user://user_preferences.cfg"
+	config.save(config_path)
+
+func _load_user_preferences() -> void:
+	"""Carrega preferências do usuário"""
+	var config = ConfigFile.new()
+	var config_path = "user://user_preferences.cfg"
+	var err = config.load(config_path)
+	if err == OK:
+		auto_choose_benefits = config.get_value("game", "auto_choose_benefits", false)
 
 func _save_music_settings() -> void:
 	var config = ConfigFile.new()
@@ -8542,6 +8682,8 @@ func _on_viewport_size_changed() -> void:
 			lbl_right.visible = true
 			lbl_right.text = "Vida %d" % [base_hp]
 			lbl_right.z_index = 10
+		# Atualizar botão Auto Benefício para ajustar texto em telas menores
+		_update_auto_benefit_button()
 
 # ========== FUNÇÕES DE COLAPSO E AJUSTE DE PAINÉIS ==========
 
@@ -8581,13 +8723,16 @@ func _update_tower_shop_collapse() -> void:
 			if tower_shop_collapsed:
 				title_label.text = "LOJA"
 				title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				title_label.add_theme_font_size_override("font_size", 14)  # Fonte menor quando colapsado
 			else:
+				title_label.text = "LOJA DE TORRES"
+				title_label.add_theme_font_size_override("font_size", 18)  # Fonte normal quando expandido
 				title_label.text = "LOJA DE TORRES"
 				title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	
 	if tower_shop_toggle_button != null:
 		tower_shop_toggle_button.visible = true
-		tower_shop_toggle_button.text = "►" if tower_shop_collapsed else "◄"
+		tower_shop_toggle_button.text = "◄" if tower_shop_collapsed else "►"  # Corrigido: quando colapsado mostra seta esquerda (expandir)
 
 func _update_skills_panel_collapse() -> void:
 	"""Atualiza a UI do painel de skills baseado no estado de colapso"""
@@ -8602,10 +8747,17 @@ func _update_skills_panel_collapse() -> void:
 	var title_container = skills_panel.get_node_or_null("TitleContainer")
 	if title_container != null:
 		title_container.visible = true
+		# Ajustar tamanho da fonte quando colapsado
+		var title_label = title_container.get_node_or_null("TitleLabel")
+		if title_label != null:
+			if skills_panel_collapsed:
+				title_label.add_theme_font_size_override("font_size", 14)  # Fonte menor quando colapsado
+			else:
+				title_label.add_theme_font_size_override("font_size", 18)  # Fonte normal quando expandido
 	
 	if skills_panel_toggle_button != null:
 		skills_panel_toggle_button.visible = true
-		skills_panel_toggle_button.text = "◄" if skills_panel_collapsed else "►"
+		skills_panel_toggle_button.text = "►" if skills_panel_collapsed else "◄"  # Corrigido: quando colapsado mostra seta direita (expandir)
 
 func _adjust_shop_and_skills_panels() -> void:
 	"""Ajusta os painéis da loja e skills para serem responsivos ao tamanho da tela"""
