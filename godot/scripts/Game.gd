@@ -1407,6 +1407,26 @@ func _get_structure_array(array_name: String) -> Array:
 			return []
 
 func _input(event: InputEvent) -> void:
+	# Hotkeys para skills (1, 2, 3, 4, 5) - apenas quando o jogo não está pausado
+	if event is InputEventKey and event.pressed and not event.echo:
+		if not paused and not game_over and not choosing_upgrade:
+			match event.keycode:
+				KEY_1:
+					_on_skill_collect_coins()
+					get_viewport().set_input_as_handled()
+				KEY_2:
+					_on_skill_damage_boost()
+					get_viewport().set_input_as_handled()
+				KEY_3:
+					_on_skill_speed_boost()
+					get_viewport().set_input_as_handled()
+				KEY_4:
+					_on_skill_slow_all()
+					get_viewport().set_input_as_handled()
+				KEY_5:
+					_on_skill_magnetism()
+					get_viewport().set_input_as_handled()
+	
 	# Alternar tela cheia com F11
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
 		var mode = DisplayServer.window_get_mode()
@@ -1538,6 +1558,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if dragging_tower:
 			var world_pos = to_local(event.position)
+			# Atualizar drag_current_pos com a posição final do mouse antes de finalizar
+			# Isso garante que o preview e a colocação final usem exatamente a mesma posição
+			drag_current_pos = world_pos
 			_end_drag_tower(world_pos)
 			return
 	
@@ -1919,55 +1942,103 @@ func _draw() -> void:
 		var preview_pos = drag_current_pos - drag_offset
 		var preview_size: float
 		var preview_tex: Texture2D
+		var tower_size_grid: int = 3
 		
 		match dragged_tower_type:
 			"tower":
 				preview_size = grid_size_px * GameConstants.TOWER_SIZE_GRID
 				preview_tex = tex_tower
+				tower_size_grid = GameConstants.TOWER_SIZE_GRID
 			"slow_tower":
 				preview_size = grid_size_px * GameConstants.SLOW_TOWER_SIZE_GRID
 				preview_tex = tex_slow_tower
+				tower_size_grid = GameConstants.SLOW_TOWER_SIZE_GRID
 			"aoe_tower":
 				preview_size = grid_size_px * GameConstants.AOE_TOWER_SIZE_GRID
 				preview_tex = tex_aoe_tower
+				tower_size_grid = GameConstants.AOE_TOWER_SIZE_GRID
 			"sniper_tower":
 				preview_size = grid_size_px * GameConstants.SNIPER_TOWER_SIZE_GRID
 				preview_tex = tex_sniper_tower
+				tower_size_grid = GameConstants.SNIPER_TOWER_SIZE_GRID
 			"boost_tower":
 				preview_size = grid_size_px * GameConstants.BOOST_TOWER_SIZE_GRID
 				preview_tex = tex_boost_tower
+				tower_size_grid = GameConstants.BOOST_TOWER_SIZE_GRID
 			"shock_tower":
 				preview_size = grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
 				preview_tex = tex_shock_tower
+				tower_size_grid = GameConstants.SHOCK_TOWER_SIZE_GRID
 			"mine":
 				preview_size = 16.0
 				preview_tex = tex_mine
 		
-		# Verificar se a posição é válida
-		var grid_coord = grid_manager.world_to_base_grid(preview_pos)
+		# Verificar se a posição é válida usando a mesma lógica de snap do _end_drag_tower
 		var can_place = false
+		var snapped_preview_pos = preview_pos
+		
 		if dragged_tower_type == "mine":
 			# Lógica especial para minas (fora da base)
 			var tile = _world_to_tile_coords(preview_pos)
 			can_place = _is_tile_within_bounds(tile) and _is_walkable_tile(tile) and not grid_manager.is_inside_base_point(preview_pos) and not _is_in_center_area(preview_pos) and not _is_mine_tile_occupied(tile)
 		elif grid_manager.is_inside_base_point(preview_pos):
+			# Usar a mesma função auxiliar que _end_drag_tower usa para garantir consistência
+			var snap_result = _calculate_tower_snap(preview_pos, tower_size_grid)
+			var grid_coord = snap_result["grid_coord"]
+			snapped_preview_pos = snap_result["snapped_world_pos"]
+			
+			# Criar área a ignorar (posição antiga da torre) e validar
+			var ignore_area: Rect2i = Rect2i()
+			var item_type: int = 1
+			
 			match dragged_tower_type:
 				"tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
+					if dragged_tower_index >= 0 and dragged_tower_index < towers.size():
+						var old_tower = towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.TOWER_SIZE_GRID, GameConstants.TOWER_SIZE_GRID)
+					item_type = 1
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.TOWER_SIZE_GRID, item_type, ignore_area)
 				"slow_tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
+					if dragged_tower_index >= 0 and dragged_tower_index < slow_towers.size():
+						var old_tower = slow_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.SLOW_TOWER_SIZE_GRID, GameConstants.SLOW_TOWER_SIZE_GRID)
+					item_type = 5
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, item_type, ignore_area)
 				"aoe_tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
+					if dragged_tower_index >= 0 and dragged_tower_index < aoe_towers.size():
+						var old_tower = aoe_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, GameConstants.AOE_TOWER_SIZE_GRID)
+					item_type = 6
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, item_type, ignore_area)
 				"sniper_tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+					if dragged_tower_index >= 0 and dragged_tower_index < sniper_towers.size():
+						var old_tower = sniper_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, GameConstants.SNIPER_TOWER_SIZE_GRID)
+					item_type = 7
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, item_type, ignore_area)
 				"boost_tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
+					if dragged_tower_index >= 0 and dragged_tower_index < boost_towers.size():
+						var old_tower = boost_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, GameConstants.BOOST_TOWER_SIZE_GRID)
+					item_type = 8
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, item_type, ignore_area)
 				"shock_tower":
-					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
+					if dragged_tower_index >= 0 and dragged_tower_index < shock_towers.size():
+						var old_tower = shock_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, GameConstants.SHOCK_TOWER_SIZE_GRID)
+					item_type = 9
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, item_type, ignore_area)
+				"barracks":
+					if dragged_tower_index >= 0 and dragged_tower_index < barracks.size():
+						var old_barracks = barracks[dragged_tower_index]
+						ignore_area = Rect2i(old_barracks.grid_x, old_barracks.grid_y, GameConstants.BARRACKS_SIZE_GRID, GameConstants.BARRACKS_SIZE_GRID)
+					item_type = 3
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, item_type, ignore_area)
 		
 		# Não renderizar preview para minas aqui (já tem renderização separada)
 		if dragged_tower_type != "mine":
-			var preview_rect = Rect2(preview_pos.x - preview_size/2, preview_pos.y - preview_size/2, preview_size, preview_size)
+			# Usar posição snapped para preview visual
+			var preview_rect = Rect2(snapped_preview_pos.x - preview_size/2, snapped_preview_pos.y - preview_size/2, preview_size, preview_size)
 			if can_place:
 				# Posição válida - verde semi-transparente
 				if preview_tex != null:
@@ -3450,15 +3521,58 @@ func _start_drag_tower(tower_type: String, tower_idx: int, mouse_pos: Vector2) -
 	drag_current_pos = mouse_pos
 	queue_redraw()
 
+# Função auxiliar para calcular snap de torre (usada tanto no preview quanto no _end_drag_tower)
+# IMPORTANTE: Usa a mesma lógica do posicionamento inicial (_try_place_tower)
+func _calculate_tower_snap(tower_center_pos: Vector2, tower_size: int) -> Dictionary:
+	"""Calcula a posição snapped de uma torre baseada na posição do centro.
+	Retorna um Dictionary com: {grid_coord: Vector2i, snapped_world_pos: Vector2, can_place: bool, ignore_area: Rect2i}
+	
+	Esta função usa EXATAMENTE a mesma lógica do posicionamento inicial:
+	1. world_to_base_grid() para converter posição do mundo para grid (usa floor)
+	2. base_grid_to_world() para converter grid de volta para posição do mundo (centro)
+	"""
+	var result = {
+		"grid_coord": Vector2i(0, 0),
+		"snapped_world_pos": Vector2.ZERO,
+		"can_place": false,
+		"ignore_area": Rect2i()
+	}
+	
+	# Verificar se está dentro da área da base
+	if not grid_manager.is_inside_base_point(tower_center_pos):
+		return result
+	
+	# Usar EXATAMENTE a mesma lógica do posicionamento inicial
+	# world_to_base_grid usa floor e retorna o canto superior esquerdo da célula do grid
+	var grid_coord = grid_manager.world_to_base_grid(tower_center_pos)
+	
+	# Verificar se a torre cabe no grid (considerando o tamanho)
+	# grid_coord é o canto superior esquerdo, então precisamos verificar se grid_coord + size cabe
+	if grid_coord.x + tower_size > GameConstants.BASE_GRID_SIZE:
+		grid_coord.x = GameConstants.BASE_GRID_SIZE - tower_size
+	if grid_coord.y + tower_size > GameConstants.BASE_GRID_SIZE:
+		grid_coord.y = GameConstants.BASE_GRID_SIZE - tower_size
+	
+	# Garantir que não seja negativo
+	grid_coord.x = max(0, grid_coord.x)
+	grid_coord.y = max(0, grid_coord.y)
+	
+	# Converter de volta para posição do mundo (centro da torre)
+	# Isso usa EXATAMENTE a mesma função que _try_place_tower usa
+	var snapped_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, tower_size)
+	
+	result["grid_coord"] = grid_coord
+	result["snapped_world_pos"] = snapped_world_pos
+	return result
+
 func _end_drag_tower(mouse_pos: Vector2) -> void:
 	if not dragging_tower:
 		return
 	
-	# Usar a posição do mouse diretamente para fazer o snap
-	# O mouse_pos já está em coordenadas do mundo (convertido com to_local)
-	# Precisamos calcular onde o centro da torre deve estar baseado na posição do mouse
-	# Considerando o offset do drag (a diferença entre onde o mouse estava quando começou o drag e o centro da torre)
-	var tower_center_pos = mouse_pos - drag_offset
+	# Usar drag_current_pos ao invés de mouse_pos para garantir que use exatamente a mesma posição do preview
+	# Isso garante que a torre seja colocada exatamente onde o preview mostra
+	# IMPORTANTE: Usar exatamente a mesma lógica do preview
+	var tower_center_pos = drag_current_pos - drag_offset
 	
 	# Determinar tamanho baseado no tipo de torre sendo arrastada
 	var tower_size = 3  # padrão
@@ -3478,71 +3592,44 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 		"barracks":
 			tower_size = GameConstants.BARRACKS_SIZE_GRID
 	
-	# Verificar se está dentro da área da base
-	if not grid_manager.is_inside_base_point(tower_center_pos):
-		# Se não estiver dentro, restaurar posição original
-		dragging_tower = false
-		dragged_tower_type = ""
-		dragged_tower_index = -1
-		drag_start_pos = Vector2.ZERO
-		drag_offset = Vector2.ZERO
-		drag_current_pos = Vector2.ZERO
-		queue_redraw()
-		return
+	# Usar função auxiliar para calcular snap - EXATAMENTE a mesma função usada no preview
+	var snap_result = _calculate_tower_snap(tower_center_pos, tower_size)
+	var grid_coord = snap_result["grid_coord"]
+	var snapped_world_pos = snap_result["snapped_world_pos"]
 	
-	# Fazer snap para o grid
-	# tower_center_pos é onde o centro da torre estaria baseado na posição do mouse
-	# Precisamos calcular o canto superior esquerdo da área ocupada pela torre no grid
-	# e depois converter de volta para a posição do mundo (centro)
+	# Garantir que estamos usando exatamente a mesma posição que o preview mostrou
+	# Se o snap não funcionou, não tentar mover
+	if snapped_world_pos == Vector2.ZERO:
+		# Se não está dentro da base, não fazer nada
+		if not grid_manager.is_inside_base_point(tower_center_pos):
+			dragging_tower = false
+			dragged_tower_type = ""
+			dragged_tower_index = -1
+			drag_start_pos = Vector2.ZERO
+			drag_offset = Vector2.ZERO
+			drag_current_pos = Vector2.ZERO
+			queue_redraw()
+			return
+		# Se está dentro da base mas snap falhou, tentar usar a posição original
+		# (não deveria acontecer, mas por segurança)
+		snapped_world_pos = tower_center_pos
 	
-	# Converter o centro da torre para coordenadas do grid interno
-	var grid_size_tiles = float(GameConstants.BASE_SIZE_TILES) / float(GameConstants.BASE_GRID_SIZE)
-	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)
-	var base_start_col = grid_manager.center.x - base_half_size
-	var base_start_row = grid_manager.center.y - base_half_size
-	
-	# Converter posição do mundo (centro) para coordenadas de tile
-	var tile_col = tower_center_pos.x / GameConstants.TILE_SIZE
-	var tile_row = tower_center_pos.y / GameConstants.TILE_SIZE
-	
-	# Calcular posição relativa dentro da base
-	var relative_col = tile_col - float(base_start_col)
-	var relative_row = tile_row - float(base_start_row)
-	
-	# Converter para coordenadas do grid interno (em float para precisão)
-	var grid_center_x_float = relative_col / grid_size_tiles
-	var grid_center_y_float = relative_row / grid_size_tiles
-	
-	# Calcular o canto superior esquerdo: subtrair metade do tamanho da torre
-	var half_size_float = float(tower_size) / 2.0
-	var top_left_x_float = grid_center_x_float - half_size_float
-	var top_left_y_float = grid_center_y_float - half_size_float
-	
-	# Converter para inteiro (canto superior esquerdo da área ocupada)
-	var grid_coord = Vector2i(int(floor(top_left_x_float)), int(floor(top_left_y_float)))
-	
-	# Clampar para garantir que a torre inteira fique dentro do grid
-	grid_coord.x = clamp(grid_coord.x, 0, GameConstants.BASE_GRID_SIZE - tower_size)
-	grid_coord.y = clamp(grid_coord.y, 0, GameConstants.BASE_GRID_SIZE - tower_size)
-	
-	# Converter de volta para posição do mundo (centro da torre)
-	var snapped_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, tower_size)
-	
-	# Tentar mover a torre com posição ajustada ao grid
+	# Tentar mover a torre usando o grid_coord calculado (não recalcular!)
+	# Isso garante que usamos exatamente o mesmo grid_coord que o preview mostrou
 	var moved = false
 	match dragged_tower_type:
 		"tower":
-			moved = _try_move_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_tower_to_grid(dragged_tower_index, grid_coord)
 		"slow_tower":
-			moved = _try_move_slow_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_slow_tower_to_grid(dragged_tower_index, grid_coord)
 		"aoe_tower":
-			moved = _try_move_aoe_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_aoe_tower_to_grid(dragged_tower_index, grid_coord)
 		"sniper_tower":
-			moved = _try_move_sniper_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_sniper_tower_to_grid(dragged_tower_index, grid_coord)
 		"boost_tower":
-			moved = _try_move_boost_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_boost_tower_to_grid(dragged_tower_index, grid_coord)
 		"shock_tower":
-			moved = _try_move_shock_tower(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_shock_tower_to_grid(dragged_tower_index, grid_coord)
 		"mine":
 			# Para minas, não fazer snap (elas ficam em posições livres)
 			# Usar a posição do mouse diretamente (sem snap)
@@ -3553,7 +3640,7 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			var wall_world_pos = Vector2(wall_tile.x * GameConstants.TILE_SIZE, wall_tile.y * GameConstants.TILE_SIZE)
 			moved = _try_move_wall(dragged_tower_index, wall_world_pos)
 		"barracks":
-			moved = _try_move_barracks(dragged_tower_index, snapped_world_pos)
+			moved = _try_move_barracks_to_grid(dragged_tower_index, grid_coord)
 	
 	# Se não conseguiu mover, restaurar grid na posição original
 	if not moved:
@@ -5222,17 +5309,12 @@ func _try_move_mine(mine_idx: int, new_pos: Vector2) -> bool:
 	mines[mine_idx] = mine
 	return true
 
-func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
+# Função auxiliar para mover torre usando grid_coord diretamente (evita recalcular e causar diferenças)
+func _try_move_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
 	if tower_idx < 0 or tower_idx >= towers.size():
 		return false
 	
 	var tower = towers[tower_idx]
-	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
 	
 	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
@@ -5252,7 +5334,7 @@ func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID, 1)
 	pathfinder.invalidate_cache()
 	
-	# Atualizar posição da torre
+	# Atualizar posição da torre usando EXATAMENTE a mesma função do posicionamento inicial
 	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.TOWER_SIZE_GRID)
 	tower.pos = new_world_pos
 	tower.grid_x = new_grid_coord.x
@@ -5261,17 +5343,23 @@ func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	towers[tower_idx] = tower
 	return true
 
-func _try_move_slow_tower(tower_idx: int, new_pos: Vector2) -> bool:
-	if tower_idx < 0 or tower_idx >= slow_towers.size():
+func _try_move_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	# Esta função é mantida para compatibilidade, mas agora converte para grid_coord primeiro
+	if tower_idx < 0 or tower_idx >= towers.size():
 		return false
-	
-	var tower = slow_towers[tower_idx]
 	
 	# Verificar nova posição primeiro (antes de limpar a antiga)
 	if not grid_manager.is_inside_base_point(new_pos):
 		return false
 	
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_slow_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
+	if tower_idx < 0 or tower_idx >= slow_towers.size():
+		return false
+	
+	var tower = slow_towers[tower_idx]
 	
 	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
@@ -5299,33 +5387,29 @@ func _try_move_slow_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	slow_towers[tower_idx] = tower
 	return true
 
-func _try_move_aoe_tower(tower_idx: int, new_pos: Vector2) -> bool:
+func _try_move_slow_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= slow_towers.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_slow_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_aoe_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
 	if tower_idx < 0 or tower_idx >= aoe_towers.size():
 		return false
 	
 	var tower = aoe_towers[tower_idx]
 	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	
-	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
 		return true
 	
-	# Criar área a ignorar (posição antiga da torre)
 	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID, GameConstants.AOE_TOWER_SIZE_GRID)
 	
-	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
 	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6, ignore_area):
 		return false
 	
-	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
 	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.AOE_TOWER_SIZE_GRID)
-	
-	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	pathfinder.invalidate_cache()
 	
@@ -5337,33 +5421,29 @@ func _try_move_aoe_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	aoe_towers[tower_idx] = tower
 	return true
 
-func _try_move_sniper_tower(tower_idx: int, new_pos: Vector2) -> bool:
+func _try_move_aoe_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= aoe_towers.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_aoe_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_sniper_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
 	if tower_idx < 0 or tower_idx >= sniper_towers.size():
 		return false
 	
 	var tower = sniper_towers[tower_idx]
 	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	
-	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
 		return true
 	
-	# Criar área a ignorar (posição antiga da torre)
 	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID, GameConstants.SNIPER_TOWER_SIZE_GRID)
 	
-	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
 	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7, ignore_area):
 		return false
 	
-	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
 	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SNIPER_TOWER_SIZE_GRID)
-	
-	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
 	pathfinder.invalidate_cache()
 	
@@ -5375,33 +5455,29 @@ func _try_move_sniper_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	sniper_towers[tower_idx] = tower
 	return true
 
-func _try_move_boost_tower(tower_idx: int, new_pos: Vector2) -> bool:
+func _try_move_sniper_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= sniper_towers.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_sniper_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_boost_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
 	if tower_idx < 0 or tower_idx >= boost_towers.size():
 		return false
 	
 	var tower = boost_towers[tower_idx]
 	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	
-	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
 		return true
 	
-	# Criar área a ignorar (posição antiga da torre)
 	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID, GameConstants.BOOST_TOWER_SIZE_GRID)
 	
-	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
 	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8, ignore_area):
 		return false
 	
-	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
 	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.BOOST_TOWER_SIZE_GRID)
-	
-	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
 	pathfinder.invalidate_cache()
 	
@@ -5413,33 +5489,29 @@ func _try_move_boost_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	boost_towers[tower_idx] = tower
 	return true
 
-func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
+func _try_move_boost_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= boost_towers.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_boost_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_shock_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
 	if tower_idx < 0 or tower_idx >= shock_towers.size():
 		return false
 	
 	var tower = shock_towers[tower_idx]
 	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	
-	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
 		return true
 	
-	# Criar área a ignorar (posição antiga da torre)
 	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, GameConstants.SHOCK_TOWER_SIZE_GRID)
 	
-	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
 	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9, ignore_area):
 		return false
 	
-	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
 	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID)
-	
-	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	
@@ -5451,33 +5523,29 @@ func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	shock_towers[tower_idx] = tower
 	return true
 
-func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
+func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
+	if tower_idx < 0 or tower_idx >= shock_towers.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_shock_tower_to_grid(tower_idx, new_grid_coord)
+
+func _try_move_barracks_to_grid(barracks_idx: int, new_grid_coord: Vector2i) -> bool:
 	if barracks_idx < 0 or barracks_idx >= barracks.size():
 		return false
 	
 	var b = barracks[barracks_idx]
 	
-	# Verificar nova posição primeiro (antes de limpar a antiga)
-	if not grid_manager.is_inside_base_point(new_pos):
-		return false
-	
-	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
-	
-	# Se a nova posição é a mesma da antiga, não precisa fazer nada
 	if new_grid_coord.x == b.grid_x and new_grid_coord.y == b.grid_y:
 		return true
 	
-	# Criar área a ignorar (posição antiga do quartel)
 	var ignore_area = Rect2i(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID, GameConstants.BARRACKS_SIZE_GRID)
 	
-	# Verificar se pode colocar na nova posição (ignorando a posição antiga)
 	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3, ignore_area):
 		return false
 	
-	# Limpar grid na posição antiga (após confirmar que a nova posição é válida)
 	grid_manager.clear_grid_area(b.grid_x, b.grid_y, GameConstants.BARRACKS_SIZE_GRID)
-	
-	# Atualizar grid na nova posição
 	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3)
 	pathfinder.invalidate_cache()
 	
@@ -5488,6 +5556,14 @@ func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
 	
 	barracks[barracks_idx] = b
 	return true
+
+func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
+	if barracks_idx < 0 or barracks_idx >= barracks.size():
+		return false
+	if not grid_manager.is_inside_base_point(new_pos):
+		return false
+	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_barracks_to_grid(barracks_idx, new_grid_coord)
 
 func _on_buy_healing_station() -> void:
 	if placing_healing_station:
@@ -7367,7 +7443,7 @@ func _create_skills_ui() -> void:
 	skill1_hbox.add_child(skill1_text)
 	
 	var skill1_name = Label.new()
-	skill1_name.text = "Coletar Moedas"
+	skill1_name.text = "Coletar Moedas [1]"
 	skill1_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	skill1_name.add_theme_font_size_override("font_size", 14)
 	skill1_text.add_child(skill1_name)
@@ -7447,7 +7523,7 @@ func _create_skills_ui() -> void:
 	skill2_hbox.add_child(skill2_text)
 	
 	var skill2_name = Label.new()
-	skill2_name.text = "Boost de Dano"
+	skill2_name.text = "Boost de Dano [2]"
 	skill2_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	skill2_name.add_theme_font_size_override("font_size", 14)
 	skill2_text.add_child(skill2_name)
@@ -7527,7 +7603,7 @@ func _create_skills_ui() -> void:
 	skill3_hbox.add_child(skill3_text)
 	
 	var skill3_name = Label.new()
-	skill3_name.text = "Boost de Velocidade"
+	skill3_name.text = "Boost de Velocidade [3]"
 	skill3_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	skill3_name.add_theme_font_size_override("font_size", 14)
 	skill3_text.add_child(skill3_name)
@@ -7607,7 +7683,7 @@ func _create_skills_ui() -> void:
 	skill4_hbox.add_child(skill4_text)
 	
 	var skill4_name = Label.new()
-	skill4_name.text = "Slow Global"
+	skill4_name.text = "Slow Global [4]"
 	skill4_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	skill4_name.add_theme_font_size_override("font_size", 14)
 	skill4_text.add_child(skill4_name)
@@ -7687,7 +7763,7 @@ func _create_skills_ui() -> void:
 	skill5_hbox.add_child(skill5_text)
 	
 	var skill5_name = Label.new()
-	skill5_name.text = "Magnetismo de Moedas"
+	skill5_name.text = "Magnetismo de Moedas [5]"
 	skill5_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	skill5_name.add_theme_font_size_override("font_size", 14)
 	skill5_text.add_child(skill5_name)
