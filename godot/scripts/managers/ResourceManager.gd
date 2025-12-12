@@ -64,6 +64,7 @@ func load_all_textures() -> void:
 	textures["wall_structure"] = load_texture("res://assets/images/wall_structure.png", true)
 	textures["healing_station"] = load_texture("res://assets/images/healing_station.png", true)
 	textures["coin"] = load_texture("res://assets/images/coin.png", true)
+	textures["talism"] = load_texture("res://assets/images/talism.png", true)  # Processar fundo transparente
 	textures["house"] = load_texture("res://assets/images/house.png", true)
 	textures["castle"] = load_texture("res://assets/images/castle.png", true)
 	textures["game_over"] = load_texture("res://assets/images/GameOver.png", false)
@@ -100,6 +101,8 @@ func _process_white_to_transparent(texture: Texture2D, image_path: String) -> Te
 		threshold = 0.82
 	elif "tower.png" in image_path:
 		threshold = 0.78
+	elif "talism" in image_path:
+		threshold = 0.85  # Mesmo threshold padrão para talismã
 	
 	for y in range(image.get_height()):
 		for x in range(image.get_width()):

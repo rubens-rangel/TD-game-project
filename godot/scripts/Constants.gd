@@ -123,6 +123,11 @@ const COIN_MIN_VALUE := 3
 const COIN_MAX_VALUE := 20
 const COIN_LIFETIME := 14.0  # tempo que a moeda fica no chão antes de desaparecer
 
+# Item drops (Talismãs, etc.)
+const TALISMAN_DROP_CHANCE := 0.005  # 0,5% de chance de dropar talismã 
+const TALISMAN_LIFETIME := 60.0  # tempo que o talismã fica no chão antes de desaparecer (60 segundos)
+const TALISMAN_COLLECT_RADIUS := 25.0  # raio de coleta do talismã (maior que moedas)
+
 # Skills
 const SKILL_COLLECT_COINS_COST := 0  # Gratuita
 const SKILL_DAMAGE_BOOST_COST := 0  # Gratuita (cooldown apenas)
@@ -209,8 +214,8 @@ const BARRACKS_INITIAL_SPAWN_RATE := 3.0  # Taxa inicial de spawn de soldados (e
 const BARRACKS_MIN_SPAWN_RATE := 1.0  # Limite mínimo de spawn rate (em segundos)
 const BARRACKS_SPAWN_RATE_REDUCTION := 0.5  # Redução de spawn rate por upgrade
 const BARRACKS_INITIAL_HOLD_TIME := 1.0  # Tempo inicial que soldado segura monstro (em segundos)
-const BARRACKS_HOLD_TIME_INCREASE := 0.3  # Aumento de hold time por upgrade
-const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.5  # Dano por segundo do soldado inicial
+const BARRACKS_HOLD_TIME_INCREASE := 0.5  # Aumento de hold time por upgrade
+const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.4  # Dano por segundo do soldado inicial
 const BARRACKS_INITIAL_PROJECTILE_SPEED := 80.0  # Velocidade inicial do projetil do soldado
 const BARRACKS_PROJECTILE_SPEED_INCREASE := 20.0  # Aumento de velocidade do projetil por upgrade
 const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.2  # Aumento de dano do soldado por upgrade

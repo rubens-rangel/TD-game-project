@@ -58,6 +58,10 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["walls"] = _serialize_walls(game_instance.walls)
 	save_data["healing_stations"] = _serialize_healing_stations(game_instance.healing_stations)
 	
+	# Itens equipáveis (Talismãs, etc.)
+	if game_instance.item_manager:
+		save_data["items"] = game_instance.item_manager.serialize()
+	
 	# Timestamp
 	save_data["timestamp"] = Time.get_unix_time_from_system()
 	save_data["save_time"] = Time.get_datetime_string_from_system()
@@ -224,6 +228,12 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.mines = _deserialize_mines(save_data.get("mines", []))
 	game_instance.walls = _deserialize_walls(save_data.get("walls", []))
 	game_instance.healing_stations = _deserialize_healing_stations(save_data.get("healing_stations", []))
+	
+	# Carregar itens equipáveis (Talismãs, etc.)
+	if game_instance.item_manager:
+		var items_data = save_data.get("items", {})
+		if not items_data.is_empty():
+			game_instance.item_manager.deserialize(items_data)
 	
 	# Limpar inimigos e projéteis (não salvamos eles)
 	game_instance.enemies.clear()

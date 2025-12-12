@@ -81,10 +81,10 @@ static var ALL_PERKS: Dictionary = {
 		"effect_value": 0.10
 	},
 	"coin_magnetism": {
-		"name": "Magnetismo de Moedas",
-		"description": "Coleta moedas automaticamente ao passar o mouse sobre elas",
+		"name": "Magnetismo de Moedas e Itens",
+		"description": "Coleta moedas e itens automaticamente ao passar o mouse sobre eles",
 		"category": Category.ECONOMY,
-		"cost": 120,
+		"cost": 300,
 		"max_level": 1,
 		"icon": "🧲",
 		"effect": "coin_magnetism",

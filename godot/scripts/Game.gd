@@ -19,6 +19,8 @@ const PlacementManager = preload("res://scripts/managers/PlacementManager.gd")
 const TowerSystemManager = preload("res://scripts/managers/TowerSystemManager.gd")
 const VisualEffectsManager = preload("res://scripts/managers/VisualEffectsManager.gd")
 const UIManager = preload("res://scripts/managers/UIManager.gd")
+const ItemManager = preload("res://scripts/managers/ItemManager.gd")
+const Talisman = preload("res://scripts/items/Talisman.gd")
 
 const HERO_ARROW_SPEED := 260.0
 
@@ -38,6 +40,7 @@ var placement_manager: PlacementManager
 var tower_system_manager: TowerSystemManager
 var visual_effects_manager: VisualEffectsManager
 var ui_manager: UIManager
+var item_manager: ItemManager
 
 # Estatísticas para achievements
 var total_kills: int = 0
@@ -68,6 +71,7 @@ var sniper_effects: Array = []  # efeitos visuais de tiro sniper: {start: Vector
 var aoe_cannon_projectiles: Array = []  # projéteis de canhão AOE: {pos: Vector2, target: Vector2, speed: float, radius: float}
 var dropped_coins: Array = []  # moedas dropadas: {pos: Vector2, value: int, lifetime: float, max_lifetime: float, collected: bool}
 var coin_collect_effects: Array = []  # efeitos visuais de coleta de moedas: {pos: Vector2, time: float, max_time: float, particles: Array}
+var dropped_talismans: Array = []  # talismãs dropados: {pos: Vector2, talisman: Talisman, lifetime: float, max_lifetime: float, collected: bool}
 var damage_numbers: Array = []  # indicadores de dano flutuantes: {pos: Vector2, value: float, time: float, max_time: float, is_crit: bool}
 var enemy_death_animations: Array = []  # animações de morte: {pos: Vector2, time: float, max_time: float, scale: float, alpha: float}
 var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Vector2, end: Vector2, time: float, max_time: float}
@@ -167,6 +171,7 @@ var tex_mine: Texture2D  # Mina
 var tex_wall_structure: Texture2D  # Muralha/barreira
 var tex_healing_station: Texture2D  # Estação de cura
 var tex_coin: Texture2D  # Moeda dropada
+var tex_talisman: Texture2D  # Talismã
 var tex_game_over: Texture2D  # Imagem de Game Over
 
 # Tela de carregamento
@@ -479,6 +484,9 @@ func _ready() -> void:
 	ui_manager = UIManager.new(self)
 	ui_manager.initialize()
 	
+	# Inicializar ItemManager
+	item_manager = ItemManager.new()
+	
 	_apply_perk_effects()
 	
 	# Carregar configurações de áudio
@@ -573,6 +581,7 @@ func _ready() -> void:
 	tex_wall_structure = resource_manager.get_texture("wall_structure")
 	tex_healing_station = resource_manager.get_texture("healing_station")
 	tex_coin = resource_manager.get_texture("coin")
+	tex_talisman = resource_manager.get_texture("talism")
 	tex_game_over = resource_manager.get_texture("game_over")
 	
 	# Aguardar um pouco antes de esconder a tela de carregamento
@@ -1010,6 +1019,8 @@ func _process(delta: float) -> void:
 		# Converter posição da tela para coordenadas do mundo do Node2D
 		var world_pos = to_local(mouse_screen_pos)
 		var coin_value = coin_manager.try_collect_coin(world_pos)
+		# Tentar coletar talismã também
+		_try_collect_talisman(world_pos)
 		if coin_value > 0:
 			achievement_manager.increment_progress("collect_1000_coins", coin_value)
 			achievement_manager.increment_progress("collect_10000_coins", coin_value)
@@ -1092,6 +1103,9 @@ func _process(delta: float) -> void:
 	if coin_manager:
 		coin_manager.update_coins(delta)
 		dropped_coins = coin_manager.get_dropped_coins()
+	
+	# Atualizar talismãs dropados
+	_update_dropped_talismans(delta)
 	# remover inimigos mortos/que chegaram na base e limpar efeitos
 	var alive: Array = []
 	var new_enemy_effects: Dictionary = {}
@@ -1482,6 +1496,7 @@ func _input(event: InputEvent) -> void:
 			
 			if coin_manager:
 				var coin_value = coin_manager.try_collect_coin(world_pos)
+				_try_collect_talisman(world_pos)
 				if coin_value > 0:
 					achievement_manager.increment_progress("collect_1000_coins", coin_value)
 					achievement_manager.increment_progress("collect_10000_coins", coin_value)
@@ -2182,6 +2197,33 @@ func _draw() -> void:
 			# desenhar símbolo de moeda ($) no centro
 			# Nota: Godot não tem draw_text simples, então vamos apenas desenhar um círculo menor no centro
 			draw_circle(coin.pos, 8, Color(1.0, 0.9, 0.3, alpha))
+	
+	# talismãs dropados
+	for talisman_drop in dropped_talismans:
+		if talisman_drop.collected:
+			continue
+		# calcular transparência baseada no tempo de vida
+		var lifetime_ratio = talisman_drop.lifetime / talisman_drop.max_lifetime
+		var alpha = 1.0
+		if lifetime_ratio > 0.8:  # últimos 20% do tempo de vida
+			var fade_ratio = (lifetime_ratio - 0.8) / 0.2
+			alpha = 1.0 - fade_ratio * 0.5  # fade até 50% de transparência
+		
+		var talisman = talisman_drop.talisman
+		var rarity_color = talisman.get_rarity_color()
+		var talisman_size = 50.0
+		
+		# Desenhar círculo de fundo com cor da raridade
+		draw_circle(talisman_drop.pos, talisman_size/2, Color(rarity_color.r, rarity_color.g, rarity_color.b, alpha * 0.3))
+		draw_circle(talisman_drop.pos, talisman_size/2, rarity_color, false, 3.0)
+		
+		# Desenhar imagem do talismã
+		if tex_talisman != null:
+			var talisman_rect = Rect2(talisman_drop.pos.x - talisman_size/2, talisman_drop.pos.y - talisman_size/2, talisman_size, talisman_size)
+			draw_texture_rect(tex_talisman, talisman_rect, false, Color(1, 1, 1, alpha))
+		else:
+			# Fallback: círculo colorido
+			draw_circle(talisman_drop.pos, talisman_size/4, Color(rarity_color.r, rarity_color.g, rarity_color.b, alpha))
 	
 	# efeitos de coleta de moedas (amarelo/dourado)
 	for effect in coin_collect_effects:
@@ -3281,6 +3323,7 @@ func _handle_collisions() -> void:
 					hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
+					_try_drop_talisman(e["pos"])
 					# Rastrear achievements de kills
 					_track_enemy_kill(is_boss)
 				if a["pierce"] > 0:
@@ -3317,6 +3360,7 @@ func _handle_collisions() -> void:
 					hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
+					_try_drop_talisman(e["pos"])
 					# Rastrear achievements de kills
 					_track_enemy_kill(is_boss)
 				
@@ -5814,6 +5858,7 @@ func _update_aoe_towers(delta: float) -> void:
 						hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
+						_try_drop_talisman(e["pos"])
 						# Rastrear achievements de kills
 						_track_enemy_kill(is_boss)
 		else:
@@ -5927,6 +5972,7 @@ func _update_sniper_towers(delta: float) -> void:
 						hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
 						# chance de dropar moeda
 						_try_drop_coin(e["pos"])
+						_try_drop_talisman(e["pos"])
 						# Rastrear achievements de kills
 						_track_enemy_kill(is_boss)
 				# resetar cooldown apenas se encontrou alvo
@@ -6574,6 +6620,73 @@ func _reset_build_and_selection_state() -> void:
 func _try_drop_coin(pos: Vector2) -> void:
 	if coin_manager:
 		coin_manager.try_drop_coin(pos)
+
+func _try_drop_talisman(pos: Vector2) -> void:
+	"""Tenta dropar um talismã na posição especificada"""
+	if not item_manager:
+		return
+	
+	# Verificar chance de drop
+	var drop_chance = GameConstants.TALISMAN_DROP_CHANCE
+	if randf() < drop_chance:
+		# Determinar raridade (raridade aumenta conforme o valor do roll)
+		# Distribuição: Common (50%) > Uncommon (30%) > Rare (15%) > Epic (4%) > Legendary (1%)
+		var rarity_roll = randf()
+		var rarity: EquippableItem.ItemRarity
+		if rarity_roll < 0.50:  # 50% - Common (mais comum)
+			rarity = EquippableItem.ItemRarity.COMMON
+		elif rarity_roll < 0.80:  # 30% - Uncommon
+			rarity = EquippableItem.ItemRarity.UNCOMMON
+		elif rarity_roll < 0.95:  # 15% - Rare
+			rarity = EquippableItem.ItemRarity.RARE
+		elif rarity_roll < 0.99:  # 4% - Epic (raro)
+			rarity = EquippableItem.ItemRarity.EPIC
+		else:  # 1% - Legendary (muito raro)
+			rarity = EquippableItem.ItemRarity.LEGENDARY
+		
+		# Criar talismã aleatório
+		var talisman = Talisman.create_random(rarity)
+		
+		# Adicionar como drop visual (não direto ao inventário)
+		dropped_talismans.append({
+			"pos": pos,
+			"talisman": talisman,
+			"lifetime": 0.0,
+			"max_lifetime": GameConstants.TALISMAN_LIFETIME,
+			"collected": false
+		})
+
+func _update_dropped_talismans(delta: float) -> void:
+	"""Atualiza talismãs dropados (lifetime e coleta)"""
+	var new_talismans: Array = []
+	for talisman_drop in dropped_talismans:
+		if talisman_drop.collected:
+			continue
+		talisman_drop.lifetime += delta
+		if talisman_drop.lifetime < talisman_drop.max_lifetime:
+			new_talismans.append(talisman_drop)
+	dropped_talismans = new_talismans
+
+func _try_collect_talisman(world_pos: Vector2) -> bool:
+	"""Tenta coletar um talismã próximo à posição do mundo. Retorna true se coletou."""
+	if not item_manager:
+		return false
+	
+	for talisman_drop in dropped_talismans:
+		if talisman_drop.collected:
+			continue
+		
+		var dist = world_pos.distance_to(talisman_drop.pos)
+		if dist < GameConstants.TALISMAN_COLLECT_RADIUS:
+			talisman_drop.collected = true
+			# Adicionar ao inventário
+			item_manager.add_item(talisman_drop.talisman)
+			# Criar efeito visual de coleta
+			if effects_manager:
+				effects_manager.create_coin_collect_effect(talisman_drop.pos)
+			return true
+	
+	return false
 
 func _create_loading_screen() -> void:
 	# Criar tela de carregamento
@@ -7623,6 +7736,271 @@ func _create_skills_ui() -> void:
 	skill5_hbox.add_child(skill5_btn)
 	
 	vbox.add_child(skill5_container)
+	
+	# Botão para abrir inventário de talismãs
+	var talisman_btn = Button.new()
+	talisman_btn.name = "TalismanButton"
+	talisman_btn.text = "Talismãs"
+	talisman_btn.custom_minimum_size = Vector2(100, 40)
+	talisman_btn.pressed.connect(_toggle_talisman_inventory)
+	var btn_style = StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.3, 0.2, 0.5)
+	btn_style.border_color = Color(0.5, 0.4, 0.7)
+	btn_style.border_width_left = 1
+	btn_style.border_width_top = 1
+	btn_style.border_width_right = 1
+	btn_style.border_width_bottom = 1
+	talisman_btn.add_theme_stylebox_override("normal", btn_style)
+	talisman_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	talisman_btn.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(talisman_btn)
+	
+	_create_talisman_inventory_ui()
+
+func _create_talisman_inventory_ui() -> void:
+	# Criar painel de inventário de talismãs
+	var canvas = $CanvasLayer
+	var hud = canvas.get_node("HUD")
+	
+	if hud.has_node("TalismanInventoryPanel"):
+		hud.get_node("TalismanInventoryPanel").queue_free()
+	
+	var panel = Panel.new()
+	panel.name = "TalismanInventoryPanel"
+	panel.visible = false
+	panel.z_index = 100
+	hud.add_child(panel)
+	
+	var screen_width = get_viewport().get_visible_rect().size.x
+	var screen_height = get_viewport().get_visible_rect().size.y
+	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	panel.position = Vector2(screen_width/2 - 300, 60)
+	panel.size = Vector2(600, 500)
+	
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	style.border_color = Color(0.3, 0.3, 0.4)
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", style)
+	
+	# Container principal com margens
+	var main_margin = MarginContainer.new()
+	main_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_margin.add_theme_constant_override("margin_left", 15)
+	main_margin.add_theme_constant_override("margin_right", 15)
+	main_margin.add_theme_constant_override("margin_top", 15)
+	main_margin.add_theme_constant_override("margin_bottom", 15)
+	panel.add_child(main_margin)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	main_margin.add_child(vbox)
+	
+	var title = Label.new()
+	title.text = "Talismãs"
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	
+	var close_btn = Button.new()
+	close_btn.text = "Fechar"
+	close_btn.custom_minimum_size = Vector2(100, 30)
+	close_btn.pressed.connect(_toggle_talisman_inventory)
+	vbox.add_child(close_btn)
+	
+	var scroll = ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+	
+	# Container interno do scroll com margem
+	var scroll_margin = MarginContainer.new()
+	scroll_margin.add_theme_constant_override("margin_left", 10)
+	scroll_margin.add_theme_constant_override("margin_right", 10)
+	scroll_margin.add_theme_constant_override("margin_top", 10)
+	scroll_margin.add_theme_constant_override("margin_bottom", 10)
+	scroll.add_child(scroll_margin)
+	
+	var inventory_vbox = VBoxContainer.new()
+	inventory_vbox.add_theme_constant_override("separation", 8)
+	scroll_margin.add_child(inventory_vbox)
+	
+	# Armazenar referências para atualização
+	talisman_inventory_panel = panel
+	talisman_inventory_container = inventory_vbox
+	_update_talisman_inventory_ui()
+
+var talisman_inventory_panel: Panel = null
+var talisman_inventory_container: VBoxContainer = null
+var talisman_inventory_visible: bool = false
+
+func _toggle_talisman_inventory() -> void:
+	if talisman_inventory_panel:
+		talisman_inventory_visible = not talisman_inventory_visible
+		talisman_inventory_panel.visible = talisman_inventory_visible
+		if talisman_inventory_visible:
+			_update_talisman_inventory_ui()
+
+func _update_talisman_inventory_ui() -> void:
+	if not talisman_inventory_container or not item_manager:
+		return
+	
+	# Limpar container
+	for child in talisman_inventory_container.get_children():
+		child.queue_free()
+	
+	# Mostrar itens equipados
+	var equipped_label = Label.new()
+	equipped_label.text = "Equipados:"
+	equipped_label.add_theme_font_size_override("font_size", 16)
+	equipped_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
+	equipped_label.add_theme_constant_override("margin_top", 5)
+	talisman_inventory_container.add_child(equipped_label)
+	
+	if item_manager.equipped_items.is_empty():
+		var empty_label = Label.new()
+		empty_label.text = "Nenhum talismã equipado"
+		empty_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		empty_label.add_theme_constant_override("margin_left", 10)
+		talisman_inventory_container.add_child(empty_label)
+	else:
+		for item in item_manager.equipped_items:
+			# Garantir que a descrição está atualizada antes de criar a UI
+			if item is Talisman:
+				var talisman: Talisman = item
+				talisman._apply_talisman_effects()
+			_create_talisman_item_ui(item, true)
+	
+	# Separador
+	var separator = HSeparator.new()
+	separator.add_theme_constant_override("margin_top", 10)
+	separator.add_theme_constant_override("margin_bottom", 10)
+	talisman_inventory_container.add_child(separator)
+	
+	# Mostrar inventário
+	var inventory_label = Label.new()
+	inventory_label.text = "Inventário:"
+	inventory_label.add_theme_font_size_override("font_size", 16)
+	inventory_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
+	inventory_label.add_theme_constant_override("margin_top", 5)
+	talisman_inventory_container.add_child(inventory_label)
+	
+	if item_manager.inventory.is_empty():
+		var empty_label = Label.new()
+		empty_label.text = "Inventário vazio"
+		empty_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		empty_label.add_theme_constant_override("margin_left", 10)
+		talisman_inventory_container.add_child(empty_label)
+	else:
+		for item in item_manager.inventory:
+			# Garantir que a descrição está atualizada antes de criar a UI
+			if item is Talisman:
+				var talisman: Talisman = item
+				talisman._apply_talisman_effects()
+			_create_talisman_item_ui(item, false)
+
+func _create_talisman_item_ui(item: EquippableItem, is_equipped: bool) -> void:
+	var item_container = PanelContainer.new()
+	var item_style = StyleBoxFlat.new()
+	var rarity_color = item.get_rarity_color()
+	item_style.bg_color = Color(rarity_color.r * 0.2, rarity_color.g * 0.2, rarity_color.b * 0.2, 0.8)
+	item_style.border_color = rarity_color
+	item_style.border_width_left = 2
+	item_style.border_width_top = 2
+	item_style.border_width_right = 2
+	item_style.border_width_bottom = 2
+	item_container.add_theme_stylebox_override("panel", item_style)
+	item_container.custom_minimum_size = Vector2(0, 90)
+	
+	# Container interno com margem
+	var item_margin = MarginContainer.new()
+	item_margin.add_theme_constant_override("margin_left", 10)
+	item_margin.add_theme_constant_override("margin_right", 10)
+	item_margin.add_theme_constant_override("margin_top", 8)
+	item_margin.add_theme_constant_override("margin_bottom", 8)
+	item_container.add_child(item_margin)
+	
+	var hbox = HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 12)
+	item_margin.add_child(hbox)
+	
+	# Ícone do talismã
+	var icon_container = Control.new()
+	icon_container.custom_minimum_size = Vector2(70, 70)
+	icon_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(icon_container)
+	
+	# Fundo com cor da raridade
+	var icon_bg = ColorRect.new()
+	icon_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon_bg.color = Color(rarity_color.r * 0.3, rarity_color.g * 0.3, rarity_color.b * 0.3, 0.8)
+	icon_container.add_child(icon_bg)
+	
+	# Borda com cor da raridade
+	var icon_border = Panel.new()
+	icon_border.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var border_style = StyleBoxFlat.new()
+	border_style.bg_color = Color(0, 0, 0, 0)
+	border_style.border_color = rarity_color
+	border_style.border_width_left = 2
+	border_style.border_width_top = 2
+	border_style.border_width_right = 2
+	border_style.border_width_bottom = 2
+	icon_border.add_theme_stylebox_override("panel", border_style)
+	icon_container.add_child(icon_border)
+	
+	# Imagem do talismã
+	if tex_talisman != null:
+		var icon_texture = TextureRect.new()
+		icon_texture.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon_texture.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		icon_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon_texture.texture = tex_talisman
+		icon_container.add_child(icon_texture)
+	
+	# Informações
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 4)
+	hbox.add_child(vbox)
+	
+	var name_label = Label.new()
+	name_label.text = item.name
+	name_label.add_theme_font_size_override("font_size", 15)
+	name_label.add_theme_color_override("font_color", rarity_color)
+	vbox.add_child(name_label)
+	
+	var desc_label = Label.new()
+	# Se for um talismã, usar a descrição atualizada com o valor correto
+	if item is Talisman:
+		var talisman: Talisman = item
+		# Forçar atualização da descrição antes de exibir
+		talisman._apply_talisman_effects()
+		desc_label.text = talisman.description
+	else:
+		desc_label.text = item.description
+	desc_label.add_theme_font_size_override("font_size", 11)
+	desc_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(desc_label)
+	
+	# Botão equipar/desequipar
+	var btn = Button.new()
+	if is_equipped:
+		btn.text = "Desequipar"
+		btn.pressed.connect(func(): item_manager.unequip_item(item); _update_talisman_inventory_ui())
+	else:
+		btn.text = "Equipar"
+		btn.pressed.connect(func(): item_manager.equip_item(item); _update_talisman_inventory_ui())
+	btn.custom_minimum_size = Vector2(90, 35)
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(btn)
+	
+	talisman_inventory_container.add_child(item_container)
 
 func _create_range_indicator() -> void:
 	if range_indicator and range_indicator.is_inside_tree():
@@ -9337,44 +9715,61 @@ func _update_dps_menu() -> void:
 		tower_dps_data[barracks_id]["tower_type"] = "barracks"
 		tower_dps_data[barracks_id]["pos"] = barracks_item.pos
 	
-	# Ordenar torres por DPS (maior primeiro)
-	var sorted_towers = []
+	# Agrupar torres por tipo e calcular totais
+	var grouped_towers: Dictionary = {}  # {tower_type: {total_dps: float, total_wave_damage: float, count: int}}
+	var type_names = {
+		"tower": "Torre",
+		"sniper": "Sniper",
+		"aoe": "AOE",
+		"shock": "Shock",
+		"barracks": "Quartel"
+	}
+	
+	# Obter a wave atual e a última wave (wave anterior)
+	var current_wave = wave_manager.wave if wave_manager else 0
+	var last_wave = current_wave - 1 if current_wave > 0 else 0
+	
+	# Agrupar todas as torres por tipo
 	for tower_id in tower_dps_data.keys():
 		var data = tower_dps_data[tower_id]
+		var tower_type = data.get("tower_type", "unknown")
 		var dps_value = data.get("dps", 0.0)
 		
-		# Incluir todas as torres, mesmo com DPS 0
-		sorted_towers.append({
-			"id": tower_id,
-			"dps": dps_value,
-			"damage_dealt": data.get("damage_dealt", 0.0),
-			"tower_type": data.get("tower_type", "unknown"),
-			"pos": data.get("pos", Vector2.ZERO)
-		})
+		# Inicializar grupo se não existir
+		if not grouped_towers.has(tower_type):
+			grouped_towers[tower_type] = {
+				"total_dps": 0.0,
+				"total_wave_damage": 0.0,
+				"count": 0
+			}
+		
+		# Somar DPS
+		grouped_towers[tower_type]["total_dps"] += dps_value
+		grouped_towers[tower_type]["count"] += 1
+		
+		# Somar dano da última wave
+		var wave_damage = 0.0
+		if data.has("wave_damage"):
+			wave_damage = data["wave_damage"].get(last_wave, 0.0)
+		grouped_towers[tower_type]["total_wave_damage"] += wave_damage
 	
-	# Ordenar por DPS (maior primeiro), mas incluir todas as torres
-	sorted_towers.sort_custom(func(a, b): return a.dps > b.dps)
+	# Criar lista ordenada por tipo (ordem fixa)
+	var type_order = ["tower", "sniper", "aoe", "shock", "barracks"]
+	var sorted_groups = []
+	for tower_type in type_order:
+		if grouped_towers.has(tower_type):
+			sorted_groups.append({
+				"type": tower_type,
+				"name": type_names.get(tower_type, tower_type),
+				"total_dps": grouped_towers[tower_type]["total_dps"],
+				"total_wave_damage": grouped_towers[tower_type]["total_wave_damage"],
+				"count": grouped_towers[tower_type]["count"]
+			})
 	
-	# Debug: imprimir quantas torres foram encontradas
-	print("DPS Menu: Debug Info")
-	print("  - tower_dps_data tem %d entradas" % tower_dps_data.size())
-	print("  - towers.size() = %d" % towers.size())
-	print("  - sniper_towers.size() = %d" % sniper_towers.size())
-	print("  - aoe_towers.size() = %d" % aoe_towers.size())
-	print("  - shock_towers.size() = %d" % shock_towers.size())
-	print("  - barracks.size() = %d" % barracks.size())
-	print("  - sorted_towers.size() = %d" % sorted_towers.size())
-	
-	if sorted_towers.size() > 0:
-		for tower_info in sorted_towers:
-			print("  - Torre %s: DPS=%.2f, Tipo=%s" % [tower_info.id, tower_info.dps, tower_info.tower_type])
-	else:
-		print("  - ERRO: NENHUMA TORRE PARA EXIBIR!")
-	
-	# Criar painéis para cada torre
-	for tower_info in sorted_towers:
+	# Criar painéis para cada tipo de torre agrupado
+	for group_info in sorted_groups:
 		var tower_panel = Panel.new()
-		tower_panel.custom_minimum_size = Vector2(310, 60)
+		tower_panel.custom_minimum_size = Vector2(310, 70)
 		
 		var panel_style = StyleBoxFlat.new()
 		panel_style.bg_color = Color(0.2, 0.2, 0.25, 0.9)
@@ -9389,54 +9784,57 @@ func _update_dps_menu() -> void:
 		panel_style.corner_radius_bottom_right = 4
 		tower_panel.add_theme_stylebox_override("panel", panel_style)
 		
+		var margin = MarginContainer.new()
+		margin.add_theme_constant_override("margin_left", 10)
+		margin.add_theme_constant_override("margin_right", 10)
+		margin.add_theme_constant_override("margin_top", 8)
+		margin.add_theme_constant_override("margin_bottom", 8)
+		tower_panel.add_child(margin)
+		
 		var hbox = HBoxContainer.new()
 		hbox.add_theme_constant_override("separation", 10)
+		margin.add_child(hbox)
 		
-		# Tipo da torre
+		# Tipo da torre com quantidade
 		var type_label = Label.new()
-		var type_names = {
-			"tower": "Torre",
-			"sniper": "Sniper",
-			"aoe": "AOE",
-			"shock": "Shock",
-			"barracks": "Quartel"
-		}
-		type_label.text = type_names.get(tower_info.tower_type, "Desconhecida")
-		type_label.custom_minimum_size = Vector2(60, 0)
-		type_label.add_theme_font_size_override("font_size", 12)
+		var count_text = " (%d)" % group_info.count if group_info.count > 1 else ""
+		type_label.text = group_info.name + count_text
+		type_label.custom_minimum_size = Vector2(80, 0)
+		type_label.add_theme_font_size_override("font_size", 13)
+		type_label.add_theme_color_override("font_color", Color(0.9, 0.9, 1.0))
 		hbox.add_child(type_label)
 		
 		# Informações de DPS
 		var info_vbox = VBoxContainer.new()
 		info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info_vbox.add_theme_constant_override("separation", 4)
 		
+		# DPS total
 		var dps_label = Label.new()
-		# Garantir que o DPS seja exibido mesmo se for 0
-		var dps_display = tower_info.dps
+		var dps_display = group_info.total_dps
 		if dps_display < 0.01:
 			dps_display = 0.0
-		dps_label.text = "DPS: %.1f" % dps_display
-		dps_label.add_theme_font_size_override("font_size", 13)
+		dps_label.text = "DPS Total: %.1f" % dps_display
+		dps_label.add_theme_font_size_override("font_size", 14)
 		dps_label.add_theme_color_override("font_color", Color(0.8, 1.0, 0.8))
 		info_vbox.add_child(dps_label)
 		
-		
+		# Dano da última wave
 		var damage_label = Label.new()
-		var current_wave = wave_manager.wave if wave_manager else 0
-		var wave_damage = 0.0
-		if tower_dps_data[tower_info.id].has("wave_damage"):
-			wave_damage = tower_dps_data[tower_info.id]["wave_damage"].get(current_wave - 1, 0.0)
-		damage_label.text = "Dano Wave %d: %.0f" % [current_wave - 1 if current_wave > 0 else 0, wave_damage]
-		damage_label.add_theme_font_size_override("font_size", 11)
+		var wave_damage_display = group_info.total_wave_damage
+		if last_wave > 0:
+			damage_label.text = "Dano Wave %d: %.0f" % [last_wave, wave_damage_display]
+		else:
+			damage_label.text = "Dano Wave: 0 (aguardando primeira wave)"
+		damage_label.add_theme_font_size_override("font_size", 12)
 		damage_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 		info_vbox.add_child(damage_label)
 		
 		hbox.add_child(info_vbox)
-		tower_panel.add_child(hbox)
 		content_vbox.add_child(tower_panel)
 	
 	# Se não há torres, mostrar mensagem
-	if sorted_towers.is_empty():
+	if sorted_groups.is_empty():
 		var empty_label = Label.new()
 		empty_label.text = "Nenhuma torre construída"
 		empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
