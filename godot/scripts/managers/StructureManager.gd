@@ -20,8 +20,8 @@ func create_barracks(pos: Vector2, grid_x: int, grid_y: int) -> Dictionary:
 		"soldier_spawn_cd": 3.0,
 		"soldier_spawn_rate": 3.0,
 		"soldiers": [],
-		"hold_time": 2.0,
-		"damage": 0.3,
+		"hold_time": GameConstants.BARRACKS_INITIAL_HOLD_TIME,
+		"damage": GameConstants.BARRACKS_INITIAL_SOLDIER_DAMAGE,
 		"projectile_speed": 80.0,
 		"levels": {"HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0}
 	}

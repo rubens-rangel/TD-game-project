@@ -3970,7 +3970,7 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_projectile_speed: bool = hero["coins"] >= projectile_speed_cost
 	
 	barracks_menu.set_item_text(0, "Dano +0.2 (%d)" % dmg_cost)
-	barracks_menu.set_item_text(1, "Tempo Hold +1s (%d)" % hold_cost)
+	barracks_menu.set_item_text(1, "Tempo Hold +%.1fs (%d)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_cost])
 	barracks_menu.set_item_text(2, "Spawn Rate -0.5s (%d) [%.1fs]" % [spawn_rate_cost, b.soldier_spawn_rate])
 	barracks_menu.set_item_text(3, "Velocidade Projétil +20 (%d) [%.0f]" % [projectile_speed_cost, b.projectile_speed])
 	barracks_menu.set_item_disabled(0, not can_dmg)
@@ -4351,11 +4351,11 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	var range_cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
 	var amount_cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
 	
-	var can_range: bool = hero["coins"] >= range_cost and s.range < 300.0  # Máximo 300
+	var can_range: bool = hero["coins"] >= range_cost and s.range < 250.0  # Máximo 250
 	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.4  # Máximo 40%
 	
 	# Atualizar apenas os 2 itens (alcance e slow)
-	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f/300]" % [range_cost, s.range])
+	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f/250]" % [range_cost, s.range])
 	slow_menu.set_item_text(1, "Slow x1.05 (%d) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
 	slow_menu.set_item_disabled(0, not can_range)
 	slow_menu.set_item_disabled(1, not can_amount)
@@ -4371,10 +4371,10 @@ func _on_slow_menu_pressed(id: int) -> void:
 	# RATE e DURATION removidos - não fazem mais sentido
 	
 	match id:
-		1:  # Alcance - aumenta apenas o range (máximo 300)
+		1:  # Alcance - aumenta apenas o range (máximo 250)
 			var cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
-			if hero["coins"] >= cost and s.range < 300.0:
-				s.range = min(300.0, s.range + 30.0)  # Aumenta o alcance em 30, máximo 300
+			if hero["coins"] >= cost and s.range < 250.0:
+				s.range = min(250.0, s.range + 30.0)  # Aumenta o alcance em 30, máximo 250
 				s.levels["RANGE"] = s.levels.get("RANGE", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
@@ -7235,13 +7235,18 @@ func _create_skills_ui() -> void:
 	skill1_container.add_child(skill1_hbox)
 	
 	# Ícone da moeda
+	var coin_icon_container = Control.new()
+	coin_icon_container.custom_minimum_size = Vector2(50, 50)
+	coin_icon_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	coin_icon_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var coin_icon = TextureRect.new()
-	coin_icon.custom_minimum_size = Vector2(50, 50)
+	coin_icon.set_anchors_preset(Control.PRESET_FULL_RECT)
 	coin_icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
 	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	if tex_coin != null:
 		coin_icon.texture = tex_coin
-	skill1_hbox.add_child(coin_icon)
+	coin_icon_container.add_child(coin_icon)
+	skill1_hbox.add_child(coin_icon_container)
 	
 	# Texto da skill
 	var skill1_text = VBoxContainer.new()
@@ -8497,9 +8502,9 @@ func _get_mine_tooltip(m: Dictionary) -> String:
 	return "Mina\n\nDano: %d\nStatus: %s" % [int(dmg), status]
 
 func _get_healing_station_tooltip(hs: Dictionary) -> String:
-	var heal_rate = hs.get("heal_rate", 1.0)
+	var heal_amount = hs.get("heal_amount", 5.0)
 	var range_val = hs.get("range", 100.0)
-	return "Estação de Cura\n\nCura: %.1f/s\nAlcance: %.0f" % [heal_rate, range_val]
+	return "Estação de Cura\n\nCura: %.0f por round\nAlcance: %.0f" % [heal_amount, range_val]
 
 func _get_shop_tooltip_text(tower_name: String) -> String:
 	match tower_name:
@@ -8522,7 +8527,7 @@ func _get_shop_tooltip_text(tower_name: String) -> String:
 		"Muralha":
 			return "Bloqueia caminhos. Inimigos precisam recalcular rota ao encontrar uma muralha. Explode se bloquear todos os caminhos."
 		"Estação de Cura":
-			return "Cura a base automaticamente quando inimigos estão próximos."
+			return "Cura a base em 5 HP por round quando está dentro do alcance."
 		_:
 			return ""
 
@@ -9014,7 +9019,7 @@ func _calculate_barracks_dps(barracks_item: Dictionary) -> float:
 	"""Calcula o DPS teórico de um quartel baseado nos soldados"""
 	var soldier_damage = barracks_item.get("damage", 1.0)
 	var soldier_spawn_rate = barracks_item.get("soldier_spawn_rate", 3.0)
-	var hold_time = barracks_item.get("hold_time", 2.0)
+	var hold_time = barracks_item.get("hold_time", GameConstants.BARRACKS_INITIAL_HOLD_TIME)
 	
 	# Aplicar multiplicadores globais
 	soldier_damage *= global_tower_damage_boost

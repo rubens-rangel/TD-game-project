@@ -184,7 +184,7 @@ const WALL_COST_4TH := 1000
 const TOWER_COST_SCALE_PER_WAVE := 1.02  # 2% por wave
 
 # Tower Fire Rate Limits (minimum fire rate - towers can't shoot faster than this)
-const TOWER_MIN_FIRE_RATE := 0.35  # Limite mínimo de fire_rate para torres básicas (em segundos)
+const TOWER_MIN_FIRE_RATE := 0.4  # Limite mínimo de fire_rate para torres básicas (em segundos)
 const SNIPER_MIN_FIRE_RATE := 1.5  # Limite mínimo de fire_rate para sniper towers (em segundos)
 const AOE_MIN_FIRE_RATE := 1.0  # Limite mínimo de fire_rate para AOE towers (em segundos)
 const SHOCK_MIN_FIRE_RATE := 0.8 # Limite mínimo de fire_rate para shock towers (em segundos)
@@ -208,9 +208,9 @@ const BASE_MAX_HP := 100.0  # Limite máximo de HP da base (usado por healing st
 const BARRACKS_INITIAL_SPAWN_RATE := 3.0  # Taxa inicial de spawn de soldados (em segundos)
 const BARRACKS_MIN_SPAWN_RATE := 1.0  # Limite mínimo de spawn rate (em segundos)
 const BARRACKS_SPAWN_RATE_REDUCTION := 0.5  # Redução de spawn rate por upgrade
-const BARRACKS_INITIAL_HOLD_TIME := 2.0  # Tempo inicial que soldado segura monstro (em segundos)
-const BARRACKS_HOLD_TIME_INCREASE := 1.0  # Aumento de hold time por upgrade
-const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.3  # Dano por segundo do soldado inicial
+const BARRACKS_INITIAL_HOLD_TIME := 1.0  # Tempo inicial que soldado segura monstro (em segundos)
+const BARRACKS_HOLD_TIME_INCREASE := 0.3  # Aumento de hold time por upgrade
+const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.5  # Dano por segundo do soldado inicial
 const BARRACKS_INITIAL_PROJECTILE_SPEED := 80.0  # Velocidade inicial do projetil do soldado
 const BARRACKS_PROJECTILE_SPEED_INCREASE := 20.0  # Aumento de velocidade do projetil por upgrade
 const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.2  # Aumento de dano do soldado por upgrade
