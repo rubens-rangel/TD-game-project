@@ -21,6 +21,9 @@ const VisualEffectsManager = preload("res://scripts/managers/VisualEffectsManage
 const UIManager = preload("res://scripts/managers/UIManager.gd")
 const ItemManager = preload("res://scripts/managers/ItemManager.gd")
 const Talisman = preload("res://scripts/items/Talisman.gd")
+const SpecialCurrencyManager = preload("res://scripts/managers/SpecialCurrencyManager.gd")
+const PrestigeShop = preload("res://scripts/managers/PrestigeShop.gd")
+const QuestManager = preload("res://scripts/managers/QuestManager.gd")
 
 const HERO_ARROW_SPEED := 260.0
 
@@ -41,6 +44,9 @@ var tower_system_manager: TowerSystemManager
 var visual_effects_manager: VisualEffectsManager
 var ui_manager: UIManager
 var item_manager: ItemManager
+var special_currency_manager: SpecialCurrencyManager
+var prestige_shop: PrestigeShop
+var quest_manager: QuestManager
 
 # Estatísticas para achievements
 var total_kills: int = 0
@@ -79,6 +85,7 @@ var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Ve
 var base_hp := 100
 var paused := false
 var game_over := false
+var diamond_150_given: bool = false  # Rastreia se diamante da wave 150 já foi dado nesta run
 
 # Flag para modo admin (testes/debug) - desabilitar em produção
 var isAdmin: bool = true
@@ -215,6 +222,10 @@ var boss_alert_player: AudioStreamPlayer
 var coin_sound_players: Array = []  # Pool de players para som de moeda (evitar sobreposição)
 const MAX_COIN_SOUND_PLAYERS := 3  # Máximo de 3 sons simultâneos
 
+# Special Currency UI
+var emerald_label: Label
+var diamond_label: Label
+
 # Menu de pause
 var pause_overlay: Control
 var save_status_label: Label
@@ -281,6 +292,14 @@ func get_wall_cost() -> int:
 	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo)"""
 	return RewardCalculator.get_wall_cost(walls.size())
 
+# Calcula custo de upgrade de torre com esmeraldas (escalado)
+func get_tower_upgrade_emerald_cost(upgrade_type: String, current_level: int) -> int:
+	"""Calcula custo em esmeraldas para upgrade de torre (escalado)"""
+	var base_cost = GameConstants.TOWER_UPGRADE_EMERALD_BASE_COST
+	var scale = GameConstants.TOWER_UPGRADE_EMERALD_SCALE
+	# Custo escalado: base * (scale ^ level)
+	return int(base_cost * pow(scale, current_level))
+
 # upgrades overlay state
 var choosing_upgrade := false
 var benefit_applied := false
@@ -326,10 +345,23 @@ func _get_hero_home_texture_for_level(level: int) -> Texture2D:
 			return tex_tent
 
 func _get_hero_home_upgrade_cost(level: int) -> int:
-	"""Delegado para HeroManager"""
+	"""Delegado para HeroManager - inclui aumento baseado na wave atual"""
+	var current_wave = 0
+	if wave_manager:
+		current_wave = wave_manager.wave
+	
+	# Resetar flag de diamante da wave 150 para nova partida
+	diamond_150_given = false
+	
 	if hero_manager:
-		return hero_manager.get_hero_home_upgrade_cost(level)
-	return hero_home_upgrade_costs.get(level, 0)
+		return hero_manager.get_hero_home_upgrade_cost(level, current_wave)
+	
+	# Fallback: aplicar aumento manualmente se hero_manager não estiver disponível
+	var base_cost = hero_home_upgrade_costs.get(level, 0)
+	if base_cost <= 0:
+		return 0
+	var wave_multiplier = 1.0 + (current_wave * 0.01)
+	return int(base_cost * wave_multiplier)
 
 func _get_hero_home_benefits_text(level: int) -> String:
 	"""Delegado para HeroManager"""
@@ -455,11 +487,19 @@ func _process_white_to_transparent(texture: Texture2D, image_path: String) -> Te
 func _ready() -> void:
 	# Criar tela de carregamento primeiro
 	_create_loading_screen()
+	_update_loading_progress(0.05, "Inicializando sistemas...")
+	await get_tree().process_frame
 	
 	grid_manager = GridManager.new()
+	_update_loading_progress(0.10, "Criando grid...")
+	await get_tree().process_frame
+	
 	pathfinder = Pathfinder.new(grid_manager.grid, grid_manager.center)
 	wave_manager = WaveManager.new()
 	projectile_manager = ProjectileManager.new()
+	_update_loading_progress(0.15, "Inicializando gerenciadores...")
+	await get_tree().process_frame
+	
 	achievement_manager = AchievementManager.get_instance()
 	perk_manager = PerkManager.get_instance()
 	
@@ -475,6 +515,8 @@ func _ready() -> void:
 		towers, barracks, mines, slow_towers, aoe_towers,
 		sniper_towers, boost_towers, shock_towers, walls, healing_stations
 	)
+	_update_loading_progress(0.20, "Configurando sistemas de jogo...")
+	await get_tree().process_frame
 	
 	# Inicializar TowerSystemManager (será configurado depois que effects_manager for criado)
 	
@@ -486,12 +528,29 @@ func _ready() -> void:
 	
 	# Inicializar ItemManager
 	item_manager = ItemManager.new()
+	_update_loading_progress(0.25, "Carregando itens e moedas especiais...")
+	await get_tree().process_frame
+	
+	# Inicializar SpecialCurrencyManager e PrestigeShop
+	special_currency_manager = SpecialCurrencyManager.new()
+	quest_manager = QuestManager.new()
+	prestige_shop = PrestigeShop.new()
+	
+	# Carregar recompensas pendentes de quests (do Menu)
+	_load_pending_quest_rewards()
+	_update_loading_progress(0.30, "Aplicando melhorias permanentes...")
+	await get_tree().process_frame
+	
+	# Aplicar bônus de prestígio
+	_apply_prestige_bonuses()
 	
 	_apply_perk_effects()
 	
 	# Carregar configurações de áudio
 	_load_music_settings()
 	_load_user_preferences()
+	_update_loading_progress(0.35, "Carregando configurações...")
+	await get_tree().process_frame
 	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
@@ -537,8 +596,11 @@ func _ready() -> void:
 	resource_manager.loading_progress_updated.connect(_on_resource_loading_progress)
 	coin_manager.coin_collected.connect(_on_coin_collected)
 	
-	_update_loading_progress(0.1)
+	_update_loading_progress(0.40, "Carregando texturas...")
 	resource_manager.load_all_textures()
+	
+	_update_loading_progress(0.60, "Carregando sprites de personagens...")
+	await get_tree().process_frame
 	
 	tex_hero = _try_load("res://assets/images/hero.png")
 	tex_enemy_zombie = resource_manager.get_texture("enemy_zombie")
@@ -548,6 +610,9 @@ func _ready() -> void:
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
+	
+	_update_loading_progress(0.70, "Inicializando herói e torres...")
+	await get_tree().process_frame
 	
 	# Inicializar managers que dependem de texturas e effects_manager
 	# Inicializar HeroManager (após texturas carregadas)
@@ -564,6 +629,9 @@ func _ready() -> void:
 		boost_towers, shock_towers, barracks
 	)
 	tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
+	
+	_update_loading_progress(0.80, "Carregando efeitos visuais...")
+	await get_tree().process_frame
 	
 	# Inicializar VisualEffectsManager (após effects_manager criado)
 	visual_effects_manager = VisualEffectsManager.new(self, effects_manager)
@@ -584,8 +652,12 @@ func _ready() -> void:
 	tex_talisman = resource_manager.get_texture("talism")
 	tex_game_over = resource_manager.get_texture("game_over")
 	
+	_update_loading_progress(0.95, "Finalizando...")
+	await get_tree().process_frame
+	
 	# Aguardar um pouco antes de esconder a tela de carregamento
-	await get_tree().create_timer(0.3).timeout
+	_update_loading_progress(1.0, "Pronto!")
+	await get_tree().create_timer(0.5).timeout
 	_hide_loading_screen()
 
 	# wire UI
@@ -605,17 +677,35 @@ func _ready() -> void:
 	var lbl_left = tb.get_node("LblLeft")
 	lbl_left.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	lbl_left.add_theme_font_size_override("font_size", 16)
+	# Reduzir espaço - ajustar posição do LblCenter mais próximo
+	lbl_left.offset_left = 12
 	
 	var lbl_center = tb.get_node("LblCenter")
 	lbl_center.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
 	lbl_center.add_theme_font_size_override("font_size", 18)
-	
+	# Aumentar espaço entre Inimigos e Moedas
+	lbl_center.offset_left = 250
+
 	var lbl_right = tb.get_node("LblRight")
 	lbl_right.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
-	lbl_right.add_theme_font_size_override("font_size", 16)
+	lbl_right.add_theme_font_size_override("font_size", 20)  # Aumentar tamanho de 16 para 20
+	# Posicionar Vida após diamantes (diamantes está em 430, então colocar em 500)
+	lbl_right.offset_left = 500
+	
+	# Criar labels para moedas especiais
+	_create_special_currency_labels(tb)
+	
+	# Criar botão de Quests (amarelo) no HUD
+	# Botão de Quests removido - agora está no menu inicial
 	
 	# Menu de Admin (apenas para testes/debug)
 	_create_admin_menu(tb)
+	
+	# Aguardar um frame para garantir que todos os botões foram criados
+	await get_tree().process_frame
+	# Reposicionar todos os botões da direita para garantir ordem correta
+	# Comentado para permitir ajustes manuais - descomente se precisar reposicionar automaticamente
+	# _reposition_right_side_buttons(tb)
 	
 	# top bar fixa: usar anchors para ocupar toda a largura da tela
 	# A configuração será feita pela função _adjust_hud_to_screen_size() que já foi chamada antes
@@ -631,13 +721,19 @@ func _ready() -> void:
 	if tb.has_node("BuyMenuButton"):
 		tb.get_node("BuyMenuButton").queue_free()
 	
-	# Adicionar botão para mutar música
+	# Adicionar botão para mutar música (usar anchors para posicionamento responsivo)
 	if not tb.has_node("BtnMuteMusic"):
 		var btn_mute = Button.new()
 		btn_mute.name = "BtnMuteMusic"
 		btn_mute.text = "🔊"
-		btn_mute.position = Vector2(810, 8)
-		btn_mute.size = Vector2(40, 28)
+		btn_mute.layout_mode = 1  # Usar layout com anchors
+		btn_mute.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		# Mute: 40px de largura, bem mais à esquerda do grupo
+		# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume, Mute
+		btn_mute.offset_left = -560  # 40px de largura, bem mais à esquerda
+		btn_mute.offset_top = 8
+		btn_mute.offset_right = -610  # Terminar 10px antes de Volume (que começa em -580)
+		btn_mute.offset_bottom = 36
 		tb.add_child(btn_mute)
 		
 		# Estilizar botão de mute
@@ -662,12 +758,18 @@ func _ready() -> void:
 		btn_mute.add_theme_font_size_override("font_size", 16)
 		btn_mute.pressed.connect(_toggle_music)
 	
-	# Adicionar slider de volume
+	# Adicionar slider de volume (usar anchors para posicionamento responsivo)
 	if not tb.has_node("MusicVolumeSlider"):
 		var volume_container = HBoxContainer.new()
 		volume_container.name = "MusicVolumeContainer"
-		volume_container.position = Vector2(860, 8)
-		volume_container.custom_minimum_size = Vector2(150, 28)
+		volume_container.layout_mode = 1  # Usar layout com anchors
+		volume_container.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		# Volume: 110px de largura, após Mute (que termina em -520), com 10px de espaçamento
+		volume_container.offset_left = -530  # 10px após Mute
+		volume_container.offset_top = 8
+		volume_container.offset_right = -420  # 110px de largura, terminar 10px antes de Admin
+		volume_container.offset_bottom = 36
+		volume_container.custom_minimum_size = Vector2(110, 28)
 		
 		var volume_label = Label.new()
 		volume_label.text = "🔊"
@@ -678,7 +780,7 @@ func _ready() -> void:
 		
 		var volume_slider = HSlider.new()
 		volume_slider.name = "MusicVolumeSlider"
-		volume_slider.custom_minimum_size = Vector2(120, 28)
+		volume_slider.custom_minimum_size = Vector2(80, 28)  # Reduzir para caber melhor no container
 		volume_slider.min_value = -60.0  # Mínimo: muito baixo
 		volume_slider.max_value = 0.0    # Máximo: volume normal
 		volume_slider.value = music_volume
@@ -721,10 +823,22 @@ func _ready() -> void:
 	tower_menu = PopupMenu.new()
 	tower_menu.name = "TowerMenu"
 	tower_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	tower_menu.add_item("Alcance +60", 1)
-	tower_menu.add_item("Cadencias +", 2)
-	tower_menu.add_item("+4 Direcoes", 3)
-	tower_menu.add_item("Dano +0.5", 4)
+	# Alcance
+	tower_menu.add_item("Alcance +60 (💰 Moedas)", 1)
+	tower_menu.add_item("Alcance +60 (💚 Esmeraldas)", 11)
+	tower_menu.add_separator()
+	# Cadência
+	tower_menu.add_item("Cadência + (💰 Moedas)", 2)
+	tower_menu.add_item("Cadência + (💚 Esmeraldas)", 12)
+	tower_menu.add_separator()
+	# Direções
+	tower_menu.add_item("+4 Direções", 3)
+	tower_menu.add_separator()
+	# Dano
+	tower_menu.add_item("Dano +0.5 (💰 Moedas)", 4)
+	tower_menu.add_item("Dano +0.5 (💚 Esmeraldas)", 14)
+	tower_menu.add_separator()
+	# Efeitos especiais
 	tower_menu.add_item("Congelamento", 5)
 	tower_menu.add_item("Fogo", 6)
 	tower_menu.id_pressed.connect(Callable(self, "_on_tower_menu_pressed"))
@@ -740,10 +854,17 @@ func _ready() -> void:
 	barracks_menu = PopupMenu.new()
 	barracks_menu.name = "BarracksMenu"
 	barracks_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	barracks_menu.add_item("Dano +0.2", 1)
-	barracks_menu.add_item("Tempo Hold +1s", 2)
-	barracks_menu.add_item("Spawn Rate -0.5s", 3)
-	barracks_menu.add_item("Velocidade Projétil +20", 4)
+	barracks_menu.add_item("Dano +0.2 (💰 Moedas)", 1)
+	barracks_menu.add_item("Dano +0.2 (💚 Esmeraldas)", 10)
+	barracks_menu.add_separator()
+	barracks_menu.add_item("Tempo Hold +1s (💰 Moedas)", 2)
+	barracks_menu.add_item("Tempo Hold +1s (💚 Esmeraldas)", 11)
+	barracks_menu.add_separator()
+	barracks_menu.add_item("Spawn Rate -0.5s (💰 Moedas)", 3)
+	barracks_menu.add_item("Spawn Rate -0.5s (💚 Esmeraldas)", 12)
+	barracks_menu.add_separator()
+	barracks_menu.add_item("Velocidade Projétil +20 (💰 Moedas)", 4)
+	barracks_menu.add_item("Velocidade Projétil +20 (💚 Esmeraldas)", 13)
 	barracks_menu.id_pressed.connect(Callable(self, "_on_barracks_menu_pressed"))
 	barracks_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	barracks_menu_container.add_child(barracks_menu)
@@ -757,8 +878,11 @@ func _ready() -> void:
 	sniper_menu = PopupMenu.new()
 	sniper_menu.name = "SniperMenu"
 	sniper_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	sniper_menu.add_item("Dano +2", 1)
-	sniper_menu.add_item("Taxa de Tiro +", 2)
+	sniper_menu.add_item("Dano +2 (💰 Moedas)", 1)
+	sniper_menu.add_item("Dano +2 (💚 Esmeraldas)", 10)
+	sniper_menu.add_separator()
+	sniper_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
+	sniper_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
 	sniper_menu.add_separator()
 	sniper_menu.add_item("Alvo: Boss", 3)
 	sniper_menu.add_item("Alvo: Mais Próximo ao Centro", 4)
@@ -775,9 +899,14 @@ func _ready() -> void:
 	aoe_menu = PopupMenu.new()
 	aoe_menu.name = "AOEMenu"
 	aoe_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	aoe_menu.add_item("Dano +1", 1)
-	aoe_menu.add_item("Taxa de Tiro +", 2)
-	aoe_menu.add_item("Área +20", 3)
+	aoe_menu.add_item("Dano +1 (💰 Moedas)", 1)
+	aoe_menu.add_item("Dano +1 (💚 Esmeraldas)", 10)
+	aoe_menu.add_separator()
+	aoe_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
+	aoe_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
+	aoe_menu.add_separator()
+	aoe_menu.add_item("Área +20 (💰 Moedas)", 3)
+	aoe_menu.add_item("Área +20 (💚 Esmeraldas)", 12)
 	aoe_menu.id_pressed.connect(Callable(self, "_on_aoe_menu_pressed"))
 	aoe_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	aoe_menu_container.add_child(aoe_menu)
@@ -791,9 +920,14 @@ func _ready() -> void:
 	shock_menu = PopupMenu.new()
 	shock_menu.name = "ShockMenu"
 	shock_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	shock_menu.add_item("Dano +0.5", 1)
-	shock_menu.add_item("Taxa de Tiro +", 2)
-	shock_menu.add_item("Corrente +1", 3)
+	shock_menu.add_item("Dano +0.5 (💰 Moedas)", 1)
+	shock_menu.add_item("Dano +0.5 (💚 Esmeraldas)", 10)
+	shock_menu.add_separator()
+	shock_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
+	shock_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
+	shock_menu.add_separator()
+	shock_menu.add_item("Corrente +1 (💰 Moedas)", 3)
+	shock_menu.add_item("Corrente +1 (💚 Esmeraldas)", 12)
 	shock_menu.id_pressed.connect(Callable(self, "_on_shock_menu_pressed"))
 	shock_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	shock_menu_container.add_child(shock_menu)
@@ -807,8 +941,11 @@ func _ready() -> void:
 	slow_menu = PopupMenu.new()
 	slow_menu.name = "SlowMenu"
 	slow_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	slow_menu.add_item("Alcance +30", 1)
-	slow_menu.add_item("Slow x1.05", 2)
+	slow_menu.add_item("Alcance +30 (💰 Moedas)", 1)
+	slow_menu.add_item("Alcance +30 (💚 Esmeraldas)", 10)
+	slow_menu.add_separator()
+	slow_menu.add_item("Slow x1.05 (💰 Moedas)", 2)
+	slow_menu.add_item("Slow x1.05 (💚 Esmeraldas)", 11)
 	# Removido duração - funciona enquanto está dentro da área
 	# Removido completamente "Taxa de Aplicação" (era id 4) - não faz sentido
 	slow_menu.id_pressed.connect(Callable(self, "_on_slow_menu_pressed"))
@@ -824,8 +961,11 @@ func _ready() -> void:
 	boost_menu = PopupMenu.new()
 	boost_menu.name = "BoostMenu"
 	boost_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
-	boost_menu.add_item("Boost Dano +10%", 1)
-	boost_menu.add_item("Boost Cadência +5%", 2)
+	boost_menu.add_item("Boost Dano +10% (💰 Moedas)", 1)
+	boost_menu.add_item("Boost Dano +10% (💚 Esmeraldas)", 10)
+	boost_menu.add_separator()
+	boost_menu.add_item("Boost Cadência +5% (💰 Moedas)", 2)
+	boost_menu.add_item("Boost Cadência +5% (💚 Esmeraldas)", 11)
 	# Removido upgrade de alcance - range é global (9999)
 	boost_menu.id_pressed.connect(Callable(self, "_on_boost_menu_pressed"))
 	boost_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
@@ -843,6 +983,9 @@ func _ready() -> void:
 	if tb.has_node("BtnAutoBenefit"):
 		var btn_auto = tb.get_node("BtnAutoBenefit")
 		btn_auto.pressed.connect(_toggle_auto_benefit)
+		# Aplicar hover effects e cor azul
+		const ButtonHoverHelper = preload("res://scripts/helpers/ButtonHoverHelper.gd")
+		ButtonHoverHelper.setup_button_hover(btn_auto)
 		_update_auto_benefit_button()
 
 	# wire Pause overlay
@@ -1198,6 +1341,15 @@ func _process(delta: float) -> void:
 				var wave_bonus = get_wave_completion_bonus()
 				hero["coins"] += wave_bonus
 				_track_coin_collected(wave_bonus)
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.COMPLETE_WAVES, 1)
+					quest_manager.update_quest_progress(GameConstants.QuestType.REACH_WAVE, 1)
+				# Dar diamante garantido ao passar do nível 150 (apenas uma vez por run)
+				if wave_manager.wave == 150 and special_currency_manager and not diamond_150_given:
+					special_currency_manager.add_diamonds(1, "wave_150_milestone")
+					diamond_150_given = true
+					print("💎 Diamante obtido por alcançar a wave 150!")
 				# Continuar para próxima wave sem mostrar overlay
 				wave_manager.start_next_wave()
 			else:
@@ -1211,6 +1363,15 @@ func _process(delta: float) -> void:
 				var wave_bonus = get_wave_completion_bonus()
 				hero["coins"] += wave_bonus
 				_track_coin_collected(wave_bonus)
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.COMPLETE_WAVES, 1)
+					quest_manager.update_quest_progress(GameConstants.QuestType.REACH_WAVE, 1)
+				# Dar diamante garantido ao passar do nível 150 (apenas uma vez por run)
+				if wave_manager.wave == 150 and special_currency_manager and not diamond_150_given:
+					special_currency_manager.add_diamonds(1, "wave_150_milestone")
+					diamond_150_given = true
+					print("💎 Diamante obtido por alcançar a wave 150!")
 				
 				# Se auto_choose_benefits estiver ativo, escolher automaticamente
 				if auto_choose_benefits:
@@ -1256,7 +1417,7 @@ func _process(delta: float) -> void:
 	var is_boss_wave := wave_manager.is_boss_wave()
 	var wave_text = "Onda %d (CHEFE!)" % wave_manager.wave if is_boss_wave else "Onda %d" % wave_manager.wave
 	tb.get_node("LblLeft").text = "%s  Inimigos %d" % [wave_text, enemies.size()]
-	tb.get_node("LblCenter").text = "Moedas %d" % [int(hero["coins"])]
+	tb.get_node("LblCenter").text = "💰 %d" % [int(hero["coins"])]
 	var lbl_right = tb.get_node_or_null("LblRight")
 	if lbl_right:
 		lbl_right.text = "Vida %d" % [base_hp]
@@ -1264,6 +1425,9 @@ func _process(delta: float) -> void:
 		# Garantir que o texto seja atualizado mesmo se o label estiver escondido
 		if not lbl_right.visible:
 			lbl_right.show()
+	
+	# Atualizar labels de moedas especiais
+	_update_special_currency_labels()
 	
 	# Remover slider de vida se existir (não é mais necessário)
 	var life_slider = tb.get_node_or_null("LifeSlider")
@@ -1507,6 +1671,11 @@ func _input(event: InputEvent) -> void:
 			if wall_idx != -1:
 				_start_drag_tower("wall", wall_idx, world_pos)
 				return
+			
+			var barracks_idx := _find_barracks_at(world_pos, 20.0)
+			if barracks_idx != -1:
+				_start_drag_tower("barracks", barracks_idx, world_pos)
+				return
 		
 		# Continuar com lógica normal se não iniciou drag
 		if not dragging_tower and not choosing_upgrade:
@@ -1629,14 +1798,10 @@ func _input(event: InputEvent) -> void:
 			if tower_idx != -1:
 				_open_tower_menu(tower_idx, mouse_screen_pos)
 				return
-			# verificar quartéis
+			# verificar quartéis (só abre menu se não estiver arrastando)
 			var barracks_idx := _find_barracks_at(mouse_world_pos, 20.0)
-			if barracks_idx != -1:
-				# Shift+Click para arrastar, clique normal para menu
-				if event.is_shift_pressed():
-					_start_drag_tower("barracks", barracks_idx, mouse_world_pos)
-				else:
-					_open_barracks_menu(barracks_idx, mouse_screen_pos)
+			if barracks_idx != -1 and not dragging_tower:
+				_open_barracks_menu(barracks_idx, mouse_screen_pos)
 				return
 			# verificar sniper towers
 			var sniper_idx := _find_sniper_tower_at(mouse_world_pos, 20.0)
@@ -1707,6 +1872,9 @@ func _draw() -> void:
 					draw_rect(tile_rect, wall_base)
 					draw_rect(Rect2(tile_x + 1, tile_y + 1, GameConstants.TILE_SIZE - 2, GameConstants.TILE_SIZE - 2), wall_shadow)
 					draw_rect(tile_rect, Color(0.28, 0.26, 0.24), false, 1.5)
+	
+	# Overlay escuro sobre o labirinto (22% de opacidade)
+	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.22))
 	
 	# base com transparência moderada - usar coordenadas exatas do grid
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)  # 3
@@ -1969,6 +2137,10 @@ func _draw() -> void:
 				preview_size = grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
 				preview_tex = tex_shock_tower
 				tower_size_grid = GameConstants.SHOCK_TOWER_SIZE_GRID
+			"barracks":
+				preview_size = grid_size_px * GameConstants.BARRACKS_SIZE_GRID
+				preview_tex = tex_barracks
+				tower_size_grid = GameConstants.BARRACKS_SIZE_GRID
 			"mine":
 				preview_size = 16.0
 				preview_tex = tex_mine
@@ -2036,6 +2208,7 @@ func _draw() -> void:
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, item_type, ignore_area)
 		
 		# Não renderizar preview para minas aqui (já tem renderização separada)
+		# Quartel agora usa o mesmo sistema de preview que as outras torres
 		if dragged_tower_type != "mine":
 			# Usar posição snapped para preview visual
 			var preview_rect = Rect2(snapped_preview_pos.x - preview_size/2, snapped_preview_pos.y - preview_size/2, preview_size, preview_size)
@@ -2209,26 +2382,8 @@ func _draw() -> void:
 			draw_rect(wall_rect, Color(0.6,0.4,0.2,0.7))
 			draw_rect(wall_rect, Color(0.4,0.3,0.2), false, 2.0)
 	
-	# Desenhar quartel sendo arrastado
-	if dragging_tower and dragged_tower_type == "barracks" and dragged_tower_index >= 0 and dragged_tower_index < barracks.size():
-		var b = barracks[dragged_tower_index]
-		var barracks_size := grid_size_px * GameConstants.BARRACKS_SIZE_GRID
-		var drag_pos = drag_current_pos - drag_offset
-		var new_grid_coord = grid_manager.world_to_base_grid(drag_pos)
-		var can_place = grid_manager.is_inside_base_point(drag_pos) and grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, 3)
-		var barracks_rect := Rect2(drag_pos.x - barracks_size/2, drag_pos.y - barracks_size/2, barracks_size, barracks_size)
-		if can_place:
-			if tex_barracks != null:
-				draw_texture_rect(tex_barracks, barracks_rect, false, Color(1, 1, 1, 0.7))
-			else:
-				draw_rect(barracks_rect, Color(0.4,0.5,0.6,0.7))
-			draw_rect(barracks_rect, Color(0.3,0.4,0.5), false, 2.0)
-		else:
-			if tex_barracks != null:
-				draw_texture_rect(tex_barracks, barracks_rect, false, Color(1, 0.3, 0.3, 0.7))
-			else:
-				draw_rect(barracks_rect, Color(0.9,0.3,0.3,0.7))
-			draw_rect(barracks_rect, Color(0.8,0.2,0.2), false, 2.0)
+	# Quartel agora usa o mesmo sistema de preview que as outras torres (renderizado acima no bloco geral)
+	# Removido código duplicado de preview do quartel
 	
 	# healing stations
 	for hs in healing_stations:
@@ -3395,6 +3550,8 @@ func _handle_collisions() -> void:
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
 					_try_drop_talisman(e["pos"])
+					# Chance de dropar moedas especiais (waves altas)
+					_try_drop_special_currency(e["pos"], is_boss)
 					# Rastrear achievements de kills
 					_track_enemy_kill(is_boss)
 				if a["pierce"] > 0:
@@ -3432,6 +3589,8 @@ func _handle_collisions() -> void:
 					# chance de dropar moeda
 					_try_drop_coin(e["pos"])
 					_try_drop_talisman(e["pos"])
+					# Chance de dropar moedas especiais (waves altas)
+					_try_drop_special_currency(e["pos"], is_boss)
 					# Rastrear achievements de kills
 					_track_enemy_kill(is_boss)
 				
@@ -3676,6 +3835,15 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var freeze_cost = GameConstants.TOWER_FREEZE_COST  # One-time upgrade
 	var fire_cost = GameConstants.TOWER_FIRE_COST  # One-time upgrade
 	
+	# Custos em esmeraldas (escalados)
+	var range_emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	var has_emeralds = currency_info.emeralds > 0
+	
 	# Limite de alcance baseado no tamanho do mapa (diagonal do centro até o canto mais distante)
 	var map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
 	var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
@@ -3687,18 +3855,33 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_freeze: bool = hero["coins"] >= freeze_cost and not t.get("has_freeze", false)
 	var can_fire: bool = hero["coins"] >= fire_cost and not t.get("has_fire", false)
 	
-	tower_menu.set_item_text(0, "Alcance +60 (%d)" % range_cost)
-	tower_menu.set_item_text(1, "Cadencias + (%d)" % rate_cost)
-	tower_menu.set_item_text(2, "+4 Direcoes (%d)" % dirs_cost)
-	tower_menu.set_item_text(3, "Dano +0.5 (%d)" % dmg_cost)
-	tower_menu.set_item_text(4, "Congelamento (%d)" % freeze_cost)
-	tower_menu.set_item_text(5, "Fogo (%d)" % fire_cost)
-	tower_menu.set_item_disabled(0, not can_range)
-	tower_menu.set_item_disabled(1, not can_rate)
-	tower_menu.set_item_disabled(2, not can_dirs)
-	tower_menu.set_item_disabled(3, not can_dmg)
-	tower_menu.set_item_disabled(4, not can_freeze)
-	tower_menu.set_item_disabled(5, not can_fire)
+	# Verificar upgrades com esmeraldas
+	var can_range_emerald: bool = currency_info.emeralds >= range_emerald_cost and t.range < max_range
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and t.fire_rate > GameConstants.TOWER_MIN_FIRE_RATE
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	
+	# Atualizar textos dos itens do menu
+	# Estrutura do menu: 0=Alcance💰, 1=Alcance💚, 2=Separador, 3=Cadência💰, 4=Cadência💚, 5=Separador, 6=Direções, 7=Separador, 8=Dano💰, 9=Dano💚, 10=Separador, 11=Congelamento, 12=Fogo
+	tower_menu.set_item_text(0, "Alcance +60 (💰 %d moedas)" % range_cost)
+	tower_menu.set_item_text(1, "Alcance +60 (💚 %d esmeraldas)" % range_emerald_cost)
+	tower_menu.set_item_text(3, "Cadência + (💰 %d moedas)" % rate_cost)
+	tower_menu.set_item_text(4, "Cadência + (💚 %d esmeraldas)" % rate_emerald_cost)
+	tower_menu.set_item_text(6, "+4 Direções (💰 %d moedas)" % dirs_cost)
+	tower_menu.set_item_text(8, "Dano +0.5 (💰 %d moedas)" % dmg_cost)
+	tower_menu.set_item_text(9, "Dano +0.5 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	tower_menu.set_item_text(11, "Congelamento (💰 %d moedas)" % freeze_cost)
+	tower_menu.set_item_text(12, "Fogo (💰 %d moedas)" % fire_cost)
+	
+	# Desabilitar itens se não tiver recursos suficientes
+	tower_menu.set_item_disabled(0, not can_range)  # Alcance com moedas
+	tower_menu.set_item_disabled(1, not can_range_emerald)  # Alcance com esmeraldas
+	tower_menu.set_item_disabled(3, not can_rate)  # Cadência com moedas
+	tower_menu.set_item_disabled(4, not can_rate_emerald)  # Cadência com esmeraldas
+	tower_menu.set_item_disabled(6, not can_dirs)  # Direções
+	tower_menu.set_item_disabled(8, not can_dmg)  # Dano com moedas
+	tower_menu.set_item_disabled(9, not can_dmg_emerald)  # Dano com esmeraldas
+	tower_menu.set_item_disabled(11, not can_freeze)  # Congelamento
+	tower_menu.set_item_disabled(12, not can_fire)  # Fogo
 	tower_menu.position = screen_pos
 	tower_menu.popup()
 
@@ -3712,27 +3895,58 @@ func _on_tower_menu_pressed(id: int) -> void:
 	var rate_level = t.levels.get("RATE", 0)
 	var dmg_level = t.levels.get("DMG", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Alcance
-			# Custo progressivo mais caro para alcance
+		1:  # Alcance com moedas
 			var cost = int(GameConstants.TOWER_RANGE_COST * pow(1.5, range_level))
-			# Limite de alcance baseado no tamanho do mapa
 			var map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
 			var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 			var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5
 			if hero["coins"] >= cost and t.range < max_range:
 				t.range += 60.0
-				t.range = min(t.range, max_range)  # Garantir que não ultrapasse o limite
+				t.range = min(t.range, max_range)
 				t.levels["RANGE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Cadência (reduz tempo entre tiros)
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
+		11:  # Alcance com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+			var map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			var max_range = sqrt(map_width * map_width + map_height * map_height) * 0.5
+			if currency_info.emeralds >= emerald_cost and t.range < max_range:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				t.range += 60.0
+				t.range = min(t.range, max_range)
+				t.levels["RANGE"] += 1
+				_update_special_currency_labels()
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
+		2:  # Cadência com moedas
 			var cost = get_upgrade_cost(GameConstants.TOWER_RATE_COST, rate_level)
 			if hero["coins"] >= cost and t.fire_rate > GameConstants.TOWER_MIN_FIRE_RATE:
 				t.fire_rate = max(GameConstants.TOWER_MIN_FIRE_RATE, t.fire_rate - GameConstants.TOWER_FIRE_RATE_REDUCTION)
 				t.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
+		12:  # Cadência com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and t.fire_rate > GameConstants.TOWER_MIN_FIRE_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				t.fire_rate = max(GameConstants.TOWER_MIN_FIRE_RATE, t.fire_rate - GameConstants.TOWER_FIRE_RATE_REDUCTION)
+				t.levels["RATE"] += 1
+				_update_special_currency_labels()
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
 		3:  # +4 Direções
 			if hero["coins"] >= GameConstants.TOWER_DIRS_COST and t.dirs.size() < 4:
 				# adiciona 4 direções cardinais se ainda não tem
@@ -3750,13 +3964,26 @@ func _on_tower_menu_pressed(id: int) -> void:
 				t.levels["DIRS"] += 1
 				hero["coins"] -= GameConstants.TOWER_DIRS_COST
 				_track_coin_spent(GameConstants.TOWER_DIRS_COST)
-		4:  # Dano
+		4:  # Dano com moedas
 			var cost = get_upgrade_cost(GameConstants.TOWER_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
 				t.damage += 0.5
 				t.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
+		14:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				t.damage += 0.5
+				t.levels["DMG"] += 1
+				_update_special_currency_labels()
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
 		5:  # Congelamento
 			if hero["coins"] >= GameConstants.TOWER_FREEZE_COST and not t.get("has_freeze", false):
 				t["has_freeze"] = true
@@ -3889,6 +4116,71 @@ func _find_wall_at(world_pos: Vector2, radius: float = 15.0) -> int:
 				return i
 	return -1
 
+func _create_special_currency_labels(tb: Panel) -> void:
+	"""Cria labels para mostrar esmeraldas e diamantes no HUD"""
+	# Verificar se já existem
+	if tb.has_node("LblEmeralds") and tb.has_node("LblDiamonds"):
+		emerald_label = tb.get_node("LblEmeralds")
+		diamond_label = tb.get_node("LblDiamonds")
+		return
+	
+	# Criar label de Esmeraldas (mesmo tamanho e espaçamento maior)
+	emerald_label = Label.new()
+	emerald_label.name = "LblEmeralds"
+	emerald_label.text = "💚 0"
+	emerald_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.3))  # Verde
+	emerald_label.add_theme_font_size_override("font_size", 18)  # Mesmo tamanho que moedas
+	emerald_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# Posicionar após moedas com maior espaçamento (💰 X ocupa ~80px, então colocar em 340 com espaçamento de 90px)
+	emerald_label.layout_mode = 0  # Usar layout absoluto
+	emerald_label.offset_left = 340
+	emerald_label.offset_top = 10
+	tb.add_child(emerald_label)
+	
+	# Criar label de Diamantes (mesmo tamanho e espaçamento maior)
+	diamond_label = Label.new()
+	diamond_label.name = "LblDiamonds"
+	diamond_label.text = "💎 0"
+	diamond_label.add_theme_color_override("font_color", Color(0.4, 0.6, 1.0))  # Azul brilhante
+	diamond_label.add_theme_font_size_override("font_size", 18)  # Mesmo tamanho que moedas
+	diamond_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# Posicionar após esmeraldas com maior espaçamento (mesmo espaçamento de 90px)
+	diamond_label.layout_mode = 0  # Usar layout absoluto
+	diamond_label.offset_left = 430
+	diamond_label.offset_top = 10
+	tb.add_child(diamond_label)
+
+func _update_special_currency_labels() -> void:
+	"""Atualiza os labels de moedas especiais"""
+	if not special_currency_manager:
+		return
+	
+	var tb = $CanvasLayer/HUD/TopBar
+	if not tb:
+		return
+	
+	# Garantir que os labels existam
+	if not tb.has_node("LblEmeralds") or not tb.has_node("LblDiamonds"):
+		_create_special_currency_labels(tb)
+	
+	# Obter referências aos labels se não existirem
+	if not emerald_label or not diamond_label:
+		if tb.has_node("LblEmeralds"):
+			emerald_label = tb.get_node("LblEmeralds")
+		if tb.has_node("LblDiamonds"):
+			diamond_label = tb.get_node("LblDiamonds")
+	
+	# Atualizar valores
+	var currency_info = special_currency_manager.get_currency_info()
+	
+	if emerald_label:
+		emerald_label.text = "💚 %d" % currency_info.emeralds
+	
+	if diamond_label:
+		diamond_label.text = "💎 %d" % currency_info.diamonds
+
+# Funções de quests removidas - agora estão no Menu.gd
+
 func _create_admin_menu(tb: Panel) -> void:
 	# Criar menu de admin apenas se isAdmin estiver ativado
 	if not isAdmin:
@@ -3921,12 +4213,17 @@ func _create_admin_menu(tb: Panel) -> void:
 	admin_menu.id_pressed.connect(_on_admin_menu_pressed)
 	menu_container.add_child(admin_menu)
 	
-	# Criar botão que abre o menu
+	# Criar botão que abre o menu (posicionar após mutar/volume)
 	admin_menu_button = Button.new()
 	admin_menu_button.name = "BtnAdmin"
 	admin_menu_button.text = "Admin"  # Mantém "Admin" (termo técnico)
-	admin_menu_button.position = Vector2(600, 8)
-	admin_menu_button.size = Vector2(100, 28)
+	admin_menu_button.layout_mode = 1  # Usar layout com anchors
+	admin_menu_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	# Admin: 100px de largura, após Volume (que termina em -400), com 10px de espaçamento
+	admin_menu_button.offset_left = -410  # 10px após Volume
+	admin_menu_button.offset_top = 8
+	admin_menu_button.offset_right = -310  # 100px de largura, terminar 10px antes de Quests
+	admin_menu_button.offset_bottom = 36
 	
 	# Estilizar botão admin
 	var admin_btn_style_normal = StyleBoxFlat.new()
@@ -4095,19 +4392,41 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 	var spawn_rate_cost = get_upgrade_cost(GameConstants.BARRACKS_SPAWN_RATE_COST, spawn_rate_level)
 	var projectile_speed_cost = get_upgrade_cost(GameConstants.BARRACKS_PROJECTILE_SPEED_COST, projectile_speed_level)
 	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var hold_emerald_cost = get_tower_upgrade_emerald_cost("HOLD", hold_level)
+	var spawn_rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", spawn_rate_level)
+	var projectile_speed_emerald_cost = get_tower_upgrade_emerald_cost("SPEED", projectile_speed_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_hold: bool = hero["coins"] >= hold_cost
 	var can_spawn_rate: bool = hero["coins"] >= spawn_rate_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE
 	var can_projectile_speed: bool = hero["coins"] >= projectile_speed_cost
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	var can_hold_emerald: bool = currency_info.emeralds >= hold_emerald_cost
+	var can_spawn_rate_emerald: bool = currency_info.emeralds >= spawn_rate_emerald_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE
+	var can_projectile_speed_emerald: bool = currency_info.emeralds >= projectile_speed_emerald_cost
 	
-	barracks_menu.set_item_text(0, "Dano +0.2 (%d)" % dmg_cost)
-	barracks_menu.set_item_text(1, "Tempo Hold +%.1fs (%d)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_cost])
-	barracks_menu.set_item_text(2, "Spawn Rate -0.5s (%d) [%.1fs]" % [spawn_rate_cost, b.soldier_spawn_rate])
-	barracks_menu.set_item_text(3, "Velocidade Projétil +20 (%d) [%.0f]" % [projectile_speed_cost, b.projectile_speed])
+	# Atualizar textos dos itens do menu
+	barracks_menu.set_item_text(0, "Dano +0.2 (💰 %d moedas)" % dmg_cost)
+	barracks_menu.set_item_text(1, "Dano +0.2 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	barracks_menu.set_item_text(3, "Tempo Hold +%.1fs (💰 %d moedas)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_cost])
+	barracks_menu.set_item_text(4, "Tempo Hold +%.1fs (💚 %d esmeraldas)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_emerald_cost])
+	barracks_menu.set_item_text(6, "Spawn Rate -0.5s (💰 %d moedas) [%.1fs]" % [spawn_rate_cost, b.soldier_spawn_rate])
+	barracks_menu.set_item_text(7, "Spawn Rate -0.5s (💚 %d esmeraldas) [%.1fs]" % [spawn_rate_emerald_cost, b.soldier_spawn_rate])
+	barracks_menu.set_item_text(9, "Velocidade Projétil +20 (💰 %d moedas) [%.0f]" % [projectile_speed_cost, b.projectile_speed])
+	barracks_menu.set_item_text(10, "Velocidade Projétil +20 (💚 %d esmeraldas) [%.0f]" % [projectile_speed_emerald_cost, b.projectile_speed])
 	barracks_menu.set_item_disabled(0, not can_dmg)
-	barracks_menu.set_item_disabled(1, not can_hold)
-	barracks_menu.set_item_disabled(2, not can_spawn_rate)
-	barracks_menu.set_item_disabled(3, not can_projectile_speed)
+	barracks_menu.set_item_disabled(1, not can_dmg_emerald)
+	barracks_menu.set_item_disabled(3, not can_hold)
+	barracks_menu.set_item_disabled(4, not can_hold_emerald)
+	barracks_menu.set_item_disabled(6, not can_spawn_rate)
+	barracks_menu.set_item_disabled(7, not can_spawn_rate_emerald)
+	barracks_menu.set_item_disabled(9, not can_projectile_speed)
+	barracks_menu.set_item_disabled(10, not can_projectile_speed_emerald)
 	barracks_menu.position = screen_pos
 	barracks_menu.popup()
 
@@ -4120,35 +4439,69 @@ func _on_barracks_menu_pressed(id: int) -> void:
 	var spawn_rate_level = b.levels.get("SPAWN_RATE", 0)
 	var projectile_speed_level = b.levels.get("PROJECTILE_SPEED", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Dano
+		1:  # Dano com moedas
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
 				b.damage += GameConstants.BARRACKS_SOLDIER_DAMAGE_INCREASE
 				b.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Tempo Hold
+		10:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.damage += GameConstants.BARRACKS_SOLDIER_DAMAGE_INCREASE
+				b.levels["DMG"] += 1
+				_update_special_currency_labels()
+				# Atualizar progresso de quests
+				if quest_manager:
+					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
+		2:  # Tempo Hold com moedas
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_HOLD_COST, hold_level)
 			if hero["coins"] >= cost:
 				b.hold_time += GameConstants.BARRACKS_HOLD_TIME_INCREASE
 				b.levels["HOLD"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		3:  # Spawn Rate
+		11:  # Tempo Hold com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("HOLD", hold_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.hold_time += GameConstants.BARRACKS_HOLD_TIME_INCREASE
+				b.levels["HOLD"] += 1
+				_update_special_currency_labels()
+		3:  # Spawn Rate com moedas
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_SPAWN_RATE_COST, spawn_rate_level)
 			if hero["coins"] >= cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE:
 				b.soldier_spawn_rate = max(GameConstants.BARRACKS_MIN_SPAWN_RATE, b.soldier_spawn_rate - GameConstants.BARRACKS_SPAWN_RATE_REDUCTION)
 				b.levels["SPAWN_RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		4:  # Velocidade Projétil
+		12:  # Spawn Rate com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", spawn_rate_level)
+			if currency_info.emeralds >= emerald_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.soldier_spawn_rate = max(GameConstants.BARRACKS_MIN_SPAWN_RATE, b.soldier_spawn_rate - GameConstants.BARRACKS_SPAWN_RATE_REDUCTION)
+				b.levels["SPAWN_RATE"] += 1
+				_update_special_currency_labels()
+		4:  # Velocidade Projétil com moedas
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_PROJECTILE_SPEED_COST, projectile_speed_level)
 			if hero["coins"] >= cost:
 				b.projectile_speed += GameConstants.BARRACKS_PROJECTILE_SPEED_INCREASE
 				b.levels["PROJECTILE_SPEED"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		13:  # Velocidade Projétil com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("SPEED", projectile_speed_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.projectile_speed += GameConstants.BARRACKS_PROJECTILE_SPEED_INCREASE
+				b.levels["PROJECTILE_SPEED"] += 1
+				_update_special_currency_labels()
 	barracks[barracks_selected_index] = b
 	
 	# Guardar a posição do menu antes que ele feche para reabri-lo
@@ -4200,16 +4553,29 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	var dmg_cost = get_upgrade_cost(GameConstants.SNIPER_DMG_COST, dmg_level)
 	var rate_cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
 	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE
 	
-	sniper_menu.set_item_text(0, "Dano +2 (%d)" % dmg_cost)
-	sniper_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
+	sniper_menu.set_item_text(0, "Dano +2 (💰 %d moedas)" % dmg_cost)
+	sniper_menu.set_item_text(1, "Dano +2 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	sniper_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, s.fire_rate])
+	sniper_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
 	var target_mode = s.get("target_mode", 0)
-	sniper_menu.set_item_text(3, "Alvo: Boss" + (" ✓" if target_mode == 0 else ""))
-	sniper_menu.set_item_text(4, "Alvo: Mais Próximo ao Centro" + (" ✓" if target_mode == 1 else ""))
+	sniper_menu.set_item_text(6, "Alvo: Boss" + (" ✓" if target_mode == 0 else ""))
+	sniper_menu.set_item_text(7, "Alvo: Mais Próximo ao Centro" + (" ✓" if target_mode == 1 else ""))
 	sniper_menu.set_item_disabled(0, not can_dmg)
-	sniper_menu.set_item_disabled(1, not can_rate)
+	sniper_menu.set_item_disabled(1, not can_dmg_emerald)
+	sniper_menu.set_item_disabled(3, not can_rate)
+	sniper_menu.set_item_disabled(4, not can_rate_emerald)
 	sniper_menu.position = screen_pos
 	sniper_menu.popup()
 
@@ -4220,21 +4586,38 @@ func _on_sniper_menu_pressed(id: int) -> void:
 	var dmg_level = s.levels.get("DMG", 0)
 	var rate_level = s.levels.get("RATE", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Dano
+		1:  # Dano com moedas
 			var cost = get_upgrade_cost(GameConstants.SNIPER_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
 				s.damage += 2.0
 				s.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Taxa de Tiro
+		10:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.damage += 2.0
+				s.levels["DMG"] += 1
+				_update_special_currency_labels()
+		2:  # Taxa de Tiro com moedas
 			var cost = get_upgrade_cost(GameConstants.SNIPER_RATE_COST, rate_level)
 			if hero["coins"] >= cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE:
 				s.fire_rate = max(GameConstants.SNIPER_MIN_FIRE_RATE, s.fire_rate - GameConstants.SNIPER_FIRE_RATE_REDUCTION)
 				s.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		11:  # Taxa de Tiro com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.fire_rate = max(GameConstants.SNIPER_MIN_FIRE_RATE, s.fire_rate - GameConstants.SNIPER_FIRE_RATE_REDUCTION)
+				s.levels["RATE"] += 1
+				_update_special_currency_labels()
 		3:  # Alvo: Boss
 			s["target_mode"] = 0
 		4:  # Alvo: Mais Próximo ao Centro
@@ -4292,16 +4675,33 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	var rate_cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
 	var area_cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
 	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	var area_emerald_cost = get_tower_upgrade_emerald_cost("AREA", area_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_rate: bool = hero["coins"] >= rate_cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE
 	var can_area: bool = hero["coins"] >= area_cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE
+	var can_area_emerald: bool = currency_info.emeralds >= area_emerald_cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS
 	
-	aoe_menu.set_item_text(0, "Dano +1 (%d)" % dmg_cost)
-	aoe_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, a.fire_rate])
-	aoe_menu.set_item_text(2, "Área +20 (%d) [%.0f]" % [area_cost, a.aoe_radius])
+	aoe_menu.set_item_text(0, "Dano +1 (💰 %d moedas)" % dmg_cost)
+	aoe_menu.set_item_text(1, "Dano +1 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	aoe_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, a.fire_rate])
+	aoe_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, a.fire_rate])
+	aoe_menu.set_item_text(6, "Área +20 (💰 %d moedas) [%.0f]" % [area_cost, a.aoe_radius])
+	aoe_menu.set_item_text(7, "Área +20 (💚 %d esmeraldas) [%.0f]" % [area_emerald_cost, a.aoe_radius])
 	aoe_menu.set_item_disabled(0, not can_dmg)
-	aoe_menu.set_item_disabled(1, not can_rate)
-	aoe_menu.set_item_disabled(2, not can_area)
+	aoe_menu.set_item_disabled(1, not can_dmg_emerald)
+	aoe_menu.set_item_disabled(3, not can_rate)
+	aoe_menu.set_item_disabled(4, not can_rate_emerald)
+	aoe_menu.set_item_disabled(6, not can_area)
+	aoe_menu.set_item_disabled(7, not can_area_emerald)
 	aoe_menu.position = screen_pos
 	aoe_menu.popup()
 
@@ -4313,28 +4713,52 @@ func _on_aoe_menu_pressed(id: int) -> void:
 	var rate_level = a.levels.get("RATE", 0)
 	var area_level = a.levels.get("AREA", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Dano
+		1:  # Dano com moedas
 			var cost = get_upgrade_cost(GameConstants.AOE_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
 				a.damage += 1.0
 				a.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Taxa de Tiro
+		10:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				a.damage += 1.0
+				a.levels["DMG"] += 1
+				_update_special_currency_labels()
+		2:  # Taxa de Tiro com moedas
 			var cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
 			if hero["coins"] >= cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE:
 				a.fire_rate = max(GameConstants.AOE_MIN_FIRE_RATE, a.fire_rate - GameConstants.AOE_FIRE_RATE_REDUCTION)
 				a.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		3:  # Área
+		11:  # Taxa de Tiro com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and a.fire_rate > GameConstants.AOE_MIN_FIRE_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				a.fire_rate = max(GameConstants.AOE_MIN_FIRE_RATE, a.fire_rate - GameConstants.AOE_FIRE_RATE_REDUCTION)
+				a.levels["RATE"] += 1
+				_update_special_currency_labels()
+		3:  # Área com moedas
 			var cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
 			if hero["coins"] >= cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS:
 				a.aoe_radius = min(GameConstants.AOE_MAX_RADIUS, a.aoe_radius + 20.0)
 				a.levels["AREA"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		12:  # Área com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("AREA", area_level)
+			if currency_info.emeralds >= emerald_cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				a.aoe_radius = min(GameConstants.AOE_MAX_RADIUS, a.aoe_radius + 20.0)
+				a.levels["AREA"] += 1
+				_update_special_currency_labels()
 	aoe_towers[aoe_selected_index] = a
 	
 	# Guardar a posição do menu antes que ele feche para reabri-lo
@@ -4388,16 +4812,33 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	var rate_cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
 	var chain_cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
 	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	var chain_emerald_cost = get_tower_upgrade_emerald_cost("CHAIN", chain_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
 	var can_rate: bool = hero["coins"] >= rate_cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE
 	var can_chain: bool = hero["coins"] >= chain_cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE
+	var can_chain_emerald: bool = currency_info.emeralds >= chain_emerald_cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT
 	
-	shock_menu.set_item_text(0, "Dano +0.5 (%d)" % dmg_cost)
-	shock_menu.set_item_text(1, "Taxa de Tiro + (%d) [%.1fs]" % [rate_cost, s.fire_rate])
-	shock_menu.set_item_text(2, "Corrente +1 (%d) [%d]" % [chain_cost, s.chain_count])
+	shock_menu.set_item_text(0, "Dano +0.5 (💰 %d moedas)" % dmg_cost)
+	shock_menu.set_item_text(1, "Dano +0.5 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	shock_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, s.fire_rate])
+	shock_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
+	shock_menu.set_item_text(6, "Corrente +1 (💰 %d moedas) [%d]" % [chain_cost, s.chain_count])
+	shock_menu.set_item_text(7, "Corrente +1 (💚 %d esmeraldas) [%d]" % [chain_emerald_cost, s.chain_count])
 	shock_menu.set_item_disabled(0, not can_dmg)
-	shock_menu.set_item_disabled(1, not can_rate)
-	shock_menu.set_item_disabled(2, not can_chain)
+	shock_menu.set_item_disabled(1, not can_dmg_emerald)
+	shock_menu.set_item_disabled(3, not can_rate)
+	shock_menu.set_item_disabled(4, not can_rate_emerald)
+	shock_menu.set_item_disabled(6, not can_chain)
+	shock_menu.set_item_disabled(7, not can_chain_emerald)
 	shock_menu.position = screen_pos
 	shock_menu.popup()
 
@@ -4409,28 +4850,52 @@ func _on_shock_menu_pressed(id: int) -> void:
 	var rate_level = s.levels.get("RATE", 0)
 	var chain_level = s.levels.get("CHAIN", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Dano
+		1:  # Dano com moedas
 			var cost = get_upgrade_cost(GameConstants.SHOCK_DMG_COST, dmg_level)
 			if hero["coins"] >= cost:
 				s.damage += 0.5
 				s.levels["DMG"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Taxa de Tiro
+		10:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.damage += 0.5
+				s.levels["DMG"] += 1
+				_update_special_currency_labels()
+		2:  # Taxa de Tiro com moedas
 			var cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
 			if hero["coins"] >= cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE:
 				s.fire_rate = max(GameConstants.SHOCK_MIN_FIRE_RATE, s.fire_rate - GameConstants.SHOCK_FIRE_RATE_REDUCTION)
 				s.levels["RATE"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		3:  # Corrente
+		11:  # Taxa de Tiro com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and s.fire_rate > GameConstants.SHOCK_MIN_FIRE_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.fire_rate = max(GameConstants.SHOCK_MIN_FIRE_RATE, s.fire_rate - GameConstants.SHOCK_FIRE_RATE_REDUCTION)
+				s.levels["RATE"] += 1
+				_update_special_currency_labels()
+		3:  # Corrente com moedas
 			var cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
 			if hero["coins"] >= cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT:
 				s.chain_count = min(GameConstants.SHOCK_MAX_CHAIN_COUNT, s.chain_count + 1)
 				s.levels["CHAIN"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		12:  # Corrente com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("CHAIN", chain_level)
+			if currency_info.emeralds >= emerald_cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.chain_count = min(GameConstants.SHOCK_MAX_CHAIN_COUNT, s.chain_count + 1)
+				s.levels["CHAIN"] += 1
+				_update_special_currency_labels()
 	shock_towers[shock_selected_index] = s
 	
 	# Guardar a posição do menu antes que ele feche para reabri-lo
@@ -4482,14 +4947,27 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	var range_cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
 	var amount_cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
 	
+	# Custos em esmeraldas (escalados)
+	var range_emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+	var amount_emerald_cost = get_tower_upgrade_emerald_cost("AMOUNT", amount_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_range: bool = hero["coins"] >= range_cost and s.range < 250.0  # Máximo 250
 	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.4  # Máximo 40%
+	var can_range_emerald: bool = currency_info.emeralds >= range_emerald_cost and s.range < 250.0
+	var can_amount_emerald: bool = currency_info.emeralds >= amount_emerald_cost and s.slow_amount < 0.4
 	
-	# Atualizar apenas os 2 itens (alcance e slow)
-	slow_menu.set_item_text(0, "Alcance +30 (%d) [%.0f/250]" % [range_cost, s.range])
-	slow_menu.set_item_text(1, "Slow x1.05 (%d) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
+	# Atualizar itens (alcance e slow com opções de moedas e esmeraldas)
+	slow_menu.set_item_text(0, "Alcance +30 (💰 %d moedas) [%.0f/250]" % [range_cost, s.range])
+	slow_menu.set_item_text(1, "Alcance +30 (💚 %d esmeraldas) [%.0f/250]" % [range_emerald_cost, s.range])
+	slow_menu.set_item_text(3, "Slow x1.05 (💰 %d moedas) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
+	slow_menu.set_item_text(4, "Slow x1.05 (💚 %d esmeraldas) [%.0f%%]" % [amount_emerald_cost, s.slow_amount * 100])
 	slow_menu.set_item_disabled(0, not can_range)
-	slow_menu.set_item_disabled(1, not can_amount)
+	slow_menu.set_item_disabled(1, not can_range_emerald)
+	slow_menu.set_item_disabled(3, not can_amount)
+	slow_menu.set_item_disabled(4, not can_amount_emerald)
 	slow_menu.position = screen_pos
 	slow_menu.popup()
 
@@ -4501,15 +4979,25 @@ func _on_slow_menu_pressed(id: int) -> void:
 	var amount_level = s.levels.get("AMOUNT", 0)
 	# RATE e DURATION removidos - não fazem mais sentido
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Alcance - aumenta apenas o range (máximo 250)
+		1:  # Alcance com moedas - aumenta apenas o range (máximo 250)
 			var cost = get_upgrade_cost(GameConstants.SLOW_RANGE_COST, range_level)
 			if hero["coins"] >= cost and s.range < 250.0:
 				s.range = min(250.0, s.range + 30.0)  # Aumenta o alcance em 30, máximo 250
 				s.levels["RANGE"] = s.levels.get("RANGE", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Slow Amount - multiplicativo (x1.05 por upgrade, máximo 40%)
+		10:  # Alcance com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+			if currency_info.emeralds >= emerald_cost and s.range < 250.0:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.range = min(250.0, s.range + 30.0)
+				s.levels["RANGE"] = s.levels.get("RANGE", 0) + 1
+				_update_special_currency_labels()
+		2:  # Slow Amount com moedas - multiplicativo (x1.05 por upgrade, máximo 40%)
 			var cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
 			if hero["coins"] >= cost and s.slow_amount < 0.4:  # Máximo 40%
 				# Multiplicativo: multiplica por 1.05 (5% mais lento por upgrade)
@@ -4517,6 +5005,13 @@ func _on_slow_menu_pressed(id: int) -> void:
 				s.levels["AMOUNT"] = s.levels.get("AMOUNT", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		11:  # Slow Amount com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("AMOUNT", amount_level)
+			if currency_info.emeralds >= emerald_cost and s.slow_amount < 0.4:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				s.slow_amount = min(0.4, s.slow_amount * 1.05)
+				s.levels["AMOUNT"] = s.levels.get("AMOUNT", 0) + 1
+				_update_special_currency_labels()
 		# Removido upgrade de Duração (id 3) - funciona enquanto está dentro da área
 		# Removido upgrade de Taxa de Aplicação (id 4)
 	slow_towers[slow_selected_index] = s
@@ -4572,14 +5067,27 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	var dmg_cost = int(GameConstants.BOOST_DMG_COST * pow(1.25, dmg_level))
 	var rate_cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
 	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	var can_dmg: bool = hero["coins"] >= dmg_cost and b.damage_boost < 1.0  # Máximo 100%
 	var can_rate: bool = hero["coins"] >= rate_cost and b.rate_boost < 1.0  # Máximo 100%
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost and b.damage_boost < 1.0
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and b.rate_boost < 1.0
 	
 	# Apenas dano e cadência (sem alcance)
-	boost_menu.set_item_text(0, "Boost Dano +5%% (%d) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
-	boost_menu.set_item_text(1, "Boost Cadência +5%% (%d) [%.0f%%]" % [rate_cost, b.rate_boost * 100])
+	boost_menu.set_item_text(0, "Boost Dano +5%% (💰 %d moedas) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
+	boost_menu.set_item_text(1, "Boost Dano +5%% (💚 %d esmeraldas) [%.0f%%]" % [dmg_emerald_cost, b.damage_boost * 100])
+	boost_menu.set_item_text(3, "Boost Cadência +5%% (💰 %d moedas) [%.0f%%]" % [rate_cost, b.rate_boost * 100])
+	boost_menu.set_item_text(4, "Boost Cadência +5%% (💚 %d esmeraldas) [%.0f%%]" % [rate_emerald_cost, b.rate_boost * 100])
 	boost_menu.set_item_disabled(0, not can_dmg)
-	boost_menu.set_item_disabled(1, not can_rate)
+	boost_menu.set_item_disabled(1, not can_dmg_emerald)
+	boost_menu.set_item_disabled(3, not can_rate)
+	boost_menu.set_item_disabled(4, not can_rate_emerald)
 	boost_menu.position = screen_pos
 	boost_menu.popup()
 
@@ -4590,8 +5098,11 @@ func _on_boost_menu_pressed(id: int) -> void:
 	var dmg_level = b.levels.get("DMG", 0)
 	var rate_level = b.levels.get("RATE", 0)
 	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
 	match id:
-		1:  # Boost Dano (ID mudou de 0 para 1 após remover alcance)
+		1:  # Boost Dano com moedas
 			# Custo com multiplicador maior (1.25x por nível)
 			var cost = int(GameConstants.BOOST_DMG_COST * pow(1.25, dmg_level))
 			if hero["coins"] >= cost and b.damage_boost < 1.0:  # Máximo 100%
@@ -4599,13 +5110,27 @@ func _on_boost_menu_pressed(id: int) -> void:
 				b.levels["DMG"] = b.levels.get("DMG", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
-		2:  # Boost Cadência (ID mudou de 1 para 2 após remover alcance)
+		10:  # Boost Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost and b.damage_boost < 1.0:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.damage_boost = min(1.0, b.damage_boost + 0.05)
+				b.levels["DMG"] = b.levels.get("DMG", 0) + 1
+				_update_special_currency_labels()
+		2:  # Boost Cadência com moedas
 			var cost = get_upgrade_cost(GameConstants.BOOST_RATE_COST, rate_level)
 			if hero["coins"] >= cost and b.rate_boost < 1.0:  # Máximo 100%
 				b.rate_boost = min(1.0, b.rate_boost + 0.05)  # Mantém +5%
 				b.levels["RATE"] = b.levels.get("RATE", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
+		11:  # Boost Cadência com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and b.rate_boost < 1.0:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				b.rate_boost = min(1.0, b.rate_boost + 0.05)
+				b.levels["RATE"] = b.levels.get("RATE", 0) + 1
+				_update_special_currency_labels()
 	boost_towers[boost_selected_index] = b
 	
 	# Guardar a posição do menu antes que ele feche para reabri-lo
@@ -6697,6 +7222,112 @@ func _try_drop_coin(pos: Vector2) -> void:
 	if coin_manager:
 		coin_manager.try_drop_coin(pos)
 
+func _try_drop_special_currency(pos: Vector2, is_boss: bool) -> void:
+	"""Tenta dropar moedas especiais (esmeraldas/diamantes) em waves altas"""
+	if not special_currency_manager or not wave_manager:
+		return
+	
+	var current_wave = wave_manager.wave
+	
+	# Bosses especiais (a cada 25 waves) dão esmeralda garantida
+	if is_boss and special_currency_manager.is_special_boss_wave(current_wave):
+		special_currency_manager.add_emeralds(GameConstants.BOSS_EMERALD_REWARD_COUNT, "boss_special")
+		_create_special_currency_notification(pos, "emerald", GameConstants.BOSS_EMERALD_REWARD_COUNT)
+		return
+	
+	# Drops aleatórios em waves altas
+	if special_currency_manager.should_drop_emerald(current_wave):
+		special_currency_manager.add_emeralds(1, "enemy_drop")
+		_create_special_currency_notification(pos, "emerald", 1)
+	
+	if special_currency_manager.should_drop_diamond(current_wave):
+		special_currency_manager.add_diamonds(1, "enemy_drop")
+		_create_special_currency_notification(pos, "diamond", 1)
+
+func _create_special_currency_notification(pos: Vector2, currency_type: String, amount: int) -> void:
+	"""Cria notificação visual de moeda especial coletada"""
+	# Por enquanto, apenas print. Pode ser expandido com efeitos visuais
+	var icon = "💚" if currency_type == "emerald" else "💎"
+	print("%s +%d %s" % [icon, amount, currency_type])
+
+func _load_pending_quest_rewards() -> void:
+	"""Carrega e aplica recompensas pendentes de quests do Menu"""
+	if not special_currency_manager:
+		return
+	
+	var config = ConfigFile.new()
+	var config_path = "user://pending_quest_rewards.cfg"
+	
+	if config.load(config_path) == OK:
+		var pending_emeralds = config.get_value("rewards", "emeralds", 0)
+		var pending_diamonds = config.get_value("rewards", "diamonds", 0)
+		
+		if pending_emeralds > 0:
+			special_currency_manager.add_emeralds(pending_emeralds, "quest")
+		if pending_diamonds > 0:
+			special_currency_manager.add_diamonds(pending_diamonds, "quest")
+		
+		# Limpar arquivo após aplicar
+		var dir = DirAccess.open("user://")
+		if dir:
+			dir.remove("pending_quest_rewards.cfg")
+
+func _apply_prestige_bonuses() -> void:
+	"""Aplica bônus permanentes de prestígio"""
+	if not prestige_shop:
+		return
+	
+	# Aplicar bônus de moedas iniciais
+	var start_coins_bonus = prestige_shop.get_start_coins_bonus()
+	if start_coins_bonus > 0:
+		hero["coins"] += start_coins_bonus
+	
+	# Aplicar bônus de dano do herói
+	var hero_damage_bonus = prestige_shop.get_hero_damage_bonus()
+	if hero_damage_bonus > 0:
+		hero["damage"] *= (1.0 + hero_damage_bonus)
+	
+	# Aplicar bônus de velocidade de tiro
+	var hero_firerate_bonus = prestige_shop.get_hero_firerate_bonus()
+	if hero_firerate_bonus > 0:
+		hero["fire_rate"] *= (1.0 - hero_firerate_bonus)  # Reduz fire_rate = mais rápido
+	
+	# Aplicar bônus de HP da base
+	var base_hp_bonus = prestige_shop.get_base_hp_bonus()
+	if base_hp_bonus > 0:
+		base_hp += base_hp_bonus
+	
+	# Aplicar boost de HP da base
+	var base_hp_boost = prestige_shop.get_base_hp_boost()
+	if base_hp_boost > 0:
+		base_hp += base_hp_boost
+	
+	# Aplicar boost de dano do herói
+	var hero_damage_boost = prestige_shop.get_hero_damage_boost()
+	if hero_damage_boost > 0:
+		hero["damage"] *= (1.0 + hero_damage_boost)
+	
+	# Aplicar boost de chance de drop de moedas
+	var coin_drop_boost = prestige_shop.get_coin_drop_boost()
+	if coin_drop_boost > 0:
+		coin_drop_chance += coin_drop_boost
+	
+	# Aplicar boost de moedas iniciais
+	var starting_coins_boost = prestige_shop.get_starting_coins_boost()
+	if starting_coins_boost > 0:
+		hero["coins"] += starting_coins_boost
+	
+	# Aplicar multiplicador de recompensas (será usado no RewardCalculator)
+	var reward_mult = prestige_shop.get_reward_multiplier()
+	if reward_mult > 1.0:
+		global_tower_damage_boost *= reward_mult  # Aplicar multiplicador global
+	
+	# Aplicar bônus de prestígio acumulado
+	var prestige_bonus = prestige_shop.get_prestige_bonus()
+	if prestige_bonus.coins_multiplier > 1.0:
+		# Multiplicador será aplicado nas recompensas
+		pass  # Pode ser aplicado no RewardCalculator
+
 func _try_drop_talisman(pos: Vector2) -> void:
 	"""Tenta dropar um talismã na posição especificada"""
 	if not item_manager:
@@ -6771,11 +7402,11 @@ func _create_loading_screen() -> void:
 	loading_screen.set_anchors_preset(Control.PRESET_FULL_RECT)
 	loading_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
-	# Fundo escuro
+	# Fundo com gradiente escuro
 	var bg = ColorRect.new()
 	bg.name = "Background"
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.05, 0.05, 0.1, 1.0)
+	bg.color = Color(0.05, 0.05, 0.12, 1.0)
 	loading_screen.add_child(bg)
 	
 	# Container central - usando CenterContainer para centralizar automaticamente
@@ -6786,59 +7417,107 @@ func _create_loading_screen() -> void:
 	
 	var center_container = VBoxContainer.new()
 	center_container.name = "CenterContainer"
-	center_container.add_theme_constant_override("separation", 20)
+	center_container.add_theme_constant_override("separation", 25)
+	center_container.custom_minimum_size = Vector2(500, 0)
 	outer_center.add_child(center_container)
 	
-	# Label de carregamento
-	var loading_label = Label.new()
-	loading_label.name = "LoadingLabel"
-	loading_label.text = "Carregando..."
-	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	loading_label.add_theme_font_size_override("font_size", 32)
-	loading_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
-	center_container.add_child(loading_label)
+	# Título do jogo
+	var title_label = Label.new()
+	title_label.name = "TitleLabel"
+	title_label.text = "Defesa do Labirinto"
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_label.add_theme_font_size_override("font_size", 36)
+	title_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.4))
+	center_container.add_child(title_label)
 	
-	# Barra de progresso (simulada com Label)
-	var progress_label = Label.new()
-	progress_label.name = "ProgressLabel"
-	progress_label.text = "0%"
-	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	progress_label.add_theme_font_size_override("font_size", 24)
-	progress_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
-	center_container.add_child(progress_label)
+	# Label de status de carregamento
+	var status_label = Label.new()
+	status_label.name = "StatusLabel"
+	status_label.text = "Inicializando..."
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.add_theme_font_size_override("font_size", 18)
+	status_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	center_container.add_child(status_label)
 	
-	# Barra de progresso visual
-	var progress_bar_bg = ColorRect.new()
+	# Container para barra de progresso
+	var progress_container = VBoxContainer.new()
+	progress_container.add_theme_constant_override("separation", 8)
+	progress_container.custom_minimum_size = Vector2(450, 0)
+	
+	# Barra de progresso visual (fundo)
+	var progress_bar_bg = Panel.new()
 	progress_bar_bg.name = "ProgressBarBG"
-	progress_bar_bg.custom_minimum_size = Vector2(400, 20)
-	progress_bar_bg.color = Color(0.2, 0.2, 0.3, 1.0)
-	center_container.add_child(progress_bar_bg)
+	progress_bar_bg.custom_minimum_size = Vector2(450, 30)
 	
-	var progress_bar = ColorRect.new()
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.15, 0.15, 0.2, 1.0)
+	bg_style.border_color = Color(0.3, 0.3, 0.4, 1.0)
+	bg_style.corner_radius_top_left = 8
+	bg_style.corner_radius_top_right = 8
+	bg_style.corner_radius_bottom_left = 8
+	bg_style.corner_radius_bottom_right = 8
+	bg_style.border_width_left = 2
+	bg_style.border_width_top = 2
+	bg_style.border_width_right = 2
+	bg_style.border_width_bottom = 2
+	progress_bar_bg.add_theme_stylebox_override("panel", bg_style)
+	
+	# Barra de progresso (preenchimento)
+	var progress_bar = Panel.new()
 	progress_bar.name = "ProgressBar"
 	progress_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
 	progress_bar.anchor_left = 0.0
 	progress_bar.anchor_right = 0.0
-	progress_bar.offset_right = 0.0
-	progress_bar.color = Color(1.0, 0.9, 0.2, 1.0)  # Amarelo/dourado
+	progress_bar.offset_left = 4
+	progress_bar.offset_top = 4
+	progress_bar.offset_right = -4
+	progress_bar.offset_bottom = -4
+	
+	var bar_style = StyleBoxFlat.new()
+	bar_style.bg_color = Color(0.2, 0.7, 1.0, 1.0)  # Azul vibrante
+	bar_style.corner_radius_top_left = 4
+	bar_style.corner_radius_top_right = 4
+	bar_style.corner_radius_bottom_left = 4
+	bar_style.corner_radius_bottom_right = 4
+	progress_bar.add_theme_stylebox_override("panel", bar_style)
+	
 	progress_bar_bg.add_child(progress_bar)
+	progress_container.add_child(progress_bar_bg)
+	
+	# Label de porcentagem
+	var progress_label = Label.new()
+	progress_label.name = "ProgressLabel"
+	progress_label.text = "0%"
+	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress_label.add_theme_font_size_override("font_size", 20)
+	progress_label.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0))
+	progress_container.add_child(progress_label)
+	
+	center_container.add_child(progress_container)
 	
 	# Adicionar ao CanvasLayer
 	$CanvasLayer.add_child(loading_screen)
 	loading_screen.z_index = 1000  # Garantir que fique por cima de tudo
 
-func _update_loading_progress(progress: float) -> void:
+func _update_loading_progress(progress: float, status_text: String = "") -> void:
 	loading_progress = progress
 	if loading_screen != null:
-		var progress_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressLabel")
-		var progress_bar = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressBarBG/ProgressBar")
+		var status_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/StatusLabel")
+		var progress_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressContainer/ProgressLabel")
+		var progress_bar = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressContainer/ProgressBarBG/ProgressBar")
 		
+		# Atualizar texto de status
+		if status_label and status_text != "":
+			status_label.text = status_text
+		
+		# Atualizar porcentagem
 		if progress_label:
 			progress_label.text = "%d%%" % int(progress * 100)
 		
+		# Atualizar barra de progresso
 		if progress_bar:
 			progress_bar.anchor_right = progress
-			progress_bar.offset_right = 0
+			progress_bar.offset_right = -4  # Manter margem interna
 	
 	# Forçar atualização visual
 	if loading_screen:
@@ -8177,6 +8856,9 @@ func _on_upgrade_menu_closed() -> void:
 	_hide_range_indicator()
 
 func _on_skill_collect_coins() -> void:
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.USE_SKILLS, 1)
 	if not skills_manager:
 		return
 	
@@ -8202,6 +8884,9 @@ func _on_skill_collect_coins() -> void:
 		print("Coletadas %d moedas!" % total_collected)
 
 func _on_skill_slow_all() -> void:
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.USE_SKILLS, 1)
 	if not skills_manager:
 		return
 	
@@ -8221,6 +8906,9 @@ func _on_skill_slow_all() -> void:
 	print("Slow Global ativado por %.0f segundos!" % GameConstants.SKILL_SLOW_ALL_DURATION)
 
 func _on_skill_damage_boost() -> void:
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.USE_SKILLS, 1)
 	if not skills_manager:
 		return
 	
@@ -8442,10 +9130,12 @@ func _create_dps_button() -> void:
 	btn_dps.text = "DPS"
 	btn_dps.custom_minimum_size = Vector2(60, 28)
 	# Posicionar usando anchors para ser responsivo (canto superior direito)
+	# Ordem: Mute, Volume, Admin, Quests, Auto Benefício, DPS
+	# DPS: 60px de largura, mais à direita (primeiro da direita para esquerda)
 	btn_dps.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	btn_dps.offset_left = -70
+	btn_dps.offset_left = -60  # 60px de largura
 	btn_dps.offset_top = 8
-	btn_dps.offset_right = -10
+	btn_dps.offset_right = 0  # Borda direita
 	btn_dps.offset_bottom = 36
 	btn_dps.pressed.connect(_toggle_dps_menu)
 	
@@ -8546,16 +9236,6 @@ func _update_auto_benefit_button() -> void:
 	
 	var btn = tb.get_node("BtnAutoBenefit")
 	
-	# Garantir que o botão use anchors para ser responsivo (antes do botão DPS)
-	# layout_mode = 1 significa LAYOUT_MODE_ANCHORS em Godot 4
-	if btn.layout_mode != 1:
-		btn.layout_mode = 1  # Layout com anchors
-		btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		btn.offset_left = -270
-		btn.offset_top = 8
-		btn.offset_right = -140
-		btn.offset_bottom = 36
-	
 	# Ajustar texto baseado no tamanho da tela
 	var screen_width = get_viewport().get_visible_rect().size.x
 	var short_text = screen_width < 1200
@@ -8563,29 +9243,103 @@ func _update_auto_benefit_button() -> void:
 	if auto_choose_benefits:
 		btn.text = "Auto: ON" if short_text else "Auto Benefício: ON"
 		var style = StyleBoxFlat.new()
-		style.bg_color = Color(0.2, 0.6, 0.2, 0.9)
-		style.border_color = Color(0.3, 0.8, 0.3)
+		style.bg_color = Color(0.1, 0.3, 0.6, 0.9)  # Azul quando ON
+		style.border_color = Color(0.2, 0.5, 0.8)
 		style.border_width_left = 2
 		style.border_width_top = 2
 		style.border_width_right = 2
 		style.border_width_bottom = 2
 		btn.add_theme_stylebox_override("normal", style)
 		var hover_style = style.duplicate()
-		hover_style.bg_color = Color(0.3, 0.7, 0.3, 0.9)
+		hover_style.bg_color = Color(0.2, 0.4, 0.7, 0.9)  # Azul mais claro no hover
 		btn.add_theme_stylebox_override("hover", hover_style)
 	else:
 		btn.text = "Auto: OFF" if short_text else "Auto Benefício: OFF"
 		var style = StyleBoxFlat.new()
-		style.bg_color = Color(0.3, 0.3, 0.3, 0.9)
-		style.border_color = Color(0.5, 0.5, 0.5)
+		style.bg_color = Color(0.1, 0.2, 0.4, 0.9)  # Azul escuro quando OFF
+		style.border_color = Color(0.2, 0.3, 0.5)
 		style.border_width_left = 2
 		style.border_width_top = 2
 		style.border_width_right = 2
 		style.border_width_bottom = 2
 		btn.add_theme_stylebox_override("normal", style)
 		var hover_style = style.duplicate()
-		hover_style.bg_color = Color(0.4, 0.4, 0.4, 0.9)
+		hover_style.bg_color = Color(0.15, 0.25, 0.5, 0.9)  # Azul um pouco mais claro no hover
 		btn.add_theme_stylebox_override("hover", hover_style)
+	
+	# Reposicionar todos os botões após atualizar o texto (apenas Auto Benefício)
+	# Não reposicionar Mute se foi customizado manualmente
+	if tb.has_node("BtnAutoBenefit"):
+		var btn_auto = tb.get_node("BtnAutoBenefit")
+		btn_auto.layout_mode = 1
+		btn_auto.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		btn_auto.offset_left = -240
+		btn_auto.offset_top = 8
+		btn_auto.offset_right = -90
+		btn_auto.offset_bottom = 36
+
+func _reposition_right_side_buttons(tb: Panel) -> void:
+	"""Reposiciona todos os botões da direita da HUD com espaçamento correto"""
+	# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume, Mute
+	# Todos com 10px de espaçamento entre eles
+	# Adicionar 20px de margem à direita para evitar corte
+	
+	# 1. DPS (mais à direita, com margem de 20px)
+	if tb.has_node("BtnDPS"):
+		var btn_dps = tb.get_node("BtnDPS")
+		btn_dps.layout_mode = 1
+		btn_dps.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		btn_dps.offset_left = -80  # 60px de largura + 20px de margem
+		btn_dps.offset_top = 8
+		btn_dps.offset_right = -20  # 20px de margem à direita
+		btn_dps.offset_bottom = 36
+	
+	# 2. Auto Benefício (150px para texto completo)
+	if tb.has_node("BtnAutoBenefit"):
+		var btn_auto = tb.get_node("BtnAutoBenefit")
+		btn_auto.layout_mode = 1
+		btn_auto.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		btn_auto.offset_left = -350  # 10px após Admin (Quests removido)
+		btn_auto.offset_top = 8
+		btn_auto.offset_right = -200  # 10px antes de DPS
+		btn_auto.offset_bottom = 36
+	
+	# 3. Quests removido - agora está no menu inicial
+	
+	# 4. Admin (100px)
+	if tb.has_node("BtnAdmin"):
+		var btn_admin = tb.get_node("BtnAdmin")
+		btn_admin.layout_mode = 1
+		btn_admin.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		btn_admin.offset_left = -460  # 10px após Volume
+		btn_admin.offset_top = 8
+		btn_admin.offset_right = -360  # 100px de largura, 10px antes de Quests
+		btn_admin.offset_bottom = 36
+	
+	# 5. Volume (110px)
+	if tb.has_node("MusicVolumeContainer"):
+		var volume_container = tb.get_node("MusicVolumeContainer")
+		volume_container.layout_mode = 1
+		volume_container.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		volume_container.offset_left = -580  # 10px após Mute
+		volume_container.offset_top = 8
+		volume_container.offset_right = -470  # 110px de largura, 10px antes de Admin
+		volume_container.offset_bottom = 36
+	
+	# 6. Mute (40px, mais à esquerda, com espaçamento adequado)
+	# Nota: Se o botão já foi criado com valores customizados, esta função não os sobrescreverá
+	# Para ajustar o Mute, modifique os valores na criação do botão (linha ~697)
+	if tb.has_node("BtnMuteMusic"):
+		var btn_mute = tb.get_node("BtnMuteMusic")
+		# Só reposicionar se o botão ainda não tiver sido customizado
+		# Verificar se está usando valores padrão (offset_left = -600 ou -540)
+		if btn_mute.offset_left == -600 or btn_mute.offset_left == -540:
+			btn_mute.layout_mode = 1
+			btn_mute.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+			btn_mute.offset_left = -600  # 40px de largura
+			btn_mute.offset_top = 8
+			btn_mute.offset_right = -560  # Terminar 10px antes de Volume (que começa em -580)
+			btn_mute.offset_bottom = 36
 
 func _on_music_volume_changed(value: float) -> void:
 	music_volume = value
@@ -8663,6 +9417,10 @@ func _track_enemy_kill(is_boss: bool) -> void:
 	achievement_manager.increment_progress("kill_10000")
 	achievement_manager.increment_progress("kill_50000")
 	
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.KILL_ENEMIES, 1)
+	
 	# Rastrear kills de boss
 	if is_boss:
 		total_boss_kills += 1
@@ -8670,6 +9428,10 @@ func _track_enemy_kill(is_boss: bool) -> void:
 		achievement_manager.increment_progress("boss_kill_10")
 		achievement_manager.increment_progress("boss_kill_50")
 		achievement_manager.increment_progress("boss_kill_100")
+		
+		# Atualizar progresso de quests de boss
+		if quest_manager:
+			quest_manager.update_quest_progress(GameConstants.QuestType.KILL_BOSSES, 1)
 
 func _track_tower_built(tower_type: String) -> void:
 	towers_built += 1
@@ -8679,6 +9441,10 @@ func _track_tower_built(tower_type: String) -> void:
 	achievement_manager.increment_progress("build_10_towers")
 	achievement_manager.increment_progress("build_50_towers")
 	achievement_manager.increment_progress("build_100_towers")
+	
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.BUILD_TOWERS, 1)
 	
 	# Verificar se construiu todos os tipos
 	var all_types = ["tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower", "barracks"]
@@ -8696,6 +9462,10 @@ func _track_coin_spent(amount: int) -> void:
 	total_coins_spent += amount
 	achievement_manager.increment_progress("spend_5000_coins", amount)
 	achievement_manager.increment_progress("spend_100000_coins", amount)
+	
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.SPEND_COINS, amount)
 
 func _track_wall_built() -> void:
 	walls_built += 1
@@ -8710,6 +9480,10 @@ func _check_perfect_wave() -> void:
 		achievement_manager.set_progress("perfect_wave_10", perfect_waves)
 		achievement_manager.set_progress("perfect_wave_50", perfect_waves)
 		achievement_manager.set_progress("perfect_wave_100", perfect_waves)
+		
+		# Atualizar progresso de quests
+		if quest_manager:
+			quest_manager.update_quest_progress(GameConstants.QuestType.PERFECT_WAVES, 1)
 		
 		# Verificar se sobreviveu 100 waves sem dano
 		if perfect_waves >= 100:
@@ -8739,7 +9513,9 @@ func _apply_perk_effects() -> void:
 		skills_manager.set_coin_magnetism_perk(has_perk)
 	
 func _on_resource_loading_progress(progress: float) -> void:
-	_update_loading_progress(progress)
+	# Converter progresso de recursos (0-1) para o range 0.4-0.6 do carregamento total
+	var mapped_progress = 0.40 + (progress * 0.20)
+	_update_loading_progress(mapped_progress, "Carregando texturas...")
 
 func _on_coin_collected(value: int) -> void:
 	hero["coins"] += value
@@ -8747,6 +9523,10 @@ func _on_coin_collected(value: int) -> void:
 
 func _track_coin_collected(value: int) -> void:
 	total_coins_collected += value
+	
+	# Atualizar progresso de quests
+	if quest_manager:
+		quest_manager.update_quest_progress(GameConstants.QuestType.COLLECT_COINS, value)
 
 func _update_game_tooltip(delta: float) -> void:
 	if game_tooltip == null:

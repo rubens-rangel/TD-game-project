@@ -71,9 +71,21 @@ func get_hero_home_texture_for_level(level: int) -> Texture2D:
 		_:
 			return tex_tent
 
-func get_hero_home_upgrade_cost(level: int) -> int:
-	"""Retorna o custo de upgrade do hero home para o nível especificado"""
-	return hero_home_upgrade_costs.get(level, 0)
+func get_hero_home_upgrade_cost(level: int, current_wave: int = 0) -> int:
+	"""
+	Retorna o custo de upgrade do hero home para o nível especificado
+	Aumenta 1% por wave (ex: wave 10 = +10%, wave 20 = +20%)
+	"""
+	var base_cost = hero_home_upgrade_costs.get(level, 0)
+	if base_cost <= 0:
+		return 0
+	
+	# Aplicar aumento de 1% por wave
+	# Exemplo: wave 10 = multiplicador 1.10 (10% de aumento)
+	var wave_multiplier = 1.0 + (current_wave * 0.01)
+	var final_cost = base_cost * wave_multiplier
+	
+	return int(final_cost)
 
 func get_hero_home_benefits_text(level: int) -> String:
 	"""Retorna o texto descritivo dos benefícios do hero home para o nível especificado"""

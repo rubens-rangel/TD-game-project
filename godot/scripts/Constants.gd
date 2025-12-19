@@ -151,8 +151,8 @@ const COIN_MAGNETISM_RANGE := 20.0  # Raio de coleta automática de moedas
 const HERO_ARROW_SPEED := 260.0
 const HERO_BASE_HP := 100
 const HERO_HOME_MAX_LEVEL := 3
-const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1200
-const HERO_HOME_UPGRADE_COST_LEVEL_3 := 3000
+const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1400
+const HERO_HOME_UPGRADE_COST_LEVEL_3 := 5000
 const HERO_CRIT_MULTIPLIER_BASE := 2.0
 const HERO_RANGE_MAX := 9999.0
 
@@ -208,6 +208,88 @@ const HERO_FIRE_RATE_REDUCTION := 0.03  # Redução de fire_rate por upgrade do 
 
 # Base HP
 const BASE_MAX_HP := 100.0  # Limite máximo de HP da base (usado por healing stations)
+
+# Combo System
+const COMBO_TIMEOUT := 3.0  # Tempo em segundos para perder o combo se não matar ninguém
+const COMBO_MIN_KILLS := 3  # Mínimo de kills para ativar combo
+const COMBO_MULTIPLIER_BASE := 1.0  # Multiplicador base (sem combo)
+const COMBO_MULTIPLIER_PER_KILL := 0.1  # Aumento de multiplicador por kill no combo (10% por kill)
+const COMBO_MAX_MULTIPLIER := 5.0  # Multiplicador máximo (500% de bônus)
+const COMBO_COIN_BONUS_PER_KILL := 1  # Moedas extras por kill no combo
+const COMBO_MILESTONE_BONUS := 10  # Bônus extra de moedas ao atingir marcos (10, 20, 30, etc)
+
+# Quest System
+const QUEST_DAILY_COUNT := 3  # Número de quests diárias ativas
+const QUEST_WEEKLY_COUNT := 2  # Número de quests semanais ativas
+const QUEST_MONTHLY_COUNT := 1  # Número de quests mensais ativas
+const QUEST_REFRESH_HOUR := 0  # Hora do dia para refresh (0 = meia-noite)
+
+# Quest Types
+enum QuestType {
+	KILL_ENEMIES,  # Matar X inimigos
+	KILL_BOSSES,  # Matar X bosses
+	COMPLETE_WAVES,  # Completar X waves
+	COLLECT_COINS,  # Coletar X moedas
+	BUILD_TOWERS,  # Construir X torres
+	USE_SKILLS,  # Usar X skills
+	PERFECT_WAVES,  # Completar X waves sem perder HP da base
+	REACH_WAVE,  # Alcançar wave X
+	SPEND_COINS,  # Gastar X moedas
+	UPGRADE_TOWERS  # Fazer X upgrades de torres
+}
+
+# Quest Rewards (base, pode escalar)
+const QUEST_REWARD_DAILY_COINS := 50  # Recompensa base de moedas para quests diárias
+const QUEST_REWARD_WEEKLY_COINS := 100  # Recompensa base de moedas para quests semanais (reduzido de 200)
+const QUEST_REWARD_MONTHLY_COINS := 500  # Recompensa base de moedas para quests mensais (reduzido de 1000)
+
+# Special Currency Rewards (Moedas Especiais)
+# Esmeraldas removidas das quests - não faz sentido ter esmeraldas como recompensa
+const QUEST_REWARD_MONTHLY_DIAMONDS := 1  # Diamantes dados em quests mensais
+
+# Special Currency Drop Rates (em waves altas)
+const EMERALD_DROP_START_WAVE := 50  # Wave a partir da qual esmeraldas podem dropar (reduzido de 100)
+const EMERALD_DROP_CHANCE := 0.02  # 2% de chance de dropar esmeralda (aumentado de 1%)
+const DIAMOND_DROP_START_WAVE := 150  # Wave a partir da qual diamantes podem dropar
+const DIAMOND_DROP_CHANCE := 0.005  # 0.5% de chance de dropar diamante (wave 150+)
+const BOSS_EMERALD_REWARD_WAVE := 25  # A cada X waves, boss dá esmeralda garantida
+const BOSS_EMERALD_REWARD_COUNT := 1  # Quantidade de esmeraldas por boss especial
+
+# Tower Upgrades with Emeralds (escalado)
+const TOWER_UPGRADE_EMERALD_BASE_COST := 1  # Custo base em esmeraldas para upgrade de torre
+const TOWER_UPGRADE_EMERALD_SCALE := 1.2  # Multiplicador escalado por nível (1.2x por nível - reduzido de 1.3 para ser mais acessível)
+
+# Prestige Shop - Emerald Costs
+const PRESTIGE_COST_START_COINS_LEVEL := 2  # Custo em esmeraldas por nível de moedas iniciais
+const PRESTIGE_COST_COIN_DROP_LEVEL := 3  # Custo em esmeraldas por nível de chance de drop
+const PRESTIGE_COST_HERO_DAMAGE_LEVEL := 5  # Custo em esmeraldas por nível de dano do herói
+const PRESTIGE_COST_HERO_FIRERATE_LEVEL := 4  # Custo em esmeraldas por nível de velocidade de tiro
+const PRESTIGE_COST_BASE_HP_LEVEL := 3  # Custo em esmeraldas por nível de HP da base
+const PRESTIGE_COST_SPECIAL_TOWER := 10  # Custo em esmeraldas para desbloquear torre especial
+
+# Prestige Shop - Diamond Costs (ordenados: 1, 2, 3, 5, 8, 10, 12, 15)
+const PRESTIGE_COST_PRESTIGE_RESET := 5  # Custo em diamantes para resetar prestígio
+const PRESTIGE_COST_SPECIAL_MODE := 1  # Modo Especial
+const PRESTIGE_COST_TOWER_UPGRADE_ALL := 2  # Upgrade Permanente de Todas as Torres
+const PRESTIGE_COST_REWARD_MULTIPLIER := 3  # Multiplicador de Recompensas (por nível)
+const PRESTIGE_COST_LEGENDARY_TOWER := 5  # Torre Lendária
+const PRESTIGE_COST_BASE_HP_BOOST := 8  # Boost de HP da Base
+const PRESTIGE_COST_HERO_DAMAGE_BOOST := 10  # Boost de Dano do Herói
+const PRESTIGE_COST_COIN_DROP_BOOST := 12  # Boost de Chance de Drop de Moedas
+const PRESTIGE_COST_STARTING_COINS_BOOST := 15  # Boost de Moedas Iniciais
+
+# Prestige Shop - Max Levels
+const PRESTIGE_MAX_START_COINS_LEVEL := 5
+const PRESTIGE_MAX_COIN_DROP_LEVEL := 3
+const PRESTIGE_MAX_HERO_DAMAGE_LEVEL := 3
+const PRESTIGE_MAX_HERO_FIRERATE_LEVEL := 3
+const PRESTIGE_MAX_BASE_HP_LEVEL := 5
+
+# Button Hover Effects
+const BUTTON_HOVER_SCALE := 1.05  # Escala do botão ao fazer hover (5% maior)
+const BUTTON_HOVER_TRANSITION_TIME := 0.15  # Tempo de transição do hover (em segundos)
+const BUTTON_PRESS_SCALE := 0.95  # Escala do botão ao pressionar (5% menor)
+const BUTTON_PRESS_TRANSITION_TIME := 0.1  # Tempo de transição do press (em segundos)
 
 # Barracks (Quartéis)
 const BARRACKS_INITIAL_SPAWN_RATE := 3.0  # Taxa inicial de spawn de soldados (em segundos)

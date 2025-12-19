@@ -538,12 +538,12 @@ static func _serialize_healing_stations(stations: Array) -> Array:
 	var result = []
 	for s in stations:
 		result.append({
-			"grid_x": s.grid_x,
-			"grid_y": s.grid_y,
-			"pos_x": s.pos.x,
-			"pos_y": s.pos.y,
-			"heal_rate": s.heal_rate,
-			"range": s.range
+			"grid_x": s.get("grid_x", 0),
+			"grid_y": s.get("grid_y", 0),
+			"pos_x": s.get("pos", Vector2.ZERO).x,
+			"pos_y": s.get("pos", Vector2.ZERO).y,
+			"heal_amount": s.get("heal_amount", 5.0),
+			"range": s.get("range", 100.0)
 		})
 	return result
 
@@ -551,11 +551,11 @@ static func _deserialize_healing_stations(data: Array) -> Array:
 	var result = []
 	for s in data:
 		result.append({
-			"grid_x": s.grid_x,
-			"grid_y": s.grid_y,
-			"pos": Vector2(s.pos_x, s.pos_y),
-			"heal_rate": s.heal_rate,
-			"range": s.range
+			"grid_x": s.get("grid_x", 0),
+			"grid_y": s.get("grid_y", 0),
+			"pos": Vector2(s.get("pos_x", 0.0), s.get("pos_y", 0.0)),
+			"heal_amount": s.get("heal_amount", 5.0),
+			"range": s.get("range", 100.0)
 		})
 	return result
 

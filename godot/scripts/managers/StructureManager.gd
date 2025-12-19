@@ -254,9 +254,10 @@ func get_soldiers() -> Array:
 func apply_healing(base_center: Vector2) -> float:
 	var total_heal = 0.0
 	for hs in healing_stations:
-		var dist_to_base = hs.pos.distance_to(base_center)
-		if dist_to_base <= hs.range:
-			total_heal += hs.heal_amount
+		var hs_pos = hs.get("pos", Vector2.ZERO)
+		var dist_to_base = hs_pos.distance_to(base_center)
+		if dist_to_base <= hs.get("range", 100.0):
+			total_heal += hs.get("heal_amount", 5.0)
 	return total_heal
 
 

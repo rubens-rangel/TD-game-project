@@ -108,13 +108,37 @@ func _ready() -> void:
 	btn_perks.pressed.connect(_on_perks)
 	vbox.add_child(btn_perks)
 	
+	# Adicionar botão de Quests
+	var btn_quests = Button.new()
+	btn_quests.text = "Quests"
+	btn_quests.custom_minimum_size = Vector2(200, 40)
+	btn_quests.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_quests.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn_quests.pressed.connect(_on_quests)
+	vbox.add_child(btn_quests)
+	
+	# Adicionar botão de Prestígio
+	var btn_prestige = Button.new()
+	btn_prestige.text = "Prestígio"
+	btn_prestige.custom_minimum_size = Vector2(200, 40)
+	btn_prestige.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_prestige.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn_prestige.pressed.connect(_on_prestige)
+	vbox.add_child(btn_prestige)
+	
 	# Aplicar estilo aos novos botões
 	btn_achievements.add_theme_stylebox_override("normal", btn_style)
 	btn_perks.add_theme_stylebox_override("normal", btn_style)
+	btn_quests.add_theme_stylebox_override("normal", btn_style)
+	btn_prestige.add_theme_stylebox_override("normal", btn_style)
 	btn_achievements.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_perks.add_theme_stylebox_override("hover", btn_hover_style)
+	btn_quests.add_theme_stylebox_override("hover", btn_hover_style)
+	btn_prestige.add_theme_stylebox_override("hover", btn_hover_style)
 	btn_achievements.add_theme_stylebox_override("pressed", btn_pressed_style)
 	btn_perks.add_theme_stylebox_override("pressed", btn_pressed_style)
+	btn_quests.add_theme_stylebox_override("pressed", btn_pressed_style)
+	btn_prestige.add_theme_stylebox_override("pressed", btn_pressed_style)
 	
 	# Mover o botão de sair para o final
 	vbox.move_child(btn_exit, vbox.get_child_count() - 1)
@@ -331,6 +355,636 @@ func _on_achievements() -> void:
 
 func _on_perks() -> void:
 	_show_perks_dialog()
+
+func _on_quests() -> void:
+	_show_quests_dialog()
+
+func _on_prestige() -> void:
+	_show_prestige_dialog()
+
+func _show_prestige_dialog() -> void:
+	const PrestigeShop = preload("res://scripts/managers/PrestigeShop.gd")
+	const SpecialCurrencyManager = preload("res://scripts/managers/SpecialCurrencyManager.gd")
+	const GameConstants = preload("res://scripts/Constants.gd")
+	
+	var prestige_shop = PrestigeShop.new()
+	var currency_manager = SpecialCurrencyManager.new()
+	var currency_info = currency_manager.get_currency_info()
+	
+	# Aplicar upgrades automaticamente se tiver diamantes suficientes
+	_apply_auto_prestige_upgrades(prestige_shop, currency_manager)
+	
+	# Atualizar informações após compras automáticas
+	currency_info = currency_manager.get_currency_info()
+	var upgrades_info = prestige_shop.get_all_upgrades_info()
+	
+	# Criar janela de prestígio
+	var dialog = Window.new()
+	dialog.title = "Prestígio"
+	dialog.size = Vector2(800, 600)
+	dialog.min_size = Vector2(700, 500)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Conectar signal de fechar
+	dialog.close_requested.connect(func(): dialog.queue_free())
+	
+	# Container principal
+	var main_container = MarginContainer.new()
+	main_container.add_theme_constant_override("margin_left", 15)
+	main_container.add_theme_constant_override("margin_top", 15)
+	main_container.add_theme_constant_override("margin_right", 15)
+	main_container.add_theme_constant_override("margin_bottom", 15)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 15)
+	
+	# Mostrar diamantes disponíveis
+	var currency_label = Label.new()
+	currency_label.text = "💎 Diamantes: %d" % currency_info.diamonds
+	currency_label.add_theme_font_size_override("font_size", 18)
+	currency_label.add_theme_color_override("font_color", Color(0.4, 0.6, 1.0))
+	vbox.add_child(currency_label)
+	
+	# Scroll container para melhorias
+	var scroll = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, 480)
+	
+	var upgrades_list = VBoxContainer.new()
+	upgrades_list.add_theme_constant_override("separation", 10)  # Separação entre cards
+	
+	# ========== MELHORIAS COM DIAMANTES (ordenadas por custo: 1, 2, 3, 5, 8, 10, 12, 15) ==========
+	
+	# Criar array de upgrades para ordenar por custo
+	var upgrades_array = []
+	
+	# 1. Modo Especial (custo 1)
+	upgrades_array.append({
+		"name": "Modo Especial",
+		"description": "Desbloqueia um modo de jogo especial com regras únicas. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_SPECIAL_MODE,
+		"type": "special_mode",
+		"level": upgrades_info.diamond_upgrades.special_modes.size(),
+		"max_level": -1
+	})
+	
+	# 2. Upgrade Permanente de Todas as Torres (custo 2)
+	upgrades_array.append({
+		"name": "Upgrade Permanente de Todas as Torres",
+		"description": "Todas as torres começam automaticamente com +1 nível em todos os atributos. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_TOWER_UPGRADE_ALL,
+		"type": "tower_upgrade_all",
+		"level": 1 if upgrades_info.diamond_upgrades.tower_upgrade_all else 0,
+		"max_level": 1
+	})
+	
+	# 3. Multiplicador de Recompensas (custo 3)
+	upgrades_array.append({
+		"name": "Multiplicador de Recompensas",
+		"description": "Aumenta todas as recompensas de moedas em +10% por nível. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_REWARD_MULTIPLIER,
+		"type": "reward_multiplier",
+		"level": upgrades_info.diamond_upgrades.reward_multiplier,
+		"max_level": -1
+	})
+	
+	# 4. Torre Lendária (custo 5)
+	upgrades_array.append({
+		"name": "Torre Lendária",
+		"description": "Desbloqueia uma torre lendária extremamente poderosa. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_LEGENDARY_TOWER,
+		"type": "legendary_tower",
+		"level": 1 if upgrades_info.diamond_upgrades.legendary_tower else 0,
+		"max_level": 1
+	})
+	
+	# 5. Boost de HP da Base (custo 8)
+	upgrades_array.append({
+		"name": "Boost de HP da Base",
+		"description": "Aumenta o HP máximo da base em +20 por nível. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_BASE_HP_BOOST,
+		"type": "base_hp_boost",
+		"level": upgrades_info.diamond_upgrades.get("base_hp_boost", 0),
+		"max_level": -1
+	})
+	
+	# 6. Boost de Dano do Herói (custo 10)
+	upgrades_array.append({
+		"name": "Boost de Dano do Herói",
+		"description": "Aumenta o dano do herói em +15% por nível. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_HERO_DAMAGE_BOOST,
+		"type": "hero_damage_boost",
+		"level": upgrades_info.diamond_upgrades.get("hero_damage_boost", 0),
+		"max_level": -1
+	})
+	
+	# 7. Boost de Chance de Drop de Moedas (custo 12)
+	upgrades_array.append({
+		"name": "Boost de Chance de Drop de Moedas",
+		"description": "Aumenta a chance de inimigos droparem moedas em +3% por nível. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_COIN_DROP_BOOST,
+		"type": "coin_drop_boost",
+		"level": upgrades_info.diamond_upgrades.get("coin_drop_boost", 0),
+		"max_level": -1
+	})
+	
+	# 8. Boost de Moedas Iniciais (custo 15)
+	upgrades_array.append({
+		"name": "Boost de Moedas Iniciais",
+		"description": "Aumenta as moedas iniciais em +50 por nível. Aplicado automaticamente quando você tem diamantes suficientes.",
+		"cost": GameConstants.PRESTIGE_COST_STARTING_COINS_BOOST,
+		"type": "starting_coins_boost",
+		"level": upgrades_info.diamond_upgrades.get("starting_coins_boost", 0),
+		"max_level": -1
+	})
+	
+	# Ordenar por custo
+	upgrades_array.sort_custom(func(a, b): return a.cost < b.cost)
+	
+	# Criar painéis ordenados
+	for upgrade_data in upgrades_array:
+		var panel = _create_prestige_upgrade_panel(
+			upgrade_data.name,
+			upgrade_data.description,
+			upgrade_data.cost,
+			currency_info.diamonds,
+			upgrade_data.type,
+			upgrade_data.level,
+			upgrade_data.max_level,
+			prestige_shop,
+			currency_manager,
+			dialog
+		)
+		# Aplicar estilo cinza se já comprado (único)
+		if upgrade_data.max_level == 1 and upgrade_data.level > 0:
+			panel.modulate = Color(0.5, 0.5, 0.5)
+		upgrades_list.add_child(panel)
+	
+	scroll.add_child(upgrades_list)
+	vbox.add_child(scroll)
+	
+	# Botão fechar
+	var button_container = HBoxContainer.new()
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	var close_button = Button.new()
+	close_button.text = "Fechar"
+	close_button.custom_minimum_size = Vector2(150, 45)
+	close_button.pressed.connect(func(): dialog.queue_free())
+	button_container.add_child(close_button)
+	vbox.add_child(button_container)
+	
+	main_container.add_child(vbox)
+	dialog.add_child(main_container)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	main_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_container.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _apply_auto_prestige_upgrades(prestige_shop: PrestigeShop, currency_manager: SpecialCurrencyManager) -> void:
+	"""Aplica upgrades automaticamente quando o jogador tem diamantes suficientes"""
+	const GameConstants = preload("res://scripts/Constants.gd")
+	var currency_info = currency_manager.get_currency_info()
+	var upgrades_info = prestige_shop.get_all_upgrades_info()
+	
+	# Aplicar upgrades automaticamente enquanto tiver diamantes
+	var changed = true
+	while changed:
+		changed = false
+		currency_info = currency_manager.get_currency_info()
+		upgrades_info = prestige_shop.get_all_upgrades_info()
+		
+		# Aplicar upgrades ordenados por custo (menor para maior)
+		# 1. Modo Especial (custo 1)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_SPECIAL_MODE:
+			if prestige_shop.purchase_special_mode(currency_manager, "mode_%d" % (upgrades_info.diamond_upgrades.special_modes.size() + 1)):
+				changed = true
+				continue
+		
+		# 2. Upgrade Permanente de Todas as Torres (custo 2)
+		if not upgrades_info.diamond_upgrades.tower_upgrade_all:
+			if currency_info.diamonds >= GameConstants.PRESTIGE_COST_TOWER_UPGRADE_ALL:
+				if prestige_shop.purchase_tower_upgrade_all(currency_manager):
+					changed = true
+					continue
+		
+		# 3. Multiplicador de Recompensas (custo 3)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_REWARD_MULTIPLIER:
+			if prestige_shop.purchase_reward_multiplier(currency_manager):
+				changed = true
+				continue
+		
+		# 4. Torre Lendária (custo 5)
+		if not upgrades_info.diamond_upgrades.legendary_tower:
+			if currency_info.diamonds >= GameConstants.PRESTIGE_COST_LEGENDARY_TOWER:
+				if prestige_shop.purchase_legendary_tower(currency_manager):
+					changed = true
+					continue
+		
+		# 5. Boost de HP da Base (custo 8)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_BASE_HP_BOOST:
+			if prestige_shop.purchase_base_hp_boost(currency_manager):
+				changed = true
+				continue
+		
+		# 6. Boost de Dano do Herói (custo 10)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_HERO_DAMAGE_BOOST:
+			if prestige_shop.purchase_hero_damage_boost(currency_manager):
+				changed = true
+				continue
+		
+		# 7. Boost de Chance de Drop de Moedas (custo 12)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_COIN_DROP_BOOST:
+			if prestige_shop.purchase_coin_drop_boost(currency_manager):
+				changed = true
+				continue
+		
+		# 8. Boost de Moedas Iniciais (custo 15)
+		if currency_info.diamonds >= GameConstants.PRESTIGE_COST_STARTING_COINS_BOOST:
+			if prestige_shop.purchase_starting_coins_boost(currency_manager):
+				changed = true
+				continue
+		
+		# Se não conseguiu comprar nada, sair do loop
+		break
+
+func _create_prestige_upgrade_panel(name: String, description: String, cost: int, available_diamonds: int, upgrade_type: String, current_level: int, max_level: int, prestige_shop: PrestigeShop, currency_manager: SpecialCurrencyManager, dialog: Window) -> Panel:
+	"""Cria painel para uma melhoria de prestígio com design melhorado (baseado no menu de quests)"""
+	var panel = Panel.new()
+	panel.custom_minimum_size = Vector2(0, 130)
+	
+	# Determinar status
+	var is_maxed = max_level > 0 and current_level >= max_level
+	var is_unique_bought = max_level == 1 and current_level > 0
+	var can_afford = available_diamonds >= cost
+	
+	# Estilo do painel principal (card externo)
+	var panel_style = StyleBoxFlat.new()
+	if is_maxed or is_unique_bought:
+		panel_style.bg_color = Color(0.15, 0.15, 0.15, 0.95)  # Cinza escuro para já comprado
+		panel_style.border_color = Color(0.4, 0.4, 0.4, 1.0)
+	else:
+		if can_afford:
+			panel_style.bg_color = Color(0.1, 0.25, 0.35, 0.95)  # Azul mais vibrante quando pode comprar
+			panel_style.border_color = Color(0.2, 0.5, 0.7, 1.0)
+		else:
+			panel_style.bg_color = Color(0.15, 0.2, 0.3, 0.95)  # Azul padrão
+			panel_style.border_color = Color(0.3, 0.4, 0.5, 1.0)
+	
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Container principal com margens
+	var margin_container = MarginContainer.new()
+	margin_container.add_theme_constant_override("margin_left", 12)
+	margin_container.add_theme_constant_override("margin_top", 10)
+	margin_container.add_theme_constant_override("margin_right", 12)
+	margin_container.add_theme_constant_override("margin_bottom", 10)
+	
+	# Container horizontal principal
+	var hbox = HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 15)
+	
+	# ========== LADO ESQUERDO: Custo/Benefício ==========
+	var left_vbox = VBoxContainer.new()
+	left_vbox.custom_minimum_size = Vector2(110, 0)
+	left_vbox.add_theme_constant_override("separation", 8)
+	left_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	
+	# Container para o custo (com fundo destacado)
+	var cost_container = Panel.new()
+	cost_container.custom_minimum_size = Vector2(90, 50)
+	var cost_style = StyleBoxFlat.new()
+	cost_style.bg_color = Color(0.2, 0.3, 0.5, 0.8)
+	cost_style.border_color = Color(0.4, 0.6, 1.0, 1.0)
+	cost_style.corner_radius_top_left = 6
+	cost_style.corner_radius_top_right = 6
+	cost_style.corner_radius_bottom_left = 6
+	cost_style.corner_radius_bottom_right = 6
+	cost_style.border_width_left = 2
+	cost_style.border_width_top = 2
+	cost_style.border_width_right = 2
+	cost_style.border_width_bottom = 2
+	cost_container.add_theme_stylebox_override("panel", cost_style)
+	
+	var cost_vbox = VBoxContainer.new()
+	cost_vbox.add_theme_constant_override("separation", 2)
+	
+	# Custo (diamante + número)
+	var cost_label = Label.new()
+	cost_label.text = "💎 %d" % cost
+	cost_label.add_theme_font_size_override("font_size", 22)
+	cost_label.add_theme_color_override("font_color", Color(0.6, 0.8, 1.0))
+	cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cost_vbox.add_child(cost_label)
+	
+	cost_container.add_child(cost_vbox)
+	cost_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cost_vbox.set_offsets_preset(Control.PRESET_FULL_RECT, 5)
+	left_vbox.add_child(cost_container)
+	
+	# Status
+	var status_label = Label.new()
+	if is_maxed or is_unique_bought:
+		status_label.text = "✓ Aplicado"
+		status_label.add_theme_color_override("font_color", Color(0.4, 0.9, 0.4))
+	else:
+		if can_afford:
+			status_label.text = "✓ Auto"
+			status_label.add_theme_color_override("font_color", Color(0.4, 0.9, 0.4))
+		else:
+			status_label.text = "Faltam\n💎 %d" % (cost - available_diamonds)
+			status_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+	
+	status_label.add_theme_font_size_override("font_size", 11)
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	left_vbox.add_child(status_label)
+	
+	hbox.add_child(left_vbox)
+	
+	# ========== LADO DIREITO: Card com Nome e Descrição ==========
+	var info_card = Panel.new()
+	info_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_card.custom_minimum_size = Vector2(0, 100)
+	
+	# Estilo do card interno (nome + descrição)
+	var info_card_style = StyleBoxFlat.new()
+	info_card_style.bg_color = Color(0.08, 0.12, 0.18, 0.9)  # Fundo mais escuro para destacar
+	info_card_style.border_color = Color(0.2, 0.3, 0.4, 1.0)
+	info_card_style.corner_radius_top_left = 6
+	info_card_style.corner_radius_top_right = 6
+	info_card_style.corner_radius_bottom_left = 6
+	info_card_style.corner_radius_bottom_right = 6
+	info_card_style.border_width_left = 1
+	info_card_style.border_width_top = 1
+	info_card_style.border_width_right = 1
+	info_card_style.border_width_bottom = 1
+	info_card.add_theme_stylebox_override("panel", info_card_style)
+	
+	# Container interno do card
+	var info_margin = MarginContainer.new()
+	info_margin.add_theme_constant_override("margin_left", 12)
+	info_margin.add_theme_constant_override("margin_top", 10)
+	info_margin.add_theme_constant_override("margin_right", 12)
+	info_margin.add_theme_constant_override("margin_bottom", 10)
+	
+	var info_vbox = VBoxContainer.new()
+	info_vbox.add_theme_constant_override("separation", 6)
+	
+	# Nome do upgrade
+	var name_label = Label.new()
+	name_label.text = name
+	name_label.add_theme_font_size_override("font_size", 15)
+	name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 0.9))
+	info_vbox.add_child(name_label)
+	
+	# Descrição em texto corrido
+	var desc_label = Label.new()
+	desc_label.text = description
+	desc_label.add_theme_font_size_override("font_size", 12)
+	desc_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_label.clip_contents = false
+	info_vbox.add_child(desc_label)
+	
+	# Nível atual (se aplicável)
+	if max_level != 1:
+		var level_label = Label.new()
+		level_label.text = "Nível atual: %d" % current_level
+		level_label.add_theme_font_size_override("font_size", 11)
+		level_label.add_theme_color_override("font_color", Color(0.6, 0.8, 1.0))
+		info_vbox.add_child(level_label)
+	
+	info_margin.add_child(info_vbox)
+	info_card.add_child(info_margin)
+	
+	# Ajustar layout do card interno
+	info_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	info_margin.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	hbox.add_child(info_card)
+	
+	margin_container.add_child(hbox)
+	panel.add_child(margin_container)
+	
+	# Ajustar layout
+	margin_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin_container.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	return panel
+
+func _show_quests_dialog() -> void:
+	"""Mostra diálogo de quests"""
+	const QuestManager = preload("res://scripts/managers/QuestManager.gd")
+	
+	var quest_manager = QuestManager.new()
+	quest_manager.check_and_refresh_quests()
+	
+	# Criar janela de quests
+	var dialog = Window.new()
+	dialog.title = "Quests"
+	dialog.size = Vector2(800, 600)
+	dialog.min_size = Vector2(700, 500)
+	dialog.always_on_top = true
+	dialog.transient = true
+	
+	# Conectar signal de fechar
+	dialog.close_requested.connect(func(): dialog.queue_free())
+	
+	# Container principal
+	var main_container = MarginContainer.new()
+	main_container.add_theme_constant_override("margin_left", 15)
+	main_container.add_theme_constant_override("margin_top", 15)
+	main_container.add_theme_constant_override("margin_right", 15)
+	main_container.add_theme_constant_override("margin_bottom", 15)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 15)
+	
+	# Tabs para tipos de quests
+	var tab_container = TabContainer.new()
+	tab_container.custom_minimum_size = Vector2(0, 480)
+	
+	var all_quests = quest_manager.get_all_active_quests()
+	
+	# Tab Diárias
+	var daily_scroll = ScrollContainer.new()
+	daily_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var daily_list = VBoxContainer.new()
+	daily_list.add_theme_constant_override("separation", 8)
+	for quest in all_quests.daily:
+		var quest_panel = _create_quest_panel(quest, quest_manager, dialog)
+		daily_list.add_child(quest_panel)
+	daily_scroll.add_child(daily_list)
+	tab_container.add_child(daily_scroll)
+	tab_container.set_tab_title(0, "📅 Diárias")
+	
+	# Tab Semanais
+	var weekly_scroll = ScrollContainer.new()
+	weekly_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var weekly_list = VBoxContainer.new()
+	weekly_list.add_theme_constant_override("separation", 8)
+	for quest in all_quests.weekly:
+		var quest_panel = _create_quest_panel(quest, quest_manager, dialog)
+		weekly_list.add_child(quest_panel)
+	weekly_scroll.add_child(weekly_list)
+	tab_container.add_child(weekly_scroll)
+	tab_container.set_tab_title(1, "📆 Semanais")
+	
+	# Tab Mensais
+	var monthly_scroll = ScrollContainer.new()
+	monthly_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var monthly_list = VBoxContainer.new()
+	monthly_list.add_theme_constant_override("separation", 8)
+	for quest in all_quests.monthly:
+		var quest_panel = _create_quest_panel(quest, quest_manager, dialog)
+		monthly_list.add_child(quest_panel)
+	monthly_scroll.add_child(monthly_list)
+	tab_container.add_child(monthly_scroll)
+	tab_container.set_tab_title(2, "🗓️ Mensais")
+	
+	vbox.add_child(tab_container)
+	
+	# Botão fechar
+	var button_container = HBoxContainer.new()
+	button_container.alignment = BoxContainer.ALIGNMENT_END
+	var close_button = Button.new()
+	close_button.text = "Fechar"
+	close_button.custom_minimum_size = Vector2(150, 45)
+	close_button.pressed.connect(func(): dialog.queue_free())
+	button_container.add_child(close_button)
+	vbox.add_child(button_container)
+	
+	main_container.add_child(vbox)
+	dialog.add_child(main_container)
+	get_tree().root.add_child(dialog)
+	
+	# Ajustar layout
+	await get_tree().process_frame
+	main_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main_container.set_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	# Centralizar janela
+	var screen_size = DisplayServer.screen_get_size()
+	var window_size = dialog.size
+	dialog.position = (screen_size - window_size) / 2
+	dialog.show()
+
+func _create_quest_panel(quest: Dictionary, quest_manager: QuestManager, dialog: Window) -> Panel:
+	"""Cria painel para uma quest"""
+	var panel = Panel.new()
+	panel.custom_minimum_size = Vector2(0, 100)
+	
+	# Estilo do painel
+	var panel_style = StyleBoxFlat.new()
+	if quest.status == QuestManager.QuestStatus.COMPLETED:
+		panel_style.bg_color = Color(0.2, 0.4, 0.2, 0.8)  # Verde para completada
+		panel_style.border_color = Color(0.3, 0.6, 0.3, 1.0)
+	elif quest.status == QuestManager.QuestStatus.CLAIMED:
+		panel_style.bg_color = Color(0.2, 0.2, 0.2, 0.8)  # Cinza para reivindicada
+		panel_style.border_color = Color(0.3, 0.3, 0.3, 1.0)
+	else:
+		panel_style.bg_color = Color(0.15, 0.2, 0.3, 0.8)  # Azul para ativa
+		panel_style.border_color = Color(0.3, 0.4, 0.5, 1.0)
+	panel_style.corner_radius_top_left = 5
+	panel_style.corner_radius_top_right = 5
+	panel_style.corner_radius_bottom_left = 5
+	panel_style.corner_radius_bottom_right = 5
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+	
+	# Container interno
+	var hbox = HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	
+	# Ícone
+	var icon_label = Label.new()
+	icon_label.text = quest.icon
+	icon_label.add_theme_font_size_override("font_size", 32)
+	icon_label.custom_minimum_size = Vector2(50, 0)
+	hbox.add_child(icon_label)
+	
+	# Informações
+	var info_vbox = VBoxContainer.new()
+	info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	var name_label = Label.new()
+	name_label.text = quest.name
+	name_label.add_theme_font_size_override("font_size", 14)
+	info_vbox.add_child(name_label)
+	
+	var desc_label = Label.new()
+	desc_label.text = quest.description
+	desc_label.add_theme_font_size_override("font_size", 12)
+	info_vbox.add_child(desc_label)
+	
+	# Progresso
+	var progress_label = Label.new()
+	var progress_text = "%d / %d" % [quest.current, quest.target]
+	progress_label.text = progress_text
+	progress_label.add_theme_font_size_override("font_size", 12)
+	info_vbox.add_child(progress_label)
+	
+	# Barra de progresso
+	var progress_bar = ProgressBar.new()
+	progress_bar.min_value = 0
+	progress_bar.max_value = quest.target
+	progress_bar.value = quest.current
+	progress_bar.custom_minimum_size = Vector2(0, 5)
+	info_vbox.add_child(progress_bar)
+	
+	hbox.add_child(info_vbox)
+	
+		# Botão de reivindicar
+	if quest.status == QuestManager.QuestStatus.COMPLETED:
+		var claim_button = Button.new()
+		var reward_text = "💰 %d" % quest.reward
+		# Remover esmeraldas das recompensas (não faz sentido)
+		if quest.get("reward_diamonds", 0) > 0:
+			reward_text += "\n💎 %d" % quest.reward_diamonds
+		claim_button.text = "Reivindicar\n" + reward_text
+		claim_button.custom_minimum_size = Vector2(120, 60)
+		# Capturar referência ao self para usar no lambda
+		var menu_self = self
+		claim_button.pressed.connect(func():
+			var result = quest_manager.claim_quest(quest.id)
+			if result.success:
+				# Aplicar recompensas diretamente (moedas serão aplicadas no Game quando iniciar)
+				# Diamantes serão salvos para serem aplicados no Game
+				if result.reward_diamonds > 0:
+					_save_quest_rewards(0, result.reward_diamonds)  # Sem esmeraldas
+				dialog.queue_free()
+				# Chamar função após um frame para atualizar a UI
+				menu_self.call_deferred("_show_quests_dialog")
+		)
+		hbox.add_child(claim_button)
+	
+	panel.add_child(hbox)
+	
+	# Ajustar layout (sem await - não é necessário)
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.set_offsets_preset(Control.PRESET_FULL_RECT, 5)
+	
+	return panel
 
 func _show_achievements_dialog() -> void:
 	const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
@@ -1294,4 +1948,28 @@ func _save_audio_settings() -> void:
 	config.set_value("audio", "music_muted", music_muted)
 	
 	# Salvar arquivo
+	config.save(config_path)
+
+func _save_quest_rewards(emeralds: int, diamonds: int) -> void:
+	"""Salva recompensas de moedas especiais de quests para serem aplicadas no Game"""
+	if emeralds <= 0 and diamonds <= 0:
+		return
+	
+	var config = ConfigFile.new()
+	var config_path = "user://pending_quest_rewards.cfg"
+	
+	# Carregar recompensas pendentes existentes
+	var pending_emeralds = 0
+	var pending_diamonds = 0
+	if config.load(config_path) == OK:
+		pending_emeralds = config.get_value("rewards", "emeralds", 0)
+		pending_diamonds = config.get_value("rewards", "diamonds", 0)
+	
+	# Adicionar novas recompensas
+	pending_emeralds += emeralds
+	pending_diamonds += diamonds
+	
+	# Salvar
+	config.set_value("rewards", "emeralds", pending_emeralds)
+	config.set_value("rewards", "diamonds", pending_diamonds)
 	config.save(config_path)
