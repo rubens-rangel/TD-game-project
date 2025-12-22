@@ -50,19 +50,24 @@ func get_tower_cost(base_cost: int) -> int:
 	var wave_scale = pow(GameConstants.TOWER_COST_SCALE_PER_WAVE, max(0, wave_manager.wave - 1))
 	return int(base_cost * wave_scale)
 
-# Calcula custo acumulativo de muralha
-static func get_wall_cost(current_wall_count: int) -> int:
-	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo)"""
+# Calcula custo acumulativo de muralha (escalado com wave)
+func get_wall_cost(current_wall_count: int) -> int:
+	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo) e wave atual"""
+	var base_cost: int
 	match current_wall_count:
 		0:  # Primeira muralha
-			return GameConstants.WALL_COST_1ST
+			base_cost = GameConstants.WALL_COST_1ST
 		1:  # Segunda muralha
-			return GameConstants.WALL_COST_2ND
+			base_cost = GameConstants.WALL_COST_2ND
 		2:  # Terceira muralha
-			return GameConstants.WALL_COST_3RD
+			base_cost = GameConstants.WALL_COST_3RD
 		3:  # Quarta muralha (última)
-			return GameConstants.WALL_COST_4TH
+			base_cost = GameConstants.WALL_COST_4TH
 		_:  # Caso de segurança
-			return GameConstants.WALL_COST_4TH
+			base_cost = GameConstants.WALL_COST_4TH
+	
+	# Aplicar escala de wave (mesma lógica das torres)
+	var wave_scale = pow(GameConstants.TOWER_COST_SCALE_PER_WAVE, max(0, wave_manager.wave - 1))
+	return int(base_cost * wave_scale)
 
 

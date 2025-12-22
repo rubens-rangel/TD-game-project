@@ -22,11 +22,20 @@ const SHOCK_TOWER_COST := 48  # Aumentado em 20% (de 40 para 48)
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
 
-const MINE_DAMAGE := 15.0  # Dano alto
+const MINE_DAMAGE := 15.0  # Dano base
 const MINE_TRIGGER_RADIUS := 18.0
-const MINE_EXPLOSION_RADIUS := 60.0
+const MINE_EXPLOSION_RADIUS := 60.0  # Raio base de explosão
 const MINE_SLOW_DURATION := 1.5
 const MINE_SLOW_AMOUNT := 0.4
+
+# Mine Upgrades (globais)
+const MINE_UPGRADE_DAMAGE_COST := 50  # Custo base para upgrade de dano
+const MINE_UPGRADE_DAMAGE_AMOUNT := 10.0  # Dano adicionado por nível
+const MINE_UPGRADE_DAMAGE_MAX_LEVEL := 20  # Máximo de níveis de dano
+
+const MINE_UPGRADE_RADIUS_COST := 40  # Custo base para upgrade de raio
+const MINE_UPGRADE_RADIUS_AMOUNT := 8.0  # Raio adicionado por nível
+const MINE_UPGRADE_RADIUS_MAX_LEVEL := 15  # Máximo de níveis de raio
 
 # Sizes
 const TOWER_SIZE_GRID := 3
@@ -150,9 +159,10 @@ const COIN_MAGNETISM_RANGE := 20.0  # Raio de coleta automática de moedas
 # Hero
 const HERO_ARROW_SPEED := 260.0
 const HERO_BASE_HP := 100
-const HERO_HOME_MAX_LEVEL := 3
+const HERO_HOME_MAX_LEVEL := 4
 const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1400
 const HERO_HOME_UPGRADE_COST_LEVEL_3 := 5000
+const HERO_HOME_UPGRADE_COST_LEVEL_4 := 12000  # Custo escalado (2.4x do nível 3)
 const HERO_CRIT_MULTIPLIER_BASE := 2.0
 const HERO_RANGE_MAX := 9999.0
 
@@ -185,6 +195,15 @@ const WALL_COST_2ND := 300
 const WALL_COST_3RD := 600
 const WALL_COST_4TH := 1000
 
+# Wall Stats
+const WALL_BASE_HP := 50.0  # HP base das muralhas (aumentado de 20 para 50)
+const WALL_DAMAGE_RADIUS := 25.0  # Raio para inimigos causarem dano na muralha
+const WALL_DAMAGE_PER_SECOND := 1.0  # Dano por segundo quando inimigo está próximo (aumentado de 0.5)
+const WALL_BOSS_DAMAGE_MULTIPLIER := 2.0  # Bosses causam 2x mais dano
+const WALL_UPGRADE_HP_COST := 75  # Custo para upgrade de HP (aumentado de 30 para 75)
+const WALL_UPGRADE_HP_AMOUNT := 25.0  # Quantidade de HP adicionada por upgrade
+const WALL_MAX_UPGRADES := 5  # Máximo de upgrades de HP
+
 # Tower Cost Scaling
 const TOWER_COST_SCALE_PER_WAVE := 1.02  # 2% por wave
 
@@ -209,14 +228,6 @@ const HERO_FIRE_RATE_REDUCTION := 0.03  # Redução de fire_rate por upgrade do 
 # Base HP
 const BASE_MAX_HP := 100.0  # Limite máximo de HP da base (usado por healing stations)
 
-# Combo System
-const COMBO_TIMEOUT := 3.0  # Tempo em segundos para perder o combo se não matar ninguém
-const COMBO_MIN_KILLS := 3  # Mínimo de kills para ativar combo
-const COMBO_MULTIPLIER_BASE := 1.0  # Multiplicador base (sem combo)
-const COMBO_MULTIPLIER_PER_KILL := 0.1  # Aumento de multiplicador por kill no combo (10% por kill)
-const COMBO_MAX_MULTIPLIER := 5.0  # Multiplicador máximo (500% de bônus)
-const COMBO_COIN_BONUS_PER_KILL := 1  # Moedas extras por kill no combo
-const COMBO_MILESTONE_BONUS := 10  # Bônus extra de moedas ao atingir marcos (10, 20, 30, etc)
 
 # Quest System
 const QUEST_DAILY_COUNT := 3  # Número de quests diárias ativas
@@ -249,11 +260,11 @@ const QUEST_REWARD_MONTHLY_DIAMONDS := 1  # Diamantes dados em quests mensais
 
 # Special Currency Drop Rates (em waves altas)
 const EMERALD_DROP_START_WAVE := 50  # Wave a partir da qual esmeraldas podem dropar (reduzido de 100)
-const EMERALD_DROP_CHANCE := 0.02  # 2% de chance de dropar esmeralda (aumentado de 1%)
+const EMERALD_DROP_CHANCE := 0.04  # 2% de chance de dropar esmeralda (aumentado de 1%)
 const DIAMOND_DROP_START_WAVE := 150  # Wave a partir da qual diamantes podem dropar
-const DIAMOND_DROP_CHANCE := 0.005  # 0.5% de chance de dropar diamante (wave 150+)
+const DIAMOND_DROP_CHANCE := 0.001  # 0.1% de chance de dropar diamante (wave 150+)
 const BOSS_EMERALD_REWARD_WAVE := 25  # A cada X waves, boss dá esmeralda garantida
-const BOSS_EMERALD_REWARD_COUNT := 1  # Quantidade de esmeraldas por boss especial
+const BOSS_EMERALD_REWARD_COUNT := 20  # Quantidade de esmeraldas por boss especial
 
 # Tower Upgrades with Emeralds (escalado)
 const TOWER_UPGRADE_EMERALD_BASE_COST := 1  # Custo base em esmeraldas para upgrade de torre

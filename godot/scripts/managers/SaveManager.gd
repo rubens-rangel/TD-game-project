@@ -58,6 +58,10 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["walls"] = _serialize_walls(game_instance.walls)
 	save_data["healing_stations"] = _serialize_healing_stations(game_instance.healing_stations)
 	
+	# Upgrades globais de minas
+	save_data["mine_damage_level"] = game_instance.mine_damage_level
+	save_data["mine_radius_level"] = game_instance.mine_radius_level
+	
 	# Itens equipáveis (Talismãs, etc.)
 	if game_instance.item_manager:
 		save_data["items"] = game_instance.item_manager.serialize()
@@ -228,6 +232,16 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.mines = _deserialize_mines(save_data.get("mines", []))
 	game_instance.walls = _deserialize_walls(save_data.get("walls", []))
 	game_instance.healing_stations = _deserialize_healing_stations(save_data.get("healing_stations", []))
+	
+	# Carregar upgrades globais de minas
+	game_instance.mine_damage_level = save_data.get("mine_damage_level", 0)
+	game_instance.mine_radius_level = save_data.get("mine_radius_level", 0)
+	# Atualizar todas as minas carregadas com os valores de upgrade
+	if game_instance.has_method("_update_all_mines_stats"):
+		game_instance._update_all_mines_stats()
+	
+	# Atualizar HP máximo das muralhas carregadas baseado nos bônus atuais
+	# (deve ser feito após carregar perks e talismãs, então será feito no Game.gd após load)
 	
 	# Carregar itens equipáveis (Talismãs, etc.)
 	if game_instance.item_manager:
@@ -512,26 +526,36 @@ static func _deserialize_mines(data: Array) -> Array:
 static func _serialize_walls(walls: Array) -> Array:
 	var result = []
 	for w in walls:
-		result.append({
+		var wall_data = {
 			"grid_x": w.grid_x,
 			"grid_y": w.grid_y,
 			"pos_x": w.pos.x,
 			"pos_y": w.pos.y,
 			"hp": w.hp,
 			"max_hp": w.max_hp
-		})
+		}
+		# Incluir upgrades se existirem
+		if w.has("upgrades"):
+			wall_data["upgrades"] = w.upgrades
+		result.append(wall_data)
 	return result
 
 static func _deserialize_walls(data: Array) -> Array:
 	var result = []
 	for w in data:
-		result.append({
+		var wall_data = {
 			"grid_x": w.grid_x,
 			"grid_y": w.grid_y,
 			"pos": Vector2(w.pos_x, w.pos_y),
 			"hp": w.hp,
 			"max_hp": w.max_hp
-		})
+		}
+		# Adicionar upgrades se existirem (compatibilidade com saves antigos)
+		if w.has("upgrades"):
+			wall_data["upgrades"] = w.upgrades
+		else:
+			wall_data["upgrades"] = {"hp_level": 0}
+		result.append(wall_data)
 	return result
 
 static func _serialize_healing_stations(stations: Array) -> Array:

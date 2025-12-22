@@ -84,6 +84,7 @@ var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Ve
 
 var base_hp := 100
 var base_hp_base := 100  # HP base sem bônus (para recalcular)
+var base_hp_max := 100  # HP máximo atual da base (incluindo todos os bônus permanentes)
 var paused := false
 var game_over := false
 var diamond_150_given: bool = false  # Rastreia se diamante da wave 150 já foi dado nesta run
@@ -111,8 +112,13 @@ var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector
 var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
 var boost_towers: Array = []  # boost towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage_boost: float, rate_boost: float, levels: Dictionary}
 var shock_towers: Array = []  # shock towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, chain_count: int, cooldown: float, fire_rate: float}
-var walls: Array = []  # walls: {grid_x: int, grid_y: int, pos: Vector2, hp: float, max_hp: float}
+var walls: Array = []  # walls: {grid_x: int, grid_y: int, pos: Vector2, hp: float, max_hp: float, upgrades: Dictionary}
+var wall_hp_multiplier: float = 1.0  # Multiplicador de HP das muralhas (de perks e outros bônus)
 var healing_stations: Array = []  # healing stations: {grid_x: int, grid_y: int, pos: Vector2, heal_rate: float, range: float}
+
+# Mine Upgrades (globais - aplicados a todas as minas)
+var mine_damage_level: int = 0  # Nível de upgrade de dano (0-20)
+var mine_radius_level: int = 0  # Nível de upgrade de raio (0-15)
 # base_grid agora está em grid_manager
 var preview_mouse_pos := Vector2.ZERO  # posição do mouse para preview
 var soldiers: Array = []  # soldados: {pos: Vector2, target_enemy_idx: int, hold_time: float, max_hold_time: float, damage: float, hp: float, max_hp: float, radius: float}
@@ -144,6 +150,9 @@ var keep_slow_menu_open := false  # Flag para manter menu slow aberto após upgr
 var boost_menu: PopupMenu
 var boost_selected_index := -1
 var keep_boost_menu_open := false  # Flag para manter menu boost aberto após upgrade
+var wall_menu: PopupMenu
+var wall_selected_index := -1
+var keep_wall_menu_open := false  # Flag para manter menu wall aberto após upgrade
 
 # Drag and drop state
 var dragging_tower := false
@@ -165,6 +174,7 @@ var tex_enemy_alien: Texture2D
 var tex_tent: Texture2D  # Base/tenda no centro
 var tex_house: Texture2D
 var tex_castle: Texture2D
+var tex_castle2: Texture2D  # Castelo nível 4
 var tex_grass: Texture2D
 var tex_path: Texture2D  # Textura para o caminho (chão onde inimigos andam)
 var tex_wall: Texture2D  # Textura para barreira/cerca (paredes do labirinto)
@@ -288,10 +298,10 @@ func get_tower_cost(base_cost: int) -> int:
 	"""Calcula custo de torre baseado na wave atual"""
 	return reward_calculator.get_tower_cost(base_cost)
 
-# Calcula custo acumulativo de muralha
+# Calcula custo acumulativo de muralha (escalado com wave)
 func get_wall_cost() -> int:
-	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo)"""
-	return RewardCalculator.get_wall_cost(walls.size())
+	"""Calcula custo de muralha baseado no número de muralhas já construídas (acumulativo) e wave atual"""
+	return reward_calculator.get_wall_cost(walls.size())
 
 # Calcula custo de upgrade de torre com esmeraldas (escalado)
 func get_tower_upgrade_emerald_cost(upgrade_type: String, current_level: int) -> int:
@@ -300,6 +310,56 @@ func get_tower_upgrade_emerald_cost(upgrade_type: String, current_level: int) ->
 	var scale = GameConstants.TOWER_UPGRADE_EMERALD_SCALE
 	# Custo escalado: base * (scale ^ level)
 	return int(base_cost * pow(scale, current_level))
+
+# Funções para calcular valores de minas com upgrades globais
+func get_mine_damage() -> float:
+	"""Retorna o dano das minas considerando upgrades globais"""
+	return GameConstants.MINE_DAMAGE + (mine_damage_level * GameConstants.MINE_UPGRADE_DAMAGE_AMOUNT)
+
+func get_mine_explosion_radius() -> float:
+	"""Retorna o raio de explosão das minas considerando upgrades globais"""
+	return GameConstants.MINE_EXPLOSION_RADIUS + (mine_radius_level * GameConstants.MINE_UPGRADE_RADIUS_AMOUNT)
+
+func get_mine_upgrade_damage_cost() -> int:
+	"""Retorna o custo do próximo upgrade de dano de minas"""
+	return get_upgrade_cost(GameConstants.MINE_UPGRADE_DAMAGE_COST, mine_damage_level)
+
+func get_mine_upgrade_radius_cost() -> int:
+	"""Retorna o custo do próximo upgrade de raio de minas"""
+	return get_upgrade_cost(GameConstants.MINE_UPGRADE_RADIUS_COST, mine_radius_level)
+
+func upgrade_mine_damage() -> bool:
+	"""Compra upgrade de dano de minas. Retorna true se bem-sucedido"""
+	if mine_damage_level >= GameConstants.MINE_UPGRADE_DAMAGE_MAX_LEVEL:
+		return false
+	var cost = get_mine_upgrade_damage_cost()
+	if hero["coins"] < cost:
+		return false
+	hero["coins"] -= cost
+	_track_coin_spent(cost)
+	mine_damage_level += 1
+	_update_all_mines_stats()  # Atualizar todas as minas existentes
+	return true
+
+func upgrade_mine_radius() -> bool:
+	"""Compra upgrade de raio de minas. Retorna true se bem-sucedido"""
+	if mine_radius_level >= GameConstants.MINE_UPGRADE_RADIUS_MAX_LEVEL:
+		return false
+	var cost = get_mine_upgrade_radius_cost()
+	if hero["coins"] < cost:
+		return false
+	hero["coins"] -= cost
+	_track_coin_spent(cost)
+	mine_radius_level += 1
+	_update_all_mines_stats()  # Atualizar todas as minas existentes
+	return true
+
+func _update_all_mines_stats() -> void:
+	"""Atualiza as estatísticas de todas as minas existentes com os novos valores de upgrade"""
+	for i in range(mines.size()):
+		if not mines[i].triggered:
+			mines[i]["damage"] = get_mine_damage()
+			mines[i]["explosion_radius"] = get_mine_explosion_radius()
 
 # upgrades overlay state
 var choosing_upgrade := false
@@ -331,12 +391,13 @@ var hero_crit_chance_base: float = 0.0
 var global_tower_damage_boost_base: float = 1.0  # Base sem bônus permanentes
 var coin_drop_chance_base: float = GameConstants.COIN_DROP_CHANCE
 
-const HERO_HOME_MAX_LEVEL := 3
+const HERO_HOME_MAX_LEVEL := 4
 var hero_home_level: int = 1
 var hero_home_panel_data: Dictionary = {}
 var hero_home_upgrade_costs := {
 	2: 1200,
-	3: 3000
+	3: 3000,
+	4: 12000
 }
 
 func _get_hero_home_texture_for_level(level: int) -> Texture2D:
@@ -349,6 +410,8 @@ func _get_hero_home_texture_for_level(level: int) -> Texture2D:
 			return tex_house if tex_house != null else tex_tent
 		3:
 			return tex_castle if tex_castle != null else (tex_house if tex_house != null else tex_tent)
+		4:
+			return tex_castle2 if tex_castle2 != null else (tex_castle if tex_castle != null else (tex_house if tex_house != null else tex_tent))
 		_:
 			return tex_tent
 
@@ -383,17 +446,33 @@ func _get_hero_home_benefits_text(level: int) -> String:
 			return "• Dano Global das Torres +10%\n• Alcance +100\n• Vida da base +40"
 		3:
 			return "• Dano Global das Torres +10%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
+		4:
+			return "• Dano Global das Torres +15%\n• Dano do Herói +15%\n• Cadência -0.08s\n• Alcance +150\n• Vida da base +100"
 		_:
 			return "Nível máximo alcançado"
 
 func _apply_hero_home_upgrade_effects(level: int) -> void:
 	"""Delegado para HeroManager"""
 	if hero_manager:
-		hero_manager.apply_hero_home_upgrade(level)
+		var changes = hero_manager.apply_hero_home_upgrade(level)
 		# Aplicar mudanças no jogo
 		global_tower_damage_boost = hero_manager.global_tower_damage_boost
+		var old_base_hp = base_hp
 		base_hp = hero_manager.base_hp
+		# Atualizar HP máximo com a diferença
+		var hp_increase = base_hp - old_base_hp
+		if hp_increase > 0:
+			base_hp_max += hp_increase
 		hero_home_level = hero_manager.hero_home_level
+		
+		# Aplicar mudanças no herói (range, pierce, fire_rate)
+		if changes.has("range") and changes["range"] > 0:
+			hero["range"] += changes["range"]
+		if changes.has("pierce") and changes["pierce"] > 0:
+			hero["pierce"] += changes["pierce"]
+		if changes.has("fire_rate") and changes["fire_rate"] < 0:
+			hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] + changes["fire_rate"])
+		
 		# Atualizar boost global nas torres
 		if tower_system_manager:
 			tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
@@ -404,11 +483,20 @@ func _apply_hero_home_upgrade_effects(level: int) -> void:
 			global_tower_damage_boost *= 1.10
 			hero["range"] += 100
 			base_hp += 40
+			base_hp_max += 40  # Atualizar HP máximo também
 		3:
 			global_tower_damage_boost *= 1.10
 			hero["pierce"] += 1
 			hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] - GameConstants.HERO_FIRE_RATE_REDUCTION)
 			base_hp += 60
+			base_hp_max += 60  # Atualizar HP máximo também
+		4:
+			global_tower_damage_boost *= 1.15
+			hero["damage"] *= 1.15  # +15% dano do herói
+			hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] - 0.08)
+			hero["range"] += 150
+			base_hp += 100
+			base_hp_max += 100  # Atualizar HP máximo também
 
 
 func _try_load(path: String) -> Texture2D:
@@ -564,6 +652,16 @@ func _ready() -> void:
 	# Aplicar bônus de talismãs equipados
 	_apply_talisman_bonuses()
 	
+	# Garantir que base_hp_max está sincronizado com base_hp após todos os bônus
+	# (base_hp já contém todos os bônus aplicados, então base_hp_max deve ser igual)
+	base_hp_max = base_hp
+	
+	# Atualizar HP máximo de todas as muralhas existentes (incluindo as carregadas de save)
+	_update_all_walls_max_hp()
+	
+	# Inicializar multiplicador de HP das muralhas
+	wall_hp_multiplier = 1.0
+	
 	# Carregar configurações de áudio
 	_load_music_settings()
 	_load_user_preferences()
@@ -623,11 +721,12 @@ func _ready() -> void:
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
+	tex_castle2 = resource_manager.get_texture("Caste2")  # Castelo nível 4
 	
 	# Inicializar managers que dependem de texturas e effects_manager
 	# Inicializar HeroManager (após texturas carregadas)
 	hero_manager = HeroManager.new(base_hp)
-	hero_manager.set_textures(tex_tent, tex_house, tex_castle)
+	hero_manager.set_textures(tex_tent, tex_house, tex_castle, tex_castle2)
 	hero_manager.hero = hero  # Usar o mesmo dicionário do herói
 	hero_manager.hero_home_level = hero_home_level
 	hero_manager.global_tower_damage_boost = global_tower_damage_boost
@@ -974,6 +1073,21 @@ func _ready() -> void:
 	boost_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	boost_menu_container.add_child(boost_menu)
 	$CanvasLayer.add_child(boost_menu_container)
+	
+	# Criar container para menu de muralhas
+	var wall_menu_container = Control.new()
+	wall_menu_container.name = "WallMenuContainer"
+	wall_menu_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wall_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wall_menu = PopupMenu.new()
+	wall_menu.name = "WallMenu"
+	wall_menu.hide_on_checkable_item_selection = false
+	wall_menu.add_item("Reforçar HP +25 (💰 Moedas)", 1)
+	wall_menu.add_item("Reparar (💰 Moedas)", 2)
+	wall_menu.id_pressed.connect(Callable(self, "_on_wall_menu_pressed"))
+	wall_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
+	wall_menu_container.add_child(wall_menu)
+	$CanvasLayer.add_child(wall_menu_container)
 
 	var ov = $CanvasLayer/UpgradeOverlay
 	ov.get_node("Panel/Btn1").pressed.connect(func(): _apply_benefit(0))
@@ -1312,7 +1426,8 @@ func _process(delta: float) -> void:
 				var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 				var dist_to_base = hs.pos.distance_to(base_center)
 				if dist_to_base <= hs.range:
-					base_hp = min(GameConstants.BASE_MAX_HP, base_hp + hs.heal_amount)
+					# Usar base_hp_max ao invés de BASE_MAX_HP para respeitar bônus permanentes
+					base_hp = min(base_hp_max, base_hp + hs.heal_amount)
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
 			# Usar pool do HeroManager se disponível
@@ -1439,8 +1554,10 @@ func _process(delta: float) -> void:
 	
 	# Atualizar UI melhorada - Menu lateral de torres
 	_update_tower_shop_ui()
-
+	
 func _update_tower_shop_ui() -> void:
+	# Atualizar botões de upgrade de minas
+	_update_mine_upgrade_buttons()
 	if tower_shop_panel == null:
 		return
 	
@@ -1672,7 +1789,8 @@ func _input(event: InputEvent) -> void:
 			
 			var wall_idx := _find_wall_at(world_pos, 15.0)
 			if wall_idx != -1:
-				_start_drag_tower("wall", wall_idx, world_pos)
+				# Mostrar menu de upgrade de muralha ao invés de arrastar
+				_show_wall_menu(wall_idx, world_pos)
 				return
 			
 			var barracks_idx := _find_barracks_at(world_pos, 20.0)
@@ -3377,64 +3495,56 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 	
 	# Verificar colisão com muralhas
 	var enemy_tile = _world_to_tile_coords(e["pos"])
-	var wall_collision_radius = 14.0  # Raio de colisão com muralha
+	var wall_detection_radius = GameConstants.WALL_DAMAGE_RADIUS + 10.0  # Raio maior para detectar muralha antes de chegar perto
 	var hit_wall = null
 	var hit_wall_idx = -1
+	var closest_wall_dist = 9999.0
 	
+	# Encontrar a muralha mais próxima no caminho do inimigo
 	for i in range(walls.size()):
 		var w = walls[i]
 		if w.hp > 0 and not grid_manager.is_inside_base_point(w.pos):
 			var dist_to_wall = e["pos"].distance_to(w.pos)
-			if dist_to_wall < wall_collision_radius:
-				hit_wall = w
-				hit_wall_idx = i
-				break
+			# Verificar se a muralha está à frente do inimigo (no caminho)
+			if dist_to_wall < wall_detection_radius and dist_to_wall < closest_wall_dist:
+				# Verificar se a muralha está no caminho do inimigo
+				var to_wall = w.pos - e["pos"]
+				var to_target = targ - e["pos"]
+				# Se a muralha está na direção geral do movimento, considerar como bloqueio
+				if to_target.length() > 0.01:
+					var dot = to_wall.normalized().dot(to_target.normalized())
+					# Se está na mesma direção geral (ângulo < 90 graus) ou muito próxima
+					if dot > -0.3 or dist_to_wall < GameConstants.WALL_DAMAGE_RADIUS:
+						hit_wall = w
+						hit_wall_idx = i
+						closest_wall_dist = dist_to_wall
 	
 	if hit_wall != null:
-		# Inimigo colidiu com muralha - verificar se há caminho alternativo
-		var new_path = _bfs_path(enemy_tile.x, enemy_tile.y, true)
-		if not new_path.is_empty():
-			# Há caminho alternativo - recalcular
-			var path_copy = []
-			for p in new_path:
-				if p is Vector2i:
-					path_copy.append(grid_manager.tile_center(p.x, p.y))
-				elif p is Vector2:
-					path_copy.append(p)
-			e["path"] = path_copy
-			e["path_index"] = 0
-			if e["path"].size() > 0:
-				targ = e["path"][0]
-			else:
-				return
+		# Inimigo encontrou muralha - mover em direção à muralha e ATACAR
+		# O dano será aplicado em _update_walls() baseado na proximidade (WALL_DAMAGE_RADIUS)
+		# Não recalcular caminho - o inimigo deve bater na muralha até ela ser destruída
+		var to_wall = hit_wall.pos - e["pos"]
+		var dist_to_wall = to_wall.length()
+		
+		# Se já está dentro do raio de dano, parar e atacar
+		if dist_to_wall < GameConstants.WALL_DAMAGE_RADIUS:
+			# Parar o movimento - o dano será aplicado em _update_walls()
+			return
+		
+		# Caso contrário, mover em direção à muralha até estar dentro do raio de dano
+		var move_dist = e["speed"] * dt
+		var dir_to_wall = to_wall.normalized()
+		var target_dist = GameConstants.WALL_DAMAGE_RADIUS - 2.0  # Parar um pouco antes do raio de dano
+		
+		if dist_to_wall - move_dist <= target_dist:
+			# Chegou perto o suficiente - posicionar exatamente no raio de dano
+			e["pos"] = hit_wall.pos - dir_to_wall * target_dist
 		else:
-			# Caminho completamente bloqueado - explodir a muralha que o inimigo está tocando
-			if effects_manager:
-				effects_manager.create_aoe_effect(hit_wall.pos, 40.0, 0.5)
-			
-			# Remover muralha
-			var tile = Vector2i(hit_wall.grid_x, hit_wall.grid_y)
-			_unregister_wall_tile(tile)
-			walls.remove_at(hit_wall_idx)
-			pathfinder.invalidate_cache()
-			pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
-			_recalculate_all_enemy_paths()  # Recalcular caminhos quando muralha é destruída
-			
-			# Recalcular caminho após explosão
-			var path_after_explosion = _bfs_path(enemy_tile.x, enemy_tile.y, true)
-			if not path_after_explosion.is_empty():
-				var path_copy = []
-				for p in path_after_explosion:
-					if p is Vector2i:
-						path_copy.append(grid_manager.tile_center(p.x, p.y))
-					elif p is Vector2:
-						path_copy.append(p)
-				e["path"] = path_copy
-				e["path_index"] = 0
-				if e["path"].size() > 0:
-					targ = e["path"][0]
-				else:
-					return
+			# Continuar se movendo em direção à muralha
+			e["pos"] += dir_to_wall * move_dist
+		
+		# Não seguir o caminho normal - focar na muralha
+		return
 	
 	var v2 = targ - e["pos"]
 	var d2 = max(v2.length(), 0.0001)
@@ -4297,18 +4407,26 @@ func _add_1000_coins() -> void:
 
 func _on_upgrade_hero_home() -> void:
 	if hero_home_level >= HERO_HOME_MAX_LEVEL:
+		print("Hero home já está no nível máximo: ", hero_home_level)
 		return
 	var next_level = hero_home_level + 1
 	var cost = _get_hero_home_upgrade_cost(next_level)
 	if cost <= 0:
+		print("Custo inválido para nível ", next_level, ": ", cost)
 		return
 	if hero["coins"] < cost:
+		print("Moedas insuficientes. Tem: ", hero["coins"], ", precisa: ", cost)
 		return
+	print("Upgrading hero home de nível ", hero_home_level, " para ", next_level, " com custo ", cost)
 	hero["coins"] -= cost
 	_track_coin_spent(cost)
 	hero_home_level = next_level
+	# Atualizar hero_manager ANTES de aplicar efeitos
+	if hero_manager:
+		hero_manager.hero_home_level = next_level
 	_apply_hero_home_upgrade_effects(next_level)
 	_update_hero_home_panel_ui()
+	_update_tower_shop_ui()  # Atualizar UI da loja também
 	queue_redraw()
 
 func _on_wave_started(wave_number: int, _is_boss_wave: bool):
@@ -4958,15 +5076,15 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
 	
 	var can_range: bool = hero["coins"] >= range_cost and s.range < 250.0  # Máximo 250
-	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.4  # Máximo 40%
+	var can_amount: bool = hero["coins"] >= amount_cost and s.slow_amount < 0.5  # Máximo 50%
 	var can_range_emerald: bool = currency_info.emeralds >= range_emerald_cost and s.range < 250.0
-	var can_amount_emerald: bool = currency_info.emeralds >= amount_emerald_cost and s.slow_amount < 0.4
+	var can_amount_emerald: bool = currency_info.emeralds >= amount_emerald_cost and s.slow_amount < 0.5
 	
 	# Atualizar itens (alcance e slow com opções de moedas e esmeraldas)
 	slow_menu.set_item_text(0, "Alcance +30 (💰 %d moedas) [%.0f/250]" % [range_cost, s.range])
 	slow_menu.set_item_text(1, "Alcance +30 (💚 %d esmeraldas) [%.0f/250]" % [range_emerald_cost, s.range])
-	slow_menu.set_item_text(3, "Slow x1.05 (💰 %d moedas) [%.0f%%]" % [amount_cost, s.slow_amount * 100])
-	slow_menu.set_item_text(4, "Slow x1.05 (💚 %d esmeraldas) [%.0f%%]" % [amount_emerald_cost, s.slow_amount * 100])
+	slow_menu.set_item_text(3, "Slow x1.05 (💰 %d moedas) [%.0f%%/50%%]" % [amount_cost, s.slow_amount * 100])
+	slow_menu.set_item_text(4, "Slow x1.05 (💚 %d esmeraldas) [%.0f%%/50%%]" % [amount_emerald_cost, s.slow_amount * 100])
 	slow_menu.set_item_disabled(0, not can_range)
 	slow_menu.set_item_disabled(1, not can_range_emerald)
 	slow_menu.set_item_disabled(3, not can_amount)
@@ -5000,19 +5118,19 @@ func _on_slow_menu_pressed(id: int) -> void:
 				s.range = min(250.0, s.range + 30.0)
 				s.levels["RANGE"] = s.levels.get("RANGE", 0) + 1
 				_update_special_currency_labels()
-		2:  # Slow Amount com moedas - multiplicativo (x1.05 por upgrade, máximo 40%)
+		2:  # Slow Amount com moedas - multiplicativo (x1.05 por upgrade, máximo 50%)
 			var cost = get_upgrade_cost(GameConstants.SLOW_AMOUNT_COST, amount_level)
-			if hero["coins"] >= cost and s.slow_amount < 0.4:  # Máximo 40%
+			if hero["coins"] >= cost and s.slow_amount < 0.5:  # Máximo 50%
 				# Multiplicativo: multiplica por 1.05 (5% mais lento por upgrade)
-				s.slow_amount = min(0.4, s.slow_amount * 1.05)
+				s.slow_amount = min(0.5, s.slow_amount * 1.05)
 				s.levels["AMOUNT"] = s.levels.get("AMOUNT", 0) + 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		11:  # Slow Amount com esmeraldas
 			var emerald_cost = get_tower_upgrade_emerald_cost("AMOUNT", amount_level)
-			if currency_info.emeralds >= emerald_cost and s.slow_amount < 0.4:
+			if currency_info.emeralds >= emerald_cost and s.slow_amount < 0.5:
 				special_currency_manager.spend_emeralds(emerald_cost)
-				s.slow_amount = min(0.4, s.slow_amount * 1.05)
+				s.slow_amount = min(0.5, s.slow_amount * 1.05)
 				s.levels["AMOUNT"] = s.levels.get("AMOUNT", 0) + 1
 				_update_special_currency_labels()
 		# Removido upgrade de Duração (id 3) - funciona enquanto está dentro da área
@@ -5401,8 +5519,8 @@ func _try_place_mine(pos: Vector2) -> void:
 		"pos": mine_world_pos,
 		"grid_x": tile.x,
 		"grid_y": tile.y,
-		"damage": GameConstants.MINE_DAMAGE,
-		"explosion_radius": GameConstants.MINE_EXPLOSION_RADIUS,
+		"damage": get_mine_damage(),
+		"explosion_radius": get_mine_explosion_radius(),
 		"slow_duration": GameConstants.MINE_SLOW_DURATION,
 		"slow_amount": GameConstants.MINE_SLOW_AMOUNT,
 		"trigger_radius": GameConstants.MINE_TRIGGER_RADIUS,
@@ -5715,19 +5833,21 @@ func _try_place_wall(pos: Vector2) -> void:
 		return
 	
 	var wall_world_pos = grid_manager.tile_center(tile.x, tile.y)
+	var base_hp = GameConstants.WALL_BASE_HP * wall_hp_multiplier
 	walls.append({
 		"pos": wall_world_pos,
 		"grid_x": tile.x,
 		"grid_y": tile.y,
-		"hp": 20.0,
-		"max_hp": 20.0
+		"hp": base_hp,
+		"max_hp": base_hp,
+		"upgrades": {"hp_level": 0}  # Nível de upgrade de HP
 	})
 	_register_wall_tile(tile)
 	# Registrar no grid manager também (tipo 9 = wall)
 	grid_manager.set_grid_area(tile.x, tile.y, GameConstants.WALL_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	pathfinder.set_wall_tiles(wall_tiles)  # Atualizar wall_tiles no pathfinder
-	_recalculate_all_enemy_paths()  # Recalcular caminhos de todos os inimigos
+	# NÃO recalcular caminhos aqui - deixar inimigos encontrarem a muralha e atacarem
 	hero["coins"] -= wall_cost
 	_track_coin_spent(wall_cost)
 	_track_wall_built()
@@ -6317,8 +6437,9 @@ func _update_mines(_delta: float) -> void:
 			mines.remove_at(idx)
 
 func _detonate_mine(mine: Dictionary) -> void:
-	var explosion_damage = mine.get("damage", GameConstants.MINE_DAMAGE)
-	var explosion_radius = mine.get("explosion_radius", GameConstants.MINE_EXPLOSION_RADIUS)
+	# Usar valores da mina (já incluem upgrades) ou calcular se não existir
+	var explosion_damage = mine.get("damage", get_mine_damage())
+	var explosion_radius = mine.get("explosion_radius", get_mine_explosion_radius())
 	var slow_duration = mine.get("slow_duration", GameConstants.MINE_SLOW_DURATION)
 	var slow_amount = mine.get("slow_amount", GameConstants.MINE_SLOW_AMOUNT)
 	
@@ -6698,21 +6819,53 @@ func _create_shock_effect(start_pos: Vector2, end_pos: Vector2) -> void:
 	else:
 		shock_effects.append(shock_effect)
 
+func _update_all_walls_max_hp() -> void:
+	"""Atualiza o HP máximo de todas as muralhas baseado no multiplicador atual"""
+	for w in walls:
+		if w.has("upgrades"):
+			var base_hp = GameConstants.WALL_BASE_HP * wall_hp_multiplier
+			var upgrade_hp = w.upgrades.get("hp_level", 0) * GameConstants.WALL_UPGRADE_HP_AMOUNT
+			var new_max_hp = base_hp + upgrade_hp
+			var hp_ratio = w.hp / w.max_hp if w.max_hp > 0 else 1.0
+			w.max_hp = new_max_hp
+			w.hp = min(w.hp, new_max_hp)  # Manter proporção de HP se possível
+			# Se a muralha estava destruída mas agora tem HP máximo maior, restaurar um pouco
+			if w.hp <= 0 and new_max_hp > 0:
+				w.hp = new_max_hp * 0.1  # Restaurar 10% do HP máximo
+
 func _update_walls(delta: float) -> void:
-	# walls podem ser danificadas por inimigos que passam por perto
+	"""Atualiza muralhas: aplica dano de inimigos próximos e remove destruídas"""
 	var walls_to_remove: Array = []
+	var needs_path_recalc = false
+	
 	for i in range(walls.size()):
 		var w = walls[i]
 		if w.hp <= 0:
 			walls_to_remove.append(i)
+			needs_path_recalc = true
 			continue
+		
+		# Verificar inimigos próximos causando dano
 		for e in enemies:
-			if e["hp"] <= 0 or e["reached"]:
+			if e["hp"] <= 0 or e.get("reached", false):
 				continue
+			
 			var dist = w.pos.distance_to(e["pos"])
-			if dist < 20.0:  # inimigo próximo da parede
-				w.hp -= 0.5 * delta  # dano por segundo
+			if dist < GameConstants.WALL_DAMAGE_RADIUS:
+				# Calcular dano baseado no tipo de inimigo
+				var damage_per_second = GameConstants.WALL_DAMAGE_PER_SECOND
+				if e.get("is_boss", false):
+					damage_per_second *= GameConstants.WALL_BOSS_DAMAGE_MULTIPLIER
+				
+				# Aplicar dano
+				w.hp -= damage_per_second * delta
+				
+				# Criar efeito visual de dano (opcional - apenas ocasionalmente para não poluir a tela)
+				if randf() < 0.05:  # 5% chance por frame para mostrar número de dano
+					_create_damage_number(w.pos, damage_per_second * delta, false)
+				
 				if w.hp <= 0:
+					# Muralha destruída
 					if grid_manager.is_inside_base_point(w.pos):
 						grid_manager.clear_grid_area(w.grid_x, w.grid_y, GameConstants.WALL_SIZE_GRID)
 					else:
@@ -6720,13 +6873,17 @@ func _update_walls(delta: float) -> void:
 						_unregister_wall_tile(wall_tile)
 					pathfinder.invalidate_cache()
 					walls_to_remove.append(i)
+					needs_path_recalc = true
 					break
+	
+	# Remover muralhas destruídas (em ordem reversa para manter índices corretos)
 	walls_to_remove.reverse()
 	for idx in walls_to_remove:
 		if idx < walls.size():
 			walls.remove_at(idx)
-	# Recalcular caminhos após remover muralhas destruídas
-	if walls_to_remove.size() > 0:
+	
+	# Recalcular caminhos apenas se necessário (otimização)
+	if needs_path_recalc:
 		pathfinder.set_wall_tiles(wall_tiles)
 		_recalculate_all_enemy_paths()
 
@@ -7285,6 +7442,7 @@ func _apply_prestige_bonuses() -> void:
 	hero["fire_rate"] = hero_fire_rate_base
 	hero["crit_chance"] = hero_crit_chance_base
 	base_hp = base_hp_base
+	base_hp_max = base_hp_base  # Resetar HP máximo também
 	global_tower_damage_boost = global_tower_damage_boost_base
 	coin_drop_chance = coin_drop_chance_base
 	
@@ -7308,11 +7466,13 @@ func _apply_prestige_bonuses() -> void:
 	var base_hp_bonus = prestige_shop.get_base_hp_bonus()
 	if base_hp_bonus > 0:
 		base_hp += base_hp_bonus
+		base_hp_max += base_hp_bonus
 	
 	# Aplicar boost de HP da base
 	var base_hp_boost = prestige_shop.get_base_hp_boost()
 	if base_hp_boost > 0:
 		base_hp += base_hp_boost
+		base_hp_max += base_hp_boost
 	
 	# Aplicar boost de dano do herói
 	var hero_damage_boost = prestige_shop.get_hero_damage_boost()
@@ -7666,11 +7826,10 @@ func _create_tower_shop_ui() -> void:
 	# Card da base/Herói
 	_create_hero_home_card(vbox, hero_card_height)
 	
-	# Lista de torres com informações
+	# Lista de torres com informações (Mina movida para o final)
 	var tower_data = [
 		{"name": "Torre Básica", "cost": GameConstants.TOWER_COST, "icon": tex_tower, "func": "_on_buy_tower", "max": GameConstants.MAX_TOWERS, "array_name": "towers"},
 		{"name": "Quartel", "cost": GameConstants.BARRACKS_COST, "icon": tex_barracks, "func": "_on_buy_barracks", "max": GameConstants.MAX_BARRACKS, "array_name": "barracks"},
-		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array_name": "mines"},
 		{"name": "Torre de Congelamento", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array_name": "slow_towers"},
 		{"name": "Canhão", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array_name": "aoe_towers"},
 		{"name": "Torre Sniper", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
@@ -7678,6 +7837,7 @@ func _create_tower_shop_ui() -> void:
 		{"name": "Torre de Choque", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
 		{"name": "Muralha", "cost": 100, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},  # Custo será atualizado dinamicamente por get_wall_cost()
 		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array_name": "healing_stations"},
+		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array_name": "mines"},
 	]
 	
 	# Criar botões para cada torre
@@ -7797,6 +7957,10 @@ func _create_tower_shop_ui() -> void:
 		tower_buttons.append(tower_button_data)
 		
 		vbox.add_child(btn_container)
+		
+		# Adicionar upgrades de minas logo após o card de mina
+		if tower_info.name == "Mina":
+			_create_mine_upgrade_buttons(vbox, panel_width)
 	
 	# Criar tooltip
 	tooltip_label = Label.new()
@@ -8818,6 +8982,9 @@ func _on_upgrade_menu_closed() -> void:
 	if keep_boost_menu_open:
 		keep_boost_menu_open = false
 		return
+	if keep_wall_menu_open:
+		keep_wall_menu_open = false
+		return
 	_hide_range_indicator()
 
 func _on_skill_collect_coins() -> void:
@@ -9463,7 +9630,9 @@ func _apply_perk_effects() -> void:
 		hero["coins"] += int(effects["starting_coins"])
 	
 	if effects.has("starting_hp"):
-		base_hp += int(effects["starting_hp"])
+		var hp_bonus = int(effects["starting_hp"])
+		base_hp += hp_bonus
+		base_hp_max += hp_bonus  # Atualizar HP máximo também
 	
 	# Aplicar chance de drop de moeda (sobre valor já modificado por prestígio)
 	if effects.has("coin_drop_chance"):
@@ -9490,6 +9659,13 @@ func _apply_perk_effects() -> void:
 	# Aplicar bônus de alcance das torres (será aplicado quando torres forem criadas/atualizadas)
 	# Armazenado em perk_effects para uso posterior
 	
+	# Aplicar bônus de durabilidade das muralhas (multiplicador)
+	if effects.has("wall_hp"):
+		var boost = effects["wall_hp"]
+		wall_hp_multiplier *= (1.0 + boost)
+		# Atualizar HP máximo de todas as muralhas existentes
+		_update_all_walls_max_hp()
+	
 	# Verificar se tem perk de magnetismo permanente
 	var has_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
 	if skills_manager:
@@ -9511,6 +9687,7 @@ func _apply_talisman_bonuses() -> void:
 	if talisman_effects.has("base_hp_boost"):
 		var boost = talisman_effects["base_hp_boost"]
 		base_hp += boost
+		base_hp_max += boost  # Atualizar HP máximo também
 	
 	# Aplicar bônus de dano da base (multiplicador no dano do herói sobre valor já modificado)
 	if talisman_effects.has("base_damage_boost"):
@@ -9539,13 +9716,21 @@ func _recalculate_all_bonuses() -> void:
 	hero["fire_rate"] = hero_fire_rate_base
 	hero["crit_chance"] = hero_crit_chance_base
 	base_hp = base_hp_base
+	base_hp_max = base_hp_base  # Resetar HP máximo também
 	global_tower_damage_boost = global_tower_damage_boost_base
 	coin_drop_chance = coin_drop_chance_base
+	wall_hp_multiplier = 1.0  # Resetar multiplicador de HP das muralhas
 	
 	# Reaplicar todos os bônus na ordem correta
 	_apply_prestige_bonuses()
 	_apply_perk_effects()
 	_apply_talisman_bonuses()
+	
+	# Garantir que base_hp_max está sincronizado com base_hp após todos os bônus
+	base_hp_max = base_hp
+	
+	# Atualizar HP máximo de todas as muralhas existentes
+	_update_all_walls_max_hp()
 	
 	# Atualizar boost global nas torres
 	if tower_system_manager:
@@ -9768,11 +9953,87 @@ func _get_barracks_tooltip(b: Dictionary) -> String:
 	var dmg = b.get("damage", 1)
 	return "Quartel\n\nSoldados: %d\nDano: %d" % [soldiers_count, dmg]
 
+func _show_wall_menu(wall_idx: int, world_pos: Vector2) -> void:
+	"""Mostra menu de upgrade de muralha"""
+	if wall_idx < 0 or wall_idx >= walls.size():
+		return
+	
+	wall_selected_index = wall_idx
+	var w = walls[wall_idx]
+	var upgrades = w.get("upgrades", {})
+	var hp_level = upgrades.get("hp_level", 0)
+	
+	# Atualizar textos do menu
+	# Custo de upgrade escalado com wave
+	var base_upgrade_cost = get_upgrade_cost(GameConstants.WALL_UPGRADE_HP_COST, hp_level)
+	var wave_scale = pow(GameConstants.TOWER_COST_SCALE_PER_WAVE, max(0, wave_manager.wave - 1))
+	var upgrade_cost = int(base_upgrade_cost * wave_scale)
+	var repair_cost = int((w.max_hp - w.hp) * 0.5)  # Custo de reparo: 0.5 moedas por HP
+	
+	wall_menu.set_item_text(0, "Reforçar HP +25 (💰 %d moedas)" % upgrade_cost)
+	wall_menu.set_item_text(1, "Reparar (💰 %d moedas)" % repair_cost)
+	
+	# Desabilitar itens se não tiver recursos ou já estiver no máximo
+	var can_upgrade = hp_level < GameConstants.WALL_MAX_UPGRADES and hero["coins"] >= upgrade_cost
+	var can_repair = w.hp < w.max_hp and hero["coins"] >= repair_cost
+	
+	wall_menu.set_item_disabled(0, not can_upgrade)
+	wall_menu.set_item_disabled(1, not can_repair)
+	
+	# Mostrar menu na posição do mouse
+	var screen_pos = get_viewport().get_mouse_position()
+	wall_menu.position = screen_pos
+	wall_menu.popup()
+
+func _on_wall_menu_pressed(id: int) -> void:
+	"""Handler para seleção de item no menu de muralha"""
+	if wall_selected_index < 0 or wall_selected_index >= walls.size():
+		return
+	
+	var w = walls[wall_selected_index]
+	var upgrades = w.get("upgrades", {})
+	var hp_level = upgrades.get("hp_level", 0)
+	
+	match id:
+		1:  # Reforçar HP
+			# Custo de upgrade escalado com wave
+			var base_upgrade_cost = get_upgrade_cost(GameConstants.WALL_UPGRADE_HP_COST, hp_level)
+			var wave_scale = pow(GameConstants.TOWER_COST_SCALE_PER_WAVE, max(0, wave_manager.wave - 1))
+			var upgrade_cost = int(base_upgrade_cost * wave_scale)
+			if hp_level < GameConstants.WALL_MAX_UPGRADES and hero["coins"] >= upgrade_cost:
+				# Aplicar upgrade
+				var hp_increase = GameConstants.WALL_UPGRADE_HP_AMOUNT
+				var hp_ratio = w.hp / w.max_hp if w.max_hp > 0 else 1.0
+				w.max_hp += hp_increase
+				w.hp = w.max_hp * hp_ratio  # Manter proporção de HP
+				upgrades["hp_level"] = hp_level + 1
+				w["upgrades"] = upgrades
+				hero["coins"] -= upgrade_cost
+				_track_coin_spent(upgrade_cost)
+				walls[wall_selected_index] = w
+		2:  # Reparar
+			var repair_cost = int((w.max_hp - w.hp) * 0.5)
+			if w.hp < w.max_hp and hero["coins"] >= repair_cost:
+				w.hp = w.max_hp
+				hero["coins"] -= repair_cost
+				_track_coin_spent(repair_cost)
+				walls[wall_selected_index] = w
+	
+	# Reabrir menu com valores atualizados se necessário
+	keep_wall_menu_open = true
+	var screen_pos = get_viewport().get_mouse_position()
+	call_deferred("_show_wall_menu", wall_selected_index, screen_pos)
+
 func _get_wall_tooltip(w: Dictionary) -> String:
 	var hp = w.get("hp", 0.0)
-	var max_hp = w.get("max_hp", 20.0)
-	var hp_percent = int((hp / max_hp) * 100)
-	return "Muralha\n\nVida: %d/%d (%d%%)" % [int(hp), int(max_hp), hp_percent]
+	var max_hp = w.get("max_hp", GameConstants.WALL_BASE_HP)
+	var hp_percent = int((hp / max_hp) * 100) if max_hp > 0 else 0
+	var upgrades = w.get("upgrades", {})
+	var hp_level = upgrades.get("hp_level", 0)
+	var tooltip = "Muralha\n\nVida: %d/%d (%d%%)" % [int(hp), int(max_hp), hp_percent]
+	if hp_level > 0:
+		tooltip += "\nUpgrades HP: Nível %d" % hp_level
+	return tooltip
 
 func _get_mine_tooltip(m: Dictionary) -> String:
 	var dmg = m.get("damage", 75.0)
@@ -9784,6 +10045,230 @@ func _get_healing_station_tooltip(hs: Dictionary) -> String:
 	var heal_amount = hs.get("heal_amount", 5.0)
 	var range_val = hs.get("range", 100.0)
 	return "Estação de Cura\n\nCura: %.0f por round\nAlcance: %.0f" % [heal_amount, range_val]
+
+func _create_mine_upgrade_buttons(vbox: VBoxContainer, panel_width: float) -> void:
+	"""Cria botões de upgrade global para minas na loja (em dropdown colapsável)"""
+	# Container principal para o dropdown
+	var dropdown_container = VBoxContainer.new()
+	dropdown_container.add_theme_constant_override("separation", 0)
+	
+	# Botão para expandir/colapsar upgrades
+	var toggle_button = Button.new()
+	toggle_button.name = "MineUpgradeToggle"
+	toggle_button.custom_minimum_size = Vector2(panel_width - 20, 35)
+	toggle_button.text = "▼ Upgrades de Minas (Global)"
+	toggle_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var toggle_style = StyleBoxFlat.new()
+	toggle_style.bg_color = Color(0.25, 0.25, 0.3, 0.9)
+	toggle_style.border_color = Color(0.4, 0.4, 0.5)
+	toggle_style.border_width_left = 1
+	toggle_style.border_width_top = 1
+	toggle_style.border_width_right = 1
+	toggle_style.border_width_bottom = 1
+	toggle_style.corner_radius_top_left = 4
+	toggle_style.corner_radius_top_right = 4
+	toggle_style.corner_radius_bottom_left = 4
+	toggle_style.corner_radius_bottom_right = 4
+	toggle_button.add_theme_stylebox_override("normal", toggle_style)
+	toggle_button.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4))
+	toggle_button.add_theme_font_size_override("font_size", 12)
+	dropdown_container.add_child(toggle_button)
+	
+	# Container para upgrades (inicialmente visível)
+	var upgrade_container = VBoxContainer.new()
+	upgrade_container.name = "MineUpgradeContent"
+	upgrade_container.add_theme_constant_override("separation", 5)
+	upgrade_container.visible = true
+	
+	# Upgrade de Dano
+	var damage_upgrade_panel = PanelContainer.new()
+	damage_upgrade_panel.custom_minimum_size = Vector2(panel_width - 20, 60)
+	var damage_style = StyleBoxFlat.new()
+	damage_style.bg_color = Color(0.25, 0.2, 0.15, 0.8)
+	damage_style.border_color = Color(0.5, 0.4, 0.3)
+	damage_style.border_width_left = 1
+	damage_style.border_width_top = 1
+	damage_style.border_width_right = 1
+	damage_style.border_width_bottom = 1
+	damage_upgrade_panel.add_theme_stylebox_override("panel", damage_style)
+	
+	var damage_hbox = HBoxContainer.new()
+	damage_hbox.add_theme_constant_override("separation", 8)
+	damage_upgrade_panel.add_child(damage_hbox)
+	
+	var damage_vbox = VBoxContainer.new()
+	damage_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	damage_hbox.add_child(damage_vbox)
+	
+	var damage_name_label = Label.new()
+	damage_name_label.name = "DamageNameLabel"
+	damage_name_label.text = "Dano +%d (Nível %d/%d)" % [GameConstants.MINE_UPGRADE_DAMAGE_AMOUNT, mine_damage_level, GameConstants.MINE_UPGRADE_DAMAGE_MAX_LEVEL]
+	damage_name_label.add_theme_color_override("font_color", Color(1.0, 0.7, 0.5))
+	damage_name_label.add_theme_font_size_override("font_size", 12)
+	damage_vbox.add_child(damage_name_label)
+	
+	var damage_cost_label = Label.new()
+	damage_cost_label.name = "DamageCostLabel"
+	var damage_cost = get_mine_upgrade_damage_cost()
+	damage_cost_label.text = "💰 %d moedas" % damage_cost
+	damage_cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	damage_cost_label.add_theme_font_size_override("font_size", 11)
+	damage_vbox.add_child(damage_cost_label)
+	
+	var damage_btn = Button.new()
+	damage_btn.name = "DamageUpgradeButton"
+	damage_btn.text = "Upgrade"
+	damage_btn.custom_minimum_size = Vector2(70, 40)
+	damage_btn.pressed.connect(_on_upgrade_mine_damage)
+	var damage_btn_style = StyleBoxFlat.new()
+	damage_btn_style.bg_color = Color(0.6, 0.3, 0.2)
+	damage_btn_style.border_color = Color(0.8, 0.4, 0.3)
+	damage_btn_style.border_width_left = 1
+	damage_btn_style.border_width_top = 1
+	damage_btn_style.border_width_right = 1
+	damage_btn_style.border_width_bottom = 1
+	damage_btn.add_theme_stylebox_override("normal", damage_btn_style)
+	damage_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	damage_btn.add_theme_font_size_override("font_size", 11)
+	damage_hbox.add_child(damage_btn)
+	
+	upgrade_container.add_child(damage_upgrade_panel)
+	
+	# Upgrade de Raio
+	var radius_upgrade_panel = PanelContainer.new()
+	radius_upgrade_panel.custom_minimum_size = Vector2(panel_width - 20, 60)
+	var radius_style = StyleBoxFlat.new()
+	radius_style.bg_color = Color(0.2, 0.25, 0.15, 0.8)
+	radius_style.border_color = Color(0.4, 0.5, 0.3)
+	radius_style.border_width_left = 1
+	radius_style.border_width_top = 1
+	radius_style.border_width_right = 1
+	radius_style.border_width_bottom = 1
+	radius_upgrade_panel.add_theme_stylebox_override("panel", radius_style)
+	
+	var radius_hbox = HBoxContainer.new()
+	radius_hbox.add_theme_constant_override("separation", 8)
+	radius_upgrade_panel.add_child(radius_hbox)
+	
+	var radius_vbox = VBoxContainer.new()
+	radius_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	radius_hbox.add_child(radius_vbox)
+	
+	var radius_name_label = Label.new()
+	radius_name_label.name = "RadiusNameLabel"
+	radius_name_label.text = "Raio +%.0f (Nível %d/%d)" % [GameConstants.MINE_UPGRADE_RADIUS_AMOUNT, mine_radius_level, GameConstants.MINE_UPGRADE_RADIUS_MAX_LEVEL]
+	radius_name_label.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	radius_name_label.add_theme_font_size_override("font_size", 12)
+	radius_vbox.add_child(radius_name_label)
+	
+	var radius_cost_label = Label.new()
+	radius_cost_label.name = "RadiusCostLabel"
+	var radius_cost = get_mine_upgrade_radius_cost()
+	radius_cost_label.text = "💰 %d moedas" % radius_cost
+	radius_cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	radius_cost_label.add_theme_font_size_override("font_size", 11)
+	radius_vbox.add_child(radius_cost_label)
+	
+	var radius_btn = Button.new()
+	radius_btn.name = "RadiusUpgradeButton"
+	radius_btn.text = "Upgrade"
+	radius_btn.custom_minimum_size = Vector2(70, 40)
+	radius_btn.pressed.connect(_on_upgrade_mine_radius)
+	var radius_btn_style = StyleBoxFlat.new()
+	radius_btn_style.bg_color = Color(0.2, 0.6, 0.3)
+	radius_btn_style.border_color = Color(0.3, 0.7, 0.4)
+	radius_btn_style.border_width_left = 1
+	radius_btn_style.border_width_top = 1
+	radius_btn_style.border_width_right = 1
+	radius_btn_style.border_width_bottom = 1
+	radius_btn.add_theme_stylebox_override("normal", radius_btn_style)
+	radius_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	radius_btn.add_theme_font_size_override("font_size", 11)
+	radius_hbox.add_child(radius_btn)
+	
+	upgrade_container.add_child(radius_upgrade_panel)
+	
+	# Adicionar container de upgrades ao dropdown
+	dropdown_container.add_child(upgrade_container)
+	
+	# Conectar botão toggle - usar meta para armazenar estado
+	toggle_button.set_meta("is_expanded", true)
+	toggle_button.pressed.connect(func():
+		var is_expanded = toggle_button.get_meta("is_expanded", true)
+		is_expanded = not is_expanded
+		toggle_button.set_meta("is_expanded", is_expanded)
+		upgrade_container.visible = is_expanded
+		toggle_button.text = "▼ Upgrades de Minas (Global)" if is_expanded else "▶ Upgrades de Minas (Global)"
+	)
+	
+	# Armazenar referências para atualização
+	tower_shop_panel.set_meta("mine_upgrade_container", upgrade_container)
+	tower_shop_panel.set_meta("mine_upgrade_toggle", toggle_button)
+	
+	vbox.add_child(dropdown_container)
+
+func _on_upgrade_mine_damage() -> void:
+	"""Handler para upgrade de dano de minas"""
+	if upgrade_mine_damage():
+		_update_mine_upgrade_buttons()
+		_update_tower_shop_ui()
+
+func _on_upgrade_mine_radius() -> void:
+	"""Handler para upgrade de raio de minas"""
+	if upgrade_mine_radius():
+		_update_mine_upgrade_buttons()
+		_update_tower_shop_ui()
+
+func _update_mine_upgrade_buttons() -> void:
+	"""Atualiza os textos dos botões de upgrade de minas"""
+	if not tower_shop_panel or not tower_shop_panel.has_meta("mine_upgrade_container"):
+		return
+	
+	var container = tower_shop_panel.get_meta("mine_upgrade_container")
+	if not container:
+		return
+	
+	# Atualizar label de dano
+	var damage_panel = container.get_child(0)  # Índice 0 é o painel de dano (primeiro filho)
+	if damage_panel:
+		var damage_hbox = damage_panel.get_child(0)
+		if damage_hbox:
+			var damage_vbox = damage_hbox.get_child(0)
+			if damage_vbox:
+				var damage_name_label = damage_vbox.get_node("DamageNameLabel")
+				if damage_name_label:
+					damage_name_label.text = "Dano +%d (Nível %d/%d)" % [GameConstants.MINE_UPGRADE_DAMAGE_AMOUNT, mine_damage_level, GameConstants.MINE_UPGRADE_DAMAGE_MAX_LEVEL]
+				var damage_cost_label = damage_vbox.get_node("DamageCostLabel")
+				if damage_cost_label:
+					var cost = get_mine_upgrade_damage_cost()
+					damage_cost_label.text = "💰 %d moedas" % cost
+					if mine_damage_level >= GameConstants.MINE_UPGRADE_DAMAGE_MAX_LEVEL:
+						damage_cost_label.text = "MAX"
+						damage_cost_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+				var damage_btn = damage_hbox.get_child(1)
+				if damage_btn:
+					damage_btn.disabled = mine_damage_level >= GameConstants.MINE_UPGRADE_DAMAGE_MAX_LEVEL or hero["coins"] < get_mine_upgrade_damage_cost()
+	
+	# Atualizar label de raio
+	var radius_panel = container.get_child(1)  # Índice 1 é o painel de raio (segundo filho)
+	if radius_panel:
+		var radius_hbox = radius_panel.get_child(0)
+		if radius_hbox:
+			var radius_vbox = radius_hbox.get_child(0)
+			if radius_vbox:
+				var radius_name_label = radius_vbox.get_node("RadiusNameLabel")
+				if radius_name_label:
+					radius_name_label.text = "Raio +%.0f (Nível %d/%d)" % [GameConstants.MINE_UPGRADE_RADIUS_AMOUNT, mine_radius_level, GameConstants.MINE_UPGRADE_RADIUS_MAX_LEVEL]
+				var radius_cost_label = radius_vbox.get_node("RadiusCostLabel")
+				if radius_cost_label:
+					var cost = get_mine_upgrade_radius_cost()
+					radius_cost_label.text = "💰 %d moedas" % cost
+					if mine_radius_level >= GameConstants.MINE_UPGRADE_RADIUS_MAX_LEVEL:
+						radius_cost_label.text = "MAX"
+						radius_cost_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+				var radius_btn = radius_hbox.get_child(1)
+				if radius_btn:
+					radius_btn.disabled = mine_radius_level >= GameConstants.MINE_UPGRADE_RADIUS_MAX_LEVEL or hero["coins"] < get_mine_upgrade_radius_cost()
 
 func _get_shop_tooltip_text(tower_name: String) -> String:
 	match tower_name:

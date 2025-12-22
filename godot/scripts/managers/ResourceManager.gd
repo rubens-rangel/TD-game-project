@@ -67,6 +67,7 @@ func load_all_textures() -> void:
 	textures["talism"] = load_texture("res://assets/images/talism.png", true)  # Processar fundo transparente
 	textures["house"] = load_texture("res://assets/images/house.png", true)
 	textures["castle"] = load_texture("res://assets/images/castle.png", true)
+	textures["Caste2"] = load_texture("res://assets/images/Caste2.png", true)
 	textures["game_over"] = load_texture("res://assets/images/GameOver.png", false)
 	_update_progress(1.0)
 

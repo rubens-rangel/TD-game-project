@@ -17,3 +17,5 @@ res://scripts/managers/PerkManager.gd
 res://scripts/managers/ResourceManager.gd
 res://scripts/managers/StructureManager.gd
 res://scripts/managers/TowerManager.gd
+res://scripts/managers/SaveManager.gd
+res://scripts/managers/RewardCalculator.gd

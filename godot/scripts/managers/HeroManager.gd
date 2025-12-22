@@ -13,11 +13,13 @@ var base_hp: int
 var tex_tent: Texture2D
 var tex_house: Texture2D
 var tex_castle: Texture2D
+var tex_castle2: Texture2D  # Castelo nível 4
 
 # Hero home upgrade costs
 var hero_home_upgrade_costs := {
 	2: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_2,
-	3: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_3
+	3: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_3,
+	4: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_4
 }
 
 # Upgrade options disponíveis
@@ -55,11 +57,12 @@ func _initialize_hero() -> void:
 		"crit_multiplier": GameConstants.HERO_CRIT_MULTIPLIER_BASE
 	}
 
-func set_textures(tent: Texture2D, house: Texture2D, castle: Texture2D) -> void:
+func set_textures(tent: Texture2D, house: Texture2D, castle: Texture2D, castle2: Texture2D = null) -> void:
 	"""Define as texturas do hero home"""
 	tex_tent = tent
 	tex_house = house
 	tex_castle = castle
+	tex_castle2 = castle2
 
 func get_hero_home_texture_for_level(level: int) -> Texture2D:
 	"""Retorna a textura apropriada para o nível do hero home"""
@@ -68,6 +71,8 @@ func get_hero_home_texture_for_level(level: int) -> Texture2D:
 			return tex_house if tex_house != null else tex_tent
 		3:
 			return tex_castle if tex_castle != null else (tex_house if tex_house != null else tex_tent)
+		4:
+			return tex_castle2 if tex_castle2 != null else (tex_castle if tex_castle != null else (tex_house if tex_house != null else tex_tent))
 		_:
 			return tex_tent
 
@@ -96,6 +101,8 @@ func get_hero_home_benefits_text(level: int) -> String:
 			return "• Dano Global das Torres +10%\n• Alcance +100\n• Vida da base +40"
 		3:
 			return "• Dano Global das Torres +10%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
+		4:
+			return "• Dano Global das Torres +15%\n• Dano do Herói +15%\n• Cadência -0.08s\n• Alcance +150\n• Vida da base +100"
 		_:
 			return "Nível máximo alcançado"
 
@@ -129,6 +136,17 @@ func apply_hero_home_upgrade(level: int) -> Dictionary:
 			changes["pierce"] = 1
 			changes["fire_rate"] = -0.03
 			changes["base_hp"] = 60
+		4:
+			global_tower_damage_boost *= 1.15  # +15% dano global para todas as torres (acumulativo)
+			hero["damage"] *= 1.15  # +15% dano do herói
+			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.08)
+			hero["range"] += 150
+			base_hp += 100
+			changes["global_tower_damage_boost"] = 0.15
+			changes["hero_damage"] = 0.15  # +15% dano do herói
+			changes["fire_rate"] = -0.08
+			changes["range"] = 150
+			changes["base_hp"] = 100
 	
 	hero_home_level = level
 	return changes
