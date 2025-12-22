@@ -380,3 +380,5 @@ func on_enemy_killed(is_boss: bool):
 - Teste os valores de recompensa para balancear a economia do jogo
 - Considere adicionar quests especiais em eventos
 
+
+

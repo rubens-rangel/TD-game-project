@@ -132,3 +132,5 @@ Valores podem ser ajustados em `Constants.gd`:
 
 **Pronto para uso!** O sistema básico está funcionando. Falta apenas criar a UI e integrar completamente as recompensas de quests.
 
+
+

@@ -122,3 +122,5 @@ func is_special_boss_wave(wave: int) -> bool:
 	"""Verifica se é uma wave de boss especial (dá esmeralda garantida)"""
 	return wave > 0 and wave % GameConstants.BOSS_EMERALD_REWARD_WAVE == 0
 
+
+

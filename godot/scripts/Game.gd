@@ -83,6 +83,7 @@ var enemy_death_animations: Array = []  # animações de morte: {pos: Vector2, t
 var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Vector2, end: Vector2, time: float, max_time: float}
 
 var base_hp := 100
+var base_hp_base := 100  # HP base sem bônus (para recalcular)
 var paused := false
 var game_over := false
 var diamond_150_given: bool = false  # Rastreia se diamante da wave 150 já foi dado nesta run
@@ -323,6 +324,13 @@ var hero := {
 	"crit_multiplier": 2.0,  # Multiplicador de dano crítico
 }
 
+# Valores base para recalcular bônus (sem modificadores permanentes)
+var hero_damage_base: float = GameConstants.HERO_BASE_DAMAGE
+var hero_fire_rate_base: float = GameConstants.HERO_BASE_FIRE_RATE
+var hero_crit_chance_base: float = 0.0
+var global_tower_damage_boost_base: float = 1.0  # Base sem bônus permanentes
+var coin_drop_chance_base: float = GameConstants.COIN_DROP_CHANCE
+
 const HERO_HOME_MAX_LEVEL := 3
 var hero_home_level: int = 1
 var hero_home_panel_data: Dictionary = {}
@@ -487,19 +495,11 @@ func _process_white_to_transparent(texture: Texture2D, image_path: String) -> Te
 func _ready() -> void:
 	# Criar tela de carregamento primeiro
 	_create_loading_screen()
-	_update_loading_progress(0.05, "Inicializando sistemas...")
-	await get_tree().process_frame
 	
 	grid_manager = GridManager.new()
-	_update_loading_progress(0.10, "Criando grid...")
-	await get_tree().process_frame
-	
 	pathfinder = Pathfinder.new(grid_manager.grid, grid_manager.center)
 	wave_manager = WaveManager.new()
 	projectile_manager = ProjectileManager.new()
-	_update_loading_progress(0.15, "Inicializando gerenciadores...")
-	await get_tree().process_frame
-	
 	achievement_manager = AchievementManager.get_instance()
 	perk_manager = PerkManager.get_instance()
 	
@@ -515,8 +515,6 @@ func _ready() -> void:
 		towers, barracks, mines, slow_towers, aoe_towers,
 		sniper_towers, boost_towers, shock_towers, walls, healing_stations
 	)
-	_update_loading_progress(0.20, "Configurando sistemas de jogo...")
-	await get_tree().process_frame
 	
 	# Inicializar TowerSystemManager (será configurado depois que effects_manager for criado)
 	
@@ -528,8 +526,10 @@ func _ready() -> void:
 	
 	# Inicializar ItemManager
 	item_manager = ItemManager.new()
-	_update_loading_progress(0.25, "Carregando itens e moedas especiais...")
-	await get_tree().process_frame
+	# Conectar sinais para aplicar bônus dinamicamente quando talismãs são equipados/desequipados
+	if item_manager:
+		item_manager.item_equipped.connect(_on_item_equipped)
+		item_manager.item_unequipped.connect(_on_item_unequipped)
 	
 	# Inicializar SpecialCurrencyManager e PrestigeShop
 	special_currency_manager = SpecialCurrencyManager.new()
@@ -538,19 +538,35 @@ func _ready() -> void:
 	
 	# Carregar recompensas pendentes de quests (do Menu)
 	_load_pending_quest_rewards()
-	_update_loading_progress(0.30, "Aplicando melhorias permanentes...")
-	await get_tree().process_frame
+	
+	# Armazenar valores base antes de aplicar bônus
+	# Nota: Esses valores são definidos no início do arquivo, mas garantimos que estão corretos aqui
+	hero_damage_base = GameConstants.HERO_BASE_DAMAGE
+	hero_fire_rate_base = GameConstants.HERO_BASE_FIRE_RATE
+	hero_crit_chance_base = 0.0
+	base_hp_base = 100  # Valor base padrão
+	global_tower_damage_boost_base = 1.0
+	coin_drop_chance_base = GameConstants.COIN_DROP_CHANCE
+	
+	# Resetar valores para base antes de aplicar bônus
+	hero["damage"] = hero_damage_base
+	hero["fire_rate"] = hero_fire_rate_base
+	hero["crit_chance"] = hero_crit_chance_base
+	base_hp = base_hp_base
+	global_tower_damage_boost = global_tower_damage_boost_base
+	coin_drop_chance = coin_drop_chance_base
 	
 	# Aplicar bônus de prestígio
 	_apply_prestige_bonuses()
 	
 	_apply_perk_effects()
 	
+	# Aplicar bônus de talismãs equipados
+	_apply_talisman_bonuses()
+	
 	# Carregar configurações de áudio
 	_load_music_settings()
 	_load_user_preferences()
-	_update_loading_progress(0.35, "Carregando configurações...")
-	await get_tree().process_frame
 	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
@@ -596,11 +612,8 @@ func _ready() -> void:
 	resource_manager.loading_progress_updated.connect(_on_resource_loading_progress)
 	coin_manager.coin_collected.connect(_on_coin_collected)
 	
-	_update_loading_progress(0.40, "Carregando texturas...")
+	_update_loading_progress(0.1)
 	resource_manager.load_all_textures()
-	
-	_update_loading_progress(0.60, "Carregando sprites de personagens...")
-	await get_tree().process_frame
 	
 	tex_hero = _try_load("res://assets/images/hero.png")
 	tex_enemy_zombie = resource_manager.get_texture("enemy_zombie")
@@ -610,9 +623,6 @@ func _ready() -> void:
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
-	
-	_update_loading_progress(0.70, "Inicializando herói e torres...")
-	await get_tree().process_frame
 	
 	# Inicializar managers que dependem de texturas e effects_manager
 	# Inicializar HeroManager (após texturas carregadas)
@@ -629,9 +639,6 @@ func _ready() -> void:
 		boost_towers, shock_towers, barracks
 	)
 	tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
-	
-	_update_loading_progress(0.80, "Carregando efeitos visuais...")
-	await get_tree().process_frame
 	
 	# Inicializar VisualEffectsManager (após effects_manager criado)
 	visual_effects_manager = VisualEffectsManager.new(self, effects_manager)
@@ -652,12 +659,8 @@ func _ready() -> void:
 	tex_talisman = resource_manager.get_texture("talism")
 	tex_game_over = resource_manager.get_texture("game_over")
 	
-	_update_loading_progress(0.95, "Finalizando...")
-	await get_tree().process_frame
-	
 	# Aguardar um pouco antes de esconder a tela de carregamento
-	_update_loading_progress(1.0, "Pronto!")
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(0.3).timeout
 	_hide_loading_screen()
 
 	# wire UI
@@ -1459,15 +1462,15 @@ func _update_tower_shop_ui() -> void:
 				current_cost = get_tower_cost(GameConstants.BARRACKS_COST)
 			"Mina":
 				current_cost = GameConstants.MINE_COST  # Minas não escalam
-			"Slow Tower":
+			"Torre de Congelamento":
 				current_cost = get_tower_cost(GameConstants.SLOW_TOWER_COST)
-			"AOE Tower":
+			"Canhão":
 				current_cost = get_tower_cost(GameConstants.AOE_TOWER_COST)
-			"Sniper Tower":
+			"Torre Sniper":
 				current_cost = get_tower_cost(GameConstants.SNIPER_TOWER_COST)
-			"Boost Tower":
+			"Altar de Melhoria":
 				current_cost = get_tower_cost(GameConstants.BOOST_TOWER_COST)
-			"Shock Tower":
+			"Torre de Choque":
 				current_cost = get_tower_cost(GameConstants.SHOCK_TOWER_COST)
 			"Muralha":
 				current_cost = get_wall_cost()
@@ -7277,6 +7280,14 @@ func _apply_prestige_bonuses() -> void:
 	if not prestige_shop:
 		return
 	
+	# Resetar valores para base antes de aplicar bônus
+	hero["damage"] = hero_damage_base
+	hero["fire_rate"] = hero_fire_rate_base
+	hero["crit_chance"] = hero_crit_chance_base
+	base_hp = base_hp_base
+	global_tower_damage_boost = global_tower_damage_boost_base
+	coin_drop_chance = coin_drop_chance_base
+	
 	# Aplicar bônus de moedas iniciais
 	var start_coins_bonus = prestige_shop.get_start_coins_bonus()
 	if start_coins_bonus > 0:
@@ -7291,6 +7302,7 @@ func _apply_prestige_bonuses() -> void:
 	var hero_firerate_bonus = prestige_shop.get_hero_firerate_bonus()
 	if hero_firerate_bonus > 0:
 		hero["fire_rate"] *= (1.0 - hero_firerate_bonus)  # Reduz fire_rate = mais rápido
+		hero["fire_rate"] = max(0.1, hero["fire_rate"])  # Limitar mínimo
 	
 	# Aplicar bônus de HP da base
 	var base_hp_bonus = prestige_shop.get_base_hp_bonus()
@@ -7311,6 +7323,7 @@ func _apply_prestige_bonuses() -> void:
 	var coin_drop_boost = prestige_shop.get_coin_drop_boost()
 	if coin_drop_boost > 0:
 		coin_drop_chance += coin_drop_boost
+		coin_drop_chance = min(coin_drop_chance, 1.0)
 	
 	# Aplicar boost de moedas iniciais
 	var starting_coins_boost = prestige_shop.get_starting_coins_boost()
@@ -7402,11 +7415,11 @@ func _create_loading_screen() -> void:
 	loading_screen.set_anchors_preset(Control.PRESET_FULL_RECT)
 	loading_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
-	# Fundo com gradiente escuro
+	# Fundo escuro
 	var bg = ColorRect.new()
 	bg.name = "Background"
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.05, 0.05, 0.12, 1.0)
+	bg.color = Color(0.05, 0.05, 0.1, 1.0)
 	loading_screen.add_child(bg)
 	
 	# Container central - usando CenterContainer para centralizar automaticamente
@@ -7417,107 +7430,59 @@ func _create_loading_screen() -> void:
 	
 	var center_container = VBoxContainer.new()
 	center_container.name = "CenterContainer"
-	center_container.add_theme_constant_override("separation", 25)
-	center_container.custom_minimum_size = Vector2(500, 0)
+	center_container.add_theme_constant_override("separation", 20)
 	outer_center.add_child(center_container)
 	
-	# Título do jogo
-	var title_label = Label.new()
-	title_label.name = "TitleLabel"
-	title_label.text = "Defesa do Labirinto"
-	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", 36)
-	title_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.4))
-	center_container.add_child(title_label)
+	# Label de carregamento
+	var loading_label = Label.new()
+	loading_label.name = "LoadingLabel"
+	loading_label.text = "Carregando..."
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_label.add_theme_font_size_override("font_size", 32)
+	loading_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	center_container.add_child(loading_label)
 	
-	# Label de status de carregamento
-	var status_label = Label.new()
-	status_label.name = "StatusLabel"
-	status_label.text = "Inicializando..."
-	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_label.add_theme_font_size_override("font_size", 18)
-	status_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
-	center_container.add_child(status_label)
-	
-	# Container para barra de progresso
-	var progress_container = VBoxContainer.new()
-	progress_container.add_theme_constant_override("separation", 8)
-	progress_container.custom_minimum_size = Vector2(450, 0)
-	
-	# Barra de progresso visual (fundo)
-	var progress_bar_bg = Panel.new()
-	progress_bar_bg.name = "ProgressBarBG"
-	progress_bar_bg.custom_minimum_size = Vector2(450, 30)
-	
-	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.15, 0.15, 0.2, 1.0)
-	bg_style.border_color = Color(0.3, 0.3, 0.4, 1.0)
-	bg_style.corner_radius_top_left = 8
-	bg_style.corner_radius_top_right = 8
-	bg_style.corner_radius_bottom_left = 8
-	bg_style.corner_radius_bottom_right = 8
-	bg_style.border_width_left = 2
-	bg_style.border_width_top = 2
-	bg_style.border_width_right = 2
-	bg_style.border_width_bottom = 2
-	progress_bar_bg.add_theme_stylebox_override("panel", bg_style)
-	
-	# Barra de progresso (preenchimento)
-	var progress_bar = Panel.new()
-	progress_bar.name = "ProgressBar"
-	progress_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
-	progress_bar.anchor_left = 0.0
-	progress_bar.anchor_right = 0.0
-	progress_bar.offset_left = 4
-	progress_bar.offset_top = 4
-	progress_bar.offset_right = -4
-	progress_bar.offset_bottom = -4
-	
-	var bar_style = StyleBoxFlat.new()
-	bar_style.bg_color = Color(0.2, 0.7, 1.0, 1.0)  # Azul vibrante
-	bar_style.corner_radius_top_left = 4
-	bar_style.corner_radius_top_right = 4
-	bar_style.corner_radius_bottom_left = 4
-	bar_style.corner_radius_bottom_right = 4
-	progress_bar.add_theme_stylebox_override("panel", bar_style)
-	
-	progress_bar_bg.add_child(progress_bar)
-	progress_container.add_child(progress_bar_bg)
-	
-	# Label de porcentagem
+	# Barra de progresso (simulada com Label)
 	var progress_label = Label.new()
 	progress_label.name = "ProgressLabel"
 	progress_label.text = "0%"
 	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	progress_label.add_theme_font_size_override("font_size", 20)
-	progress_label.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0))
-	progress_container.add_child(progress_label)
+	progress_label.add_theme_font_size_override("font_size", 24)
+	progress_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	center_container.add_child(progress_label)
 	
-	center_container.add_child(progress_container)
+	# Barra de progresso visual
+	var progress_bar_bg = ColorRect.new()
+	progress_bar_bg.name = "ProgressBarBG"
+	progress_bar_bg.custom_minimum_size = Vector2(400, 20)
+	progress_bar_bg.color = Color(0.2, 0.2, 0.3, 1.0)
+	center_container.add_child(progress_bar_bg)
+	
+	var progress_bar = ColorRect.new()
+	progress_bar.name = "ProgressBar"
+	progress_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	progress_bar.anchor_left = 0.0
+	progress_bar.anchor_right = 0.0
+	progress_bar.offset_right = 0.0
+	progress_bar.color = Color(1.0, 0.9, 0.2, 1.0)  # Amarelo/dourado
+	progress_bar_bg.add_child(progress_bar)
 	
 	# Adicionar ao CanvasLayer
 	$CanvasLayer.add_child(loading_screen)
 	loading_screen.z_index = 1000  # Garantir que fique por cima de tudo
 
-func _update_loading_progress(progress: float, status_text: String = "") -> void:
+func _update_loading_progress(progress: float) -> void:
 	loading_progress = progress
 	if loading_screen != null:
-		var status_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/StatusLabel")
-		var progress_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressContainer/ProgressLabel")
-		var progress_bar = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressContainer/ProgressBarBG/ProgressBar")
+		var progress_label = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressLabel")
+		var progress_bar = loading_screen.get_node_or_null("OuterCenterContainer/CenterContainer/ProgressBarBG/ProgressBar")
 		
-		# Atualizar texto de status
-		if status_label and status_text != "":
-			status_label.text = status_text
-		
-		# Atualizar porcentagem
 		if progress_label:
 			progress_label.text = "%d%%" % int(progress * 100)
 		
-		# Atualizar barra de progresso
 		if progress_bar:
 			progress_bar.anchor_right = progress
-			progress_bar.offset_right = -4  # Manter margem interna
+			progress_bar.offset_right = 0
 	
 	# Forçar atualização visual
 	if loading_screen:
@@ -7706,11 +7671,11 @@ func _create_tower_shop_ui() -> void:
 		{"name": "Torre Básica", "cost": GameConstants.TOWER_COST, "icon": tex_tower, "func": "_on_buy_tower", "max": GameConstants.MAX_TOWERS, "array_name": "towers"},
 		{"name": "Quartel", "cost": GameConstants.BARRACKS_COST, "icon": tex_barracks, "func": "_on_buy_barracks", "max": GameConstants.MAX_BARRACKS, "array_name": "barracks"},
 		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array_name": "mines"},
-		{"name": "Slow Tower", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array_name": "slow_towers"},
-		{"name": "AOE Tower", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array_name": "aoe_towers"},
-		{"name": "Sniper Tower", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
-		{"name": "Boost Tower", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array_name": "boost_towers"},
-		{"name": "Shock Tower", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
+		{"name": "Torre de Congelamento", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array_name": "slow_towers"},
+		{"name": "Canhão", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array_name": "aoe_towers"},
+		{"name": "Torre Sniper", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
+		{"name": "Altar de Melhoria", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array_name": "boost_towers"},
+		{"name": "Torre de Choque", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
 		{"name": "Muralha", "cost": 100, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},  # Custo será atualizado dinamicamente por get_wall_cost()
 		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array_name": "healing_stations"},
 	]
@@ -9493,29 +9458,109 @@ func _apply_perk_effects() -> void:
 	var effects = perk_manager.apply_perk_effects(self)
 	perk_effects = effects
 	
-	# Aplicar efeitos de perks
+	# Aplicar efeitos de perks (sobre valores já modificados por prestígio)
 	if effects.has("starting_coins"):
 		hero["coins"] += int(effects["starting_coins"])
 	
 	if effects.has("starting_hp"):
 		base_hp += int(effects["starting_hp"])
 	
-	# Aplicar chance de drop de moeda (base 10% + perks)
-	coin_drop_chance = GameConstants.COIN_DROP_CHANCE
+	# Aplicar chance de drop de moeda (sobre valor já modificado por prestígio)
 	if effects.has("coin_drop_chance"):
 		coin_drop_chance += effects["coin_drop_chance"]
 		# Limitar a 100% (embora não deva chegar lá)
 		coin_drop_chance = min(coin_drop_chance, 1.0)
 	
+	# Aplicar bônus de dano do herói (multiplicador sobre valor já modificado)
+	if effects.has("hero_damage"):
+		var boost = effects["hero_damage"]
+		hero["damage"] *= (1.0 + boost)
+	
+	# Aplicar bônus de velocidade de tiro do herói (multiplicador - reduz fire_rate)
+	if effects.has("hero_fire_rate"):
+		var boost = effects["hero_fire_rate"]
+		hero["fire_rate"] *= (1.0 - boost)  # Reduz fire_rate = mais rápido
+		hero["fire_rate"] = max(0.1, hero["fire_rate"])  # Limitar mínimo
+	
+	# Aplicar bônus de dano das torres (multiplicador global sobre valor já modificado)
+	if effects.has("tower_damage"):
+		var boost = effects["tower_damage"]
+		global_tower_damage_boost *= (1.0 + boost)
+	
+	# Aplicar bônus de alcance das torres (será aplicado quando torres forem criadas/atualizadas)
+	# Armazenado em perk_effects para uso posterior
+	
 	# Verificar se tem perk de magnetismo permanente
 	var has_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
 	if skills_manager:
 		skills_manager.set_coin_magnetism_perk(has_perk)
+
+func _apply_talisman_bonuses() -> void:
+	"""Aplica bônus permanentes de talismãs equipados (sobre valores já modificados por prestígio e perks)"""
+	if not item_manager:
+		return
+	
+	var talisman_effects = item_manager.get_all_effects()
+	
+	# Aplicar bônus de dano das torres (multiplicador sobre valor já modificado)
+	if talisman_effects.has("tower_damage_boost"):
+		var boost = talisman_effects["tower_damage_boost"]
+		global_tower_damage_boost *= (1.0 + boost)
+	
+	# Aplicar bônus de HP da base (aditivo sobre valor já modificado)
+	if talisman_effects.has("base_hp_boost"):
+		var boost = talisman_effects["base_hp_boost"]
+		base_hp += boost
+	
+	# Aplicar bônus de dano da base (multiplicador no dano do herói sobre valor já modificado)
+	if talisman_effects.has("base_damage_boost"):
+		var boost = talisman_effects["base_damage_boost"]
+		hero["damage"] *= (1.0 + boost)
+	
+	# Aplicar bônus de chance de drop de moedas (aditivo sobre valor já modificado)
+	if talisman_effects.has("coin_drop_chance_boost"):
+		var boost = talisman_effects["coin_drop_chance_boost"]
+		coin_drop_chance += boost
+		coin_drop_chance = min(coin_drop_chance, 1.0)
+	
+	# Aplicar bônus de chance de crítico (aditivo sobre valor já modificado)
+	if talisman_effects.has("critical_chance_boost"):
+		var boost = talisman_effects["critical_chance_boost"]
+		hero["crit_chance"] += boost
+		hero["crit_chance"] = min(hero["crit_chance"], 1.0)
+	
+	# Nota: Bônus de alcance e cadência das torres serão aplicados dinamicamente
+	# quando as torres verificam alcance ou calculam fire_rate
+
+func _recalculate_all_bonuses() -> void:
+	"""Recalcula todos os bônus do zero (usado quando talismãs são equipados/desequipados)"""
+	# Resetar valores para base
+	hero["damage"] = hero_damage_base
+	hero["fire_rate"] = hero_fire_rate_base
+	hero["crit_chance"] = hero_crit_chance_base
+	base_hp = base_hp_base
+	global_tower_damage_boost = global_tower_damage_boost_base
+	coin_drop_chance = coin_drop_chance_base
+	
+	# Reaplicar todos os bônus na ordem correta
+	_apply_prestige_bonuses()
+	_apply_perk_effects()
+	_apply_talisman_bonuses()
+	
+	# Atualizar boost global nas torres
+	if tower_system_manager:
+		tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
+
+func _on_item_equipped(item: EquippableItem) -> void:
+	"""Chamado quando um item é equipado - recalcula todos os bônus"""
+	_recalculate_all_bonuses()
+
+func _on_item_unequipped(item: EquippableItem) -> void:
+	"""Chamado quando um item é desequipado - recalcula todos os bônus"""
+	_recalculate_all_bonuses()
 	
 func _on_resource_loading_progress(progress: float) -> void:
-	# Converter progresso de recursos (0-1) para o range 0.4-0.6 do carregamento total
-	var mapped_progress = 0.40 + (progress * 0.20)
-	_update_loading_progress(mapped_progress, "Carregando texturas...")
+	_update_loading_progress(progress)
 
 func _on_coin_collected(value: int) -> void:
 	hero["coins"] += value
@@ -9748,15 +9793,15 @@ func _get_shop_tooltip_text(tower_name: String) -> String:
 			return "Produz soldados que atacam inimigos automaticamente. Soldados perseguem inimigos."
 		"Mina":
 			return "Explode quando inimigos se aproximam, causando dano alto e reduzindo velocidade."
-		"Slow Tower":
+		"Torre de Congelamento":
 			return "Reduz a velocidade dos inimigos em sua área de efeito."
-		"AOE Tower":
+		"Canhão":
 			return "Causa dano em área, afetando múltiplos inimigos simultaneamente."
-		"Sniper Tower":
+		"Torre Sniper":
 			return "Torre de longo alcance com alta precisão. Pode focar em bosses ou inimigos próximos ao centro."
-		"Boost Tower":
+		"Altar de Melhoria":
 			return "Aumenta o dano e cadência de outras torres próximas."
-		"Shock Tower":
+		"Torre de Choque":
 			return "Atira raios elétricos que saltam entre múltiplos inimigos."
 		"Muralha":
 			return "Bloqueia caminhos. Inimigos precisam recalcular rota ao encontrar uma muralha. Explode se bloquear todos os caminhos."

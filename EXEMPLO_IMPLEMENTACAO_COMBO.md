@@ -211,3 +211,5 @@ func on_enemy_killed(enemy_pos: Vector2, is_boss: bool = false):
 - Considere adicionar achievements relacionados a combos (ex: "Alcance combo de 50")
 - O sistema de combo torna o jogo mais dinâmico e recompensa jogadores habilidosos!
 
+
+

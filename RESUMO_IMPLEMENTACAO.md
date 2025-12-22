@@ -165,3 +165,5 @@ Veja o guia completo em `GUIA_INTEGRACAO_QUESTS_HOVER.md` para detalhes.
 
 **Pronto para uso!** Siga o guia de integração para começar a usar os sistemas.
 
+
+
