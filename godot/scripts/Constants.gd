@@ -108,7 +108,7 @@ const ENEMY_BASE_SPEED := 38.0  # Aumentado de 30.0 para 38.0 (~27% mais rápido
 const ENEMY_MAX_SPEED := 210.0  # Velocidade máxima dos inimigos (limite para evitar bugs em waves muito altas)
 const BOSS_SPEED_MULTIPLIER := 0.5
 const ENEMY_BASE_HP := 3  # Aumentado de 2 para 3 para aumentar dificuldade inicial
-const BOSS_BASE_HP := 28  # Reduzido de 35 para 28 (~20% menos) para melhor balanceamento
+const BOSS_BASE_HP := 23  # Reduzido de 35 para 28 (~20% menos) para melhor balanceamento
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
@@ -160,9 +160,9 @@ const COIN_MAGNETISM_RANGE := 20.0  # Raio de coleta automática de moedas
 const HERO_ARROW_SPEED := 260.0
 const HERO_BASE_HP := 100
 const HERO_HOME_MAX_LEVEL := 4
-const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1400
-const HERO_HOME_UPGRADE_COST_LEVEL_3 := 5000
-const HERO_HOME_UPGRADE_COST_LEVEL_4 := 12000  # Custo escalado (2.4x do nível 3)
+const HERO_HOME_UPGRADE_COST_LEVEL_2 := 1500
+const HERO_HOME_UPGRADE_COST_LEVEL_3 := 5500
+const HERO_HOME_UPGRADE_COST_LEVEL_4 := 12500  
 const HERO_CRIT_MULTIPLIER_BASE := 2.0
 const HERO_RANGE_MAX := 9999.0
 

@@ -6494,10 +6494,20 @@ func _update_aoe_towers(delta: float) -> void:
 	if paused or game_over:
 		return
 	for aoe in aoe_towers:
-		# aplicar skill de boost de velocidade
+		# aplicar boost de rate de boost towers próximos
 		var aoe_rate_multiplier = 1.0
+		for boost in boost_towers:
+			var dist = aoe.pos.distance_to(boost.pos)
+			if dist <= boost.range:
+				aoe_rate_multiplier += boost.rate_boost
+		
+		# aplicar skill de boost de velocidade
 		if skills_manager:
-			aoe_rate_multiplier = skills_manager.get_speed_multiplier()
+			aoe_rate_multiplier *= skills_manager.get_speed_multiplier()
+		
+		# Calcular effective_fire_rate respeitando o mínimo
+		var effective_fire_rate = aoe.fire_rate / aoe_rate_multiplier
+		effective_fire_rate = max(GameConstants.AOE_MIN_FIRE_RATE, effective_fire_rate)
 		
 		aoe.cooldown = max(0.0, aoe.cooldown - delta * aoe_rate_multiplier)
 		if aoe.cooldown <= 0.0:
@@ -6514,8 +6524,18 @@ func _update_aoe_towers(delta: float) -> void:
 			if closest_enemy != null:
 				# criar projétil de canhão (bola preta) até o alvo
 				var cannon_speed = 200.0
+				# aplicar bônus globais de dano
+				var aoe_damage = aoe.damage * global_tower_damage_boost
+				
+				# aplicar boost de dano de boost towers próximos
+				var damage_multiplier = 1.0
+				for boost in boost_towers:
+					var dist = aoe.pos.distance_to(boost.pos)
+					if dist <= boost.range:
+						damage_multiplier += boost.damage_boost
+				aoe_damage *= damage_multiplier
+				
 				# aplicar skill de boost de dano
-				var aoe_damage = aoe.damage
 				if skills_manager:
 					aoe_damage *= skills_manager.get_damage_multiplier()
 				
@@ -6527,8 +6547,8 @@ func _update_aoe_towers(delta: float) -> void:
 					"damage": aoe_damage,
 					"aoe_tower": aoe
 				})
-				# resetar cooldown apenas se encontrou alvo
-				aoe.cooldown = aoe.fire_rate
+				# resetar cooldown apenas se encontrou alvo (usar effective_fire_rate)
+				aoe.cooldown = effective_fire_rate
 			else:
 				# se não encontrou alvo, manter cooldown em 0 para tentar novamente no próximo frame
 				aoe.cooldown = 0.0
@@ -6596,7 +6616,22 @@ func _update_sniper_towers(delta: float) -> void:
 	if paused or game_over:
 		return
 	for sniper in sniper_towers:
-		sniper.cooldown = max(0.0, sniper.cooldown - delta)
+		# aplicar boost de rate de boost towers próximos
+		var sniper_rate_multiplier = 1.0
+		for boost in boost_towers:
+			var dist = sniper.pos.distance_to(boost.pos)
+			if dist <= boost.range:
+				sniper_rate_multiplier += boost.rate_boost
+		
+		# aplicar skill de boost de velocidade
+		if skills_manager:
+			sniper_rate_multiplier *= skills_manager.get_speed_multiplier()
+		
+		# Calcular effective_fire_rate respeitando o mínimo
+		var effective_fire_rate = sniper.fire_rate / sniper_rate_multiplier
+		effective_fire_rate = max(GameConstants.SNIPER_MIN_FIRE_RATE, effective_fire_rate)
+		
+		sniper.cooldown = max(0.0, sniper.cooldown - delta * sniper_rate_multiplier)
 		if sniper.cooldown <= 0.0:
 			var target_mode = sniper.get("target_mode", 0)  # 0 = Prioridade Boss, 1 = Mais próximo ao centro
 			var target_enemy = null
@@ -6659,8 +6694,18 @@ func _update_sniper_towers(delta: float) -> void:
 							enemies_in_line.append({"enemy": e, "dist": dist_along_line})
 				# ordenar por distância
 				enemies_in_line.sort_custom(func(a, b): return a.dist < b.dist)
+				# aplicar bônus globais de dano
+				var sniper_damage = sniper.damage * global_tower_damage_boost
+				
+				# aplicar boost de dano de boost towers próximos
+				var damage_multiplier = 1.0
+				for boost in boost_towers:
+					var dist = sniper.pos.distance_to(boost.pos)
+					if dist <= boost.range:
+						damage_multiplier += boost.damage_boost
+				sniper_damage *= damage_multiplier
+				
 				# aplicar skill de boost de dano
-				var sniper_damage = sniper.damage
 				if skills_manager:
 					sniper_damage *= skills_manager.get_damage_multiplier()
 				
@@ -6700,8 +6745,8 @@ func _update_sniper_towers(delta: float) -> void:
 						_try_drop_talisman(e["pos"])
 						# Rastrear achievements de kills
 						_track_enemy_kill(is_boss)
-				# resetar cooldown apenas se encontrou alvo
-				sniper.cooldown = sniper.fire_rate
+				# resetar cooldown apenas se encontrou alvo (usar effective_fire_rate)
+				sniper.cooldown = effective_fire_rate
 			else:
 				# se não encontrou alvo, manter cooldown em 0 para tentar novamente no próximo frame
 				sniper.cooldown = 0.0
@@ -6712,7 +6757,22 @@ func _update_boost_towers(_delta: float) -> void:
 
 func _update_shock_towers(delta: float) -> void:
 	for shock in shock_towers:
-		shock.cooldown = max(0.0, shock.cooldown - delta)
+		# aplicar boost de rate de boost towers próximos
+		var shock_rate_multiplier = 1.0
+		for boost in boost_towers:
+			var dist = shock.pos.distance_to(boost.pos)
+			if dist <= boost.range:
+				shock_rate_multiplier += boost.rate_boost
+		
+		# aplicar skill de boost de velocidade
+		if skills_manager:
+			shock_rate_multiplier *= skills_manager.get_speed_multiplier()
+		
+		# Calcular effective_fire_rate respeitando o mínimo
+		var effective_fire_rate = shock.fire_rate / shock_rate_multiplier
+		effective_fire_rate = max(GameConstants.SHOCK_MIN_FIRE_RATE, effective_fire_rate)
+		
+		shock.cooldown = max(0.0, shock.cooldown - delta * shock_rate_multiplier)
 		if shock.cooldown <= 0.0:
 			# Encontrar inimigo mais próximo
 			var closest_enemy = null
@@ -6751,8 +6811,18 @@ func _update_shock_towers(delta: float) -> void:
 					else:
 						break
 				
+				# aplicar bônus globais de dano
+				var shock_damage = shock.damage * global_tower_damage_boost
+				
+				# aplicar boost de dano de boost towers próximos
+				var damage_multiplier = 1.0
+				for boost in boost_towers:
+					var dist = shock.pos.distance_to(boost.pos)
+					if dist <= boost.range:
+						damage_multiplier += boost.damage_boost
+				shock_damage *= damage_multiplier
+				
 				# aplicar skill de boost de dano
-				var shock_damage = shock.damage
 				if skills_manager:
 					shock_damage *= skills_manager.get_damage_multiplier()
 				
@@ -6803,7 +6873,8 @@ func _update_shock_towers(delta: float) -> void:
 					# Apenas um alvo, criar linha da torre até ele
 					_create_shock_effect(shock.pos, chain_targets[0]["pos"])
 				
-				shock.cooldown = shock.fire_rate
+				# resetar cooldown (usar effective_fire_rate)
+				shock.cooldown = effective_fire_rate
 
 func _create_shock_effect(start_pos: Vector2, end_pos: Vector2) -> void:
 	# Criar efeito visual de choque elétrico (raio/trovão)
