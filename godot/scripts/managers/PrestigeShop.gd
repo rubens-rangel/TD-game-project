@@ -336,3 +336,4 @@ func get_all_upgrades_info() -> Dictionary:
 			"starting_coins_boost": starting_coins_boost_level
 		}
 	}
+

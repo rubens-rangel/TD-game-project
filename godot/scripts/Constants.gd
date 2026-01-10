@@ -123,14 +123,14 @@ const WAVE_COMPLETION_BONUS_MAX := 100  # Cap máximo de bônus por wave (evita 
 
 # Hero
 const HERO_START_COINS := 0
-const HERO_BASE_FIRE_RATE := 1.0  # Aumentado de 0.8 para 1.0 (mais lento) para balancear
-const HERO_BASE_DAMAGE := 0.8  # Reduzido de 1 para 0.8 para balancear dano da base
+const HERO_BASE_FIRE_RATE := 1.0 
+const HERO_BASE_DAMAGE := 0.9  
 
 # Coin drops
-const COIN_DROP_CHANCE := 0.10  # 10% de chance base de dropar moeda
+const COIN_DROP_CHANCE := 0.12  
 const COIN_MIN_VALUE := 3
 const COIN_MAX_VALUE := 20
-const COIN_LIFETIME := 14.0  # tempo que a moeda fica no chão antes de desaparecer
+const COIN_LIFETIME := 15.0  # tempo que a moeda fica no chão antes de desaparecer
 
 # Item drops (Talismãs, etc.)
 const TALISMAN_DROP_CHANCE := 0.005  # 0,5% de chance de dropar talismã 

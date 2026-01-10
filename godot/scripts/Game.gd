@@ -5081,7 +5081,7 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_amount_emerald: bool = currency_info.emeralds >= amount_emerald_cost and s.slow_amount < 0.5
 	
 	# Atualizar itens (alcance e slow com opções de moedas e esmeraldas)
-	slow_menu.set_item_text(0, "Alcance +30 (💰 %d moedas) [%.0f/250]" % [range_cost, s.range])
+	slow_menu.set_item_text(0, "Alcance +30 (💰 %d moedas) [%.0f/222250]" % [range_cost, s.range])
 	slow_menu.set_item_text(1, "Alcance +30 (💚 %d esmeraldas) [%.0f/250]" % [range_emerald_cost, s.range])
 	slow_menu.set_item_text(3, "Slow x1.05 (💰 %d moedas) [%.0f%%/50%%]" % [amount_cost, s.slow_amount * 100])
 	slow_menu.set_item_text(4, "Slow x1.05 (💚 %d esmeraldas) [%.0f%%/50%%]" % [amount_emerald_cost, s.slow_amount * 100])
