@@ -334,4 +334,3 @@ static func get_instance() -> PerkManager:
 	if instance == null:
 		instance = PerkManager.new()
 	return instance
-

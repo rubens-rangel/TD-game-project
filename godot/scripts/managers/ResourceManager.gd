@@ -18,7 +18,6 @@ func load_all_textures() -> void:
 	loading_progress = 0.0
 	loading_progress_updated.emit(0.0)
 	
-	# Carregar texturas de inimigos (agora na pasta enemies/)
 	textures["enemy_zombie"] = load_texture("res://assets/images/enemies/enemy_zombie.png", true)
 	_update_progress(0.10)
 	
@@ -29,12 +28,17 @@ func load_all_textures() -> void:
 	_update_progress(0.15)
 	
 	textures["enemy_boss"] = load_texture("res://assets/images/enemies/enemy_boss.png", true)
-	_update_progress(0.20)
+	_update_progress(0.18)
 	
-	textures["enemy_alien"] = load_texture("res://assets/images/enemies/enemy_alien.png", true)
+	textures["enemy_humanoid"] = load_texture("res://assets/images/enemies/enemy_humanoid.png", true)
 	_update_progress(0.25)
 	
-	# Carregar texturas de estruturas
+	textures["enemy_robot"] = load_texture("res://assets/images/enemies/enemy_robot.png", true)
+	_update_progress(0.30)
+	
+	textures["enemy_alien"] = load_texture("res://assets/images/enemies/enemy_alien.png", true)
+	_update_progress(0.35)
+	
 	textures["tent"] = load_texture("res://assets/images/tent.png", true)
 	_update_progress(0.45)
 	
@@ -43,7 +47,6 @@ func load_all_textures() -> void:
 	textures["wall"] = load_texture("res://assets/images/wall.png")
 	_update_progress(0.55)
 	
-	# Carregar texturas de torres
 	textures["tower"] = load_texture("res://assets/images/tower.png", true)
 	_update_progress(0.65)
 	
@@ -67,7 +70,7 @@ func load_all_textures() -> void:
 	textures["wall_structure"] = load_texture("res://assets/images/wall_structure.png", true)
 	textures["healing_station"] = load_texture("res://assets/images/healing_station.png", true)
 	textures["coin"] = load_texture("res://assets/images/coin.png", true)
-	textures["talism"] = load_texture("res://assets/images/talism.png", true)  # Processar fundo transparente
+	textures["talism"] = load_texture("res://assets/images/talism.png", true)
 	textures["house"] = load_texture("res://assets/images/house.png", true)
 	textures["castle"] = load_texture("res://assets/images/castle.png", true)
 	textures["Caste2"] = load_texture("res://assets/images/Caste2.png", true)
@@ -106,7 +109,7 @@ func _process_white_to_transparent(texture: Texture2D, image_path: String) -> Te
 	elif "tower.png" in image_path:
 		threshold = 0.78
 	elif "talism" in image_path:
-		threshold = 0.85  # Mesmo threshold padrão para talismã
+		threshold = 0.85
 	
 	for y in range(image.get_height()):
 		for x in range(image.get_width()):

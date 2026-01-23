@@ -1,66 +1,76 @@
 extends RefCounted
 class_name ThreadManager
 
-# Sistema básico de multithreading para cálculos pesados
-# Usa Workers do Godot para processamento assíncrono
-
-var pathfinding_worker: WorkerThreadPool = null
-var calculation_worker: WorkerThreadPool = null
+# Sistema de processamento em batches para cálculos pesados
+# Usa processamento distribuído em frames para não travar a thread principal
 
 # Flags para controlar threading
 var use_threading: bool = true
-var max_threads: int = 2
+var max_batch_size: int = 10  # Reduzido drasticamente para melhor performance
+var pathfinding_queue: Array = []  # Fila de pathfinding pendente
+var processing_pathfinding: bool = false
 
 func _init():
-	if use_threading:
-		# Godot 4 usa WorkerThreadPool para threading
-		# Nota: Em Godot, threading é limitado, então usamos call_deferred para simular
-		pass
+	pass
 
-func calculate_pathfinding_async(start: Vector2, end: Vector2, grid: Array, callback: Callable) -> void:
-	"""Calcula pathfinding de forma assíncrona (simulado com call_deferred)"""
+func queue_pathfinding(pathfinder: Pathfinder, from_c: int, from_r: int, base_grid: Array, callback: Callable) -> void:
+	"""Adiciona um cálculo de pathfinding à fila para processamento assíncrono"""
 	if not use_threading:
 		# Fallback síncrono
-		callback.call()
+		var path = pathfinder.find_path(from_c, from_r, base_grid)
+		callback.call(path)
 		return
 	
-	# Em Godot, threading real é limitado, então usamos call_deferred
-	# para processar em frames diferentes e não travar a thread principal
-	# Em implementação real, poderia usar WorkerThreadPool se disponível
-	call_deferred("_process_pathfinding", start, end, grid, callback)
+	pathfinding_queue.append({
+		"pathfinder": pathfinder,
+		"from_c": from_c,
+		"from_r": from_r,
+		"base_grid": base_grid,
+		"callback": callback
+	})
 
-func _process_pathfinding(start: Vector2, end: Vector2, grid: Array, callback: Callable) -> void:
-	"""Processa pathfinding (chamado via call_deferred)"""
-	# Aqui seria o cálculo real de pathfinding
-	# Por enquanto, apenas chama o callback
-	callback.call()
+func process_pathfinding_batch() -> void:
+	"""Processa um batch de pathfinding pendente (chamar no _process) - otimizado"""
+	if pathfinding_queue.is_empty() or processing_pathfinding:
+		return
+	
+	processing_pathfinding = true
+	var processed = 0
+	
+	# Processar em batches menores para não travar
+	while not pathfinding_queue.is_empty() and processed < max_batch_size:
+		var task = pathfinding_queue.pop_front()
+		# Usar call_deferred para distribuir processamento ao longo de vários frames
+		call_deferred("_process_single_pathfinding", task)
+		processed += 1
+	
+	processing_pathfinding = false
 
-func calculate_enemy_updates_async(enemies: Array, delta: float, callback: Callable) -> void:
-	"""Atualiza múltiplos inimigos de forma assíncrona"""
+func _process_single_pathfinding(task: Dictionary) -> void:
+	"""Processa uma única tarefa de pathfinding"""
+	var path = task.pathfinder.find_path(task.from_c, task.from_r, task.base_grid)
+	task.callback.call(path)
+
+func calculate_enemy_updates_batch(enemies: Array, delta: float, update_func: Callable, start_idx: int = 0) -> int:
+	"""Atualiza um batch de inimigos e retorna o próximo índice"""
 	if not use_threading:
-		callback.call()
-		return
+		# Processar todos de uma vez
+		for i in range(enemies.size()):
+			update_func.call(enemies[i], delta)
+		return enemies.size()
 	
-	# Dividir inimigos em batches para processar em frames diferentes
-	var batch_size = max(10, enemies.size() / max_threads)
-	_process_enemy_batch(enemies, 0, batch_size, delta, callback)
-
-func _process_enemy_batch(enemies: Array, start_idx: int, batch_size: int, delta: float, callback: Callable) -> void:
-	"""Processa um batch de inimigos"""
-	var end_idx = min(start_idx + batch_size, enemies.size())
-	# Processar batch
+	var end_idx = min(start_idx + max_batch_size, enemies.size())
 	for i in range(start_idx, end_idx):
 		if i < enemies.size():
-			# Atualizar inimigo (lógica seria aqui)
-			pass
+			update_func.call(enemies[i], delta)
 	
-	# Se ainda há mais inimigos, processar próximo batch no próximo frame
-	if end_idx < enemies.size():
-		call_deferred("_process_enemy_batch", enemies, end_idx, batch_size, delta, callback)
-	else:
-		callback.call()
+	return end_idx
 
-func cleanup() -> void:
-	"""Limpa recursos de threading"""
-	# Limpar workers se necessário
-	pass
+func clear_pathfinding_queue() -> void:
+	"""Limpa a fila de pathfinding pendente"""
+	pathfinding_queue.clear()
+	processing_pathfinding = false
+
+func get_queue_size() -> int:
+	"""Retorna o tamanho da fila de pathfinding"""
+	return pathfinding_queue.size()

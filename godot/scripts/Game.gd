@@ -31,7 +31,7 @@ const ThreadManager = preload("res://scripts/managers/ThreadManager.gd")
 const ComboManager = preload("res://scripts/managers/ComboManager.gd")
 const NotificationManager = preload("res://scripts/managers/NotificationManager.gd")
 
-const HERO_ARROW_SPEED := 260.0
+const HERO_ARROW_SPEED := GameConstants.HERO_ARROW_SPEED
 
 var grid_manager: GridManager
 var pathfinder: Pathfinder
@@ -60,51 +60,48 @@ var thread_manager: ThreadManager
 var combo_manager: ComboManager
 var notification_manager: NotificationManager
 
-# Estatísticas para achievements
 var total_kills: int = 0
 var total_boss_kills: int = 0
 var total_coins_collected: int = 0
 var total_coins_spent: int = 0
 var towers_built: int = 0
-var tower_types_built: Dictionary = {}  # rastrear tipos de torres construídas
+var tower_types_built: Dictionary = {}
 var perfect_waves: int = 0
-var current_wave_base_hp_start: int = 0  # HP da base no início da onda
+var current_wave_base_hp_start: int = 0
 var first_play: bool = true
 var skill_used: bool = false
-var maxed_towers_count: int = 0  # Contador de torres maximizadas
-var walls_built: int = 0  # Contador de muros construídos
-var global_tower_damage_boost: float = 1.0  # Multiplicador global de dano para todas as torres
-var global_tower_range_boost: float = 1.0  # Multiplicador global de alcance para todas as torres
+var maxed_towers_count: int = 0
+var walls_built: int = 0
+var global_tower_damage_boost: float = 1.0
+var global_tower_range_boost: float = 1.0
 
-# Efeitos de perks aplicados
-var perk_effects: Dictionary = {}  # armazena efeitos dos perks
-var coin_drop_chance: float = GameConstants.COIN_DROP_CHANCE  # chance de drop com perks aplicados
+var perk_effects: Dictionary = {}
+var coin_drop_chance: float = GameConstants.COIN_DROP_CHANCE
 
-var grid_offset: Vector2  # offset para centralizar o grid na tela
+var grid_offset: Vector2
 
 var enemies: Array = []
-var arrows: Array = []  # TODO: migrar para projectile_manager
-var tower_bullets: Array = []  # TODO: migrar para projectile_manager
-var aoe_effects: Array = []  # efeitos visuais de explosão AOE: {pos: Vector2, time: float, max_time: float}
-var sniper_effects: Array = []  # efeitos visuais de tiro sniper: {start: Vector2, end: Vector2, time: float, max_time: float}
-var aoe_cannon_projectiles: Array = []  # projéteis de canhão AOE: {pos: Vector2, target: Vector2, speed: float, radius: float}
-var dropped_coins: Array = []  # moedas dropadas: {pos: Vector2, value: int, lifetime: float, max_lifetime: float, collected: bool}
-var coin_collect_effects: Array = []  # efeitos visuais de coleta de moedas: {pos: Vector2, time: float, max_time: float, particles: Array}
-var dropped_talismans: Array = []  # talismãs dropados: {pos: Vector2, talisman: Talisman, lifetime: float, max_lifetime: float, collected: bool}
-var damage_numbers: Array = []  # indicadores de dano flutuantes: {pos: Vector2, value: float, time: float, max_time: float, is_crit: bool}
-var enemy_death_animations: Array = []  # animações de morte: {pos: Vector2, time: float, max_time: float, scale: float, alpha: float}
-var shock_effects: Array = []  # efeitos visuais de choque elétrico: {start: Vector2, end: Vector2, time: float, max_time: float}
+var arrows: Array = []
+var tower_bullets: Array = []
+var aoe_effects: Array = []
+var sniper_effects: Array = []
+var aoe_cannon_projectiles: Array = []
+var dropped_coins: Array = []
+var coin_collect_effects: Array = []
+var dropped_talismans: Array = []
+var damage_numbers: Array = []
+var enemy_death_animations: Array = []
+var shock_effects: Array = []
 
-var base_hp := 100
-var base_hp_base := 100  # HP base sem bônus (para recalcular)
-var base_hp_max := 100  # HP máximo atual da base (incluindo todos os bônus permanentes)
+var base_hp := GameConstants.HERO_BASE_HP
+var base_hp_base := GameConstants.HERO_BASE_HP
+var base_hp_max := GameConstants.HERO_BASE_HP
 var paused := false
 var game_over := false
-var diamond_150_given: bool = false  # Rastreia se diamante da wave 150 já foi dado nesta run
-var game_time: float = 0.0  # Tempo de jogo em segundos
-var game_time_start: float = 0.0  # Timestamp de início do jogo
+var diamond_150_given: bool = false
+var game_time: float = 0.0
+var game_time_start: float = 0.0
 
-# Flag para modo admin (testes/debug) - desabilitar em produção
 var isAdmin: bool = true
 var placing_tower := false
 var placing_barracks := false
@@ -118,69 +115,60 @@ var placing_wall := false
 var placing_healing_station := false
 
 var towers: Array = []
-var barracks: Array = []  # quartéis - cada quartel: {grid_x: int, grid_y: int, pos: Vector2, soldier_spawn_cd: float, soldiers: Array}
-var mines: Array = []  # minas: {grid_x: int, grid_y: int, pos: Vector2, damage: float, explosion_radius: float, slow_duration: float, slow_amount: float, trigger_radius: float, triggered: bool}
-var mine_tiles: Dictionary = {}  # "col_row" -> true para evitar minas duplicadas no mesmo tile
-var wall_tiles: Dictionary = {}  # "col_row" -> true para rastrear tiles ocupados por muralhas no labirinto
-var slow_towers: Array = []  # slow towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, slow_amount: float, cooldown: float, fire_rate: float}
-var aoe_towers: Array = []  # AOE towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, aoe_radius: float, cooldown: float, fire_rate: float}
-var sniper_towers: Array = []  # sniper towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, cooldown: float, fire_rate: float, pierce: int}
-var boost_towers: Array = []  # boost towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage_boost: float, rate_boost: float, levels: Dictionary}
-var shock_towers: Array = []  # shock towers: {grid_x: int, grid_y: int, pos: Vector2, range: float, damage: float, chain_count: int, cooldown: float, fire_rate: float}
-var walls: Array = []  # walls: {grid_x: int, grid_y: int, pos: Vector2, hp: float, max_hp: float, upgrades: Dictionary}
-var wall_hp_multiplier: float = 1.0  # Multiplicador de HP das muralhas (de perks e outros bônus)
-var healing_stations: Array = []  # healing stations: {grid_x: int, grid_y: int, pos: Vector2, heal_rate: float, range: float}
+var barracks: Array = []
+var mines: Array = []
+var mine_tiles: Dictionary = {}
+var wall_tiles: Dictionary = {}
+var slow_towers: Array = []
+var aoe_towers: Array = []
+var sniper_towers: Array = []
+var boost_towers: Array = []
+var shock_towers: Array = []
+var walls: Array = []
+var wall_hp_multiplier: float = 1.0
+var healing_stations: Array = []
 
-# Mine Upgrades (globais - aplicados a todas as minas)
-var mine_damage_level: int = 0  # Nível de upgrade de dano (0-20)
-var mine_radius_level: int = 0  # Nível de upgrade de raio (0-15)
-# base_grid agora está em grid_manager
-var preview_mouse_pos := Vector2.ZERO  # posição do mouse para preview
-var soldiers: Array = []  # soldados: {pos: Vector2, target_enemy_idx: int, hold_time: float, max_hold_time: float, damage: float, hp: float, max_hp: float, radius: float}
+var mine_damage_level: int = 0
+var mine_radius_level: int = 0
+var preview_mouse_pos := Vector2.ZERO
+var soldiers: Array = []
 
-# Constantes de upgrade agora em GameConstants
 var tower_menu: PopupMenu
 var tower_selected_index := -1
-var keep_menu_open := false  # Flag para manter menu aberto após upgrade
-var placing_tower_dir := Vector2(1, 0)  # direção inicial ao colocar torre
+var keep_menu_open := false
+var placing_tower_dir := Vector2(1, 0)
 
-# Constantes de barracks agora em GameConstants
 var barracks_menu: PopupMenu
 var barracks_selected_index := -1
-var keep_barracks_menu_open := false  # Flag para manter menu quartel aberto após upgrade
+var keep_barracks_menu_open := false
 
-# Menus de upgrade para sniper, AOE, Shock, Slow e Boost
 var sniper_menu: PopupMenu
 var sniper_selected_index := -1
-var keep_sniper_menu_open := false  # Flag para manter menu sniper aberto após upgrade
+var keep_sniper_menu_open := false
 var aoe_menu: PopupMenu
 var aoe_selected_index := -1
-var keep_aoe_menu_open := false  # Flag para manter menu AOE aberto após upgrade
+var keep_aoe_menu_open := false
 var shock_menu: PopupMenu
 var shock_selected_index := -1
-var keep_shock_menu_open := false  # Flag para manter menu shock aberto após upgrade
+var keep_shock_menu_open := false
 var slow_menu: PopupMenu
 var slow_selected_index := -1
-var keep_slow_menu_open := false  # Flag para manter menu slow aberto após upgrade
+var keep_slow_menu_open := false
 var boost_menu: PopupMenu
 var boost_selected_index := -1
-var keep_boost_menu_open := false  # Flag para manter menu boost aberto após upgrade
+var keep_boost_menu_open := false
 var wall_menu: PopupMenu
 var wall_selected_index := -1
-var keep_wall_menu_open := false  # Flag para manter menu wall aberto após upgrade
+var keep_wall_menu_open := false
 
-# Drag and drop state
 var dragging_tower := false
-var dragged_tower_type := ""  # "tower", "slow_tower", "aoe_tower", "sniper_tower", "boost_tower", "shock_tower", "mine", "wall", "barracks"
+var dragged_tower_type := ""
 var dragged_tower_index := -1
 var drag_start_pos: Vector2 = Vector2.ZERO
 var drag_offset: Vector2 = Vector2.ZERO
 var drag_current_pos: Vector2 = Vector2.ZERO
 
-# enemy status effects
-var enemy_effects: Dictionary = {}  # enemy_idx -> {freeze_time: float, fire_time: float, fire_damage: float}
-
-# textures (opcionais)
+var enemy_effects: Dictionary = {}
 var tex_hero: Texture2D
 var tex_enemy_zombie: Texture2D
 var tex_enemy_zombie_gordo: Texture2D
@@ -189,151 +177,107 @@ var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
 var tex_enemy_boss: Texture2D
-var tex_tent: Texture2D  # Base/tenda no centro
+var tex_tent: Texture2D
 var tex_house: Texture2D
 var tex_castle: Texture2D
-var tex_castle2: Texture2D  # Castelo nível 4
+var tex_castle2: Texture2D
 var tex_grass: Texture2D
-var tex_path: Texture2D  # Textura para o caminho (chão onde inimigos andam)
-var tex_wall: Texture2D  # Textura para barreira/cerca (paredes do labirinto)
-var tex_tower: Texture2D  # Torre normal
-var tex_slow_tower: Texture2D  # Slow Tower
-var tex_aoe_tower: Texture2D  # AOE Tower
-var tex_sniper_tower: Texture2D  # Sniper Tower
-var tex_boost_tower: Texture2D  # Boost Tower
-var tex_shock_tower: Texture2D  # Shock Tower
-var tex_barracks: Texture2D  # Quartel
-var tex_mine: Texture2D  # Mina
-var tex_wall_structure: Texture2D  # Muralha/barreira
-var tex_healing_station: Texture2D  # Estação de cura
-var tex_coin: Texture2D  # Moeda dropada
-var tex_talisman: Texture2D  # Talismã
-var tex_game_over: Texture2D  # Imagem de Game Over
+var tex_path: Texture2D
+var tex_wall: Texture2D
+var tex_tower: Texture2D
+var tex_slow_tower: Texture2D
+var tex_aoe_tower: Texture2D
+var tex_sniper_tower: Texture2D
+var tex_boost_tower: Texture2D
+var tex_shock_tower: Texture2D
+var tex_barracks: Texture2D
+var tex_mine: Texture2D
+var tex_wall_structure: Texture2D
+var tex_healing_station: Texture2D
+var tex_coin: Texture2D
+var tex_talisman: Texture2D
+var tex_game_over: Texture2D
 
-# Tela de carregamento
 var loading_screen: Control
 var loading_progress: float = 0.0
 var is_loading: bool = true
 
-# UI melhorada
 var tower_shop_panel: Panel
 var tower_buttons: Array = []
 var tooltip_label: Label
 var hovered_tower_button: Control = null
 var music_muted: bool = false
-var music_volume: float = -7.0  # Volume padrão (20% mais baixo que -5.0)
+var music_volume: float = -7.0
 var music_volume_slider: HSlider = null
-var tower_shop_collapsed: bool = false  # Estado de colapso da loja
-var skills_panel_collapsed: bool = false  # Estado de colapso do painel de skills
-var tower_shop_toggle_button: Button  # Botão para colapsar/expandir loja
-var skills_panel_toggle_button: Button  # Botão para colapsar/expandir skills
+var tower_shop_collapsed: bool = false
+var skills_panel_collapsed: bool = false
+var tower_shop_toggle_button: Button
+var skills_panel_toggle_button: Button
 
-# Sistema de tooltips
-var game_tooltip: Control  # Tooltip global para elementos do jogo
+var game_tooltip: Control
 var tooltip_text: String = ""
 var tooltip_timer: float = 0.0
-const TOOLTIP_DELAY: float = 0.5  # Delay antes de mostrar tooltip
 
-# Menu de admin (testes/debug)
 var admin_menu: PopupMenu
 var admin_menu_button: Button
 
-# Range indicator
 var range_indicator: Line2D
-const RANGE_INDICATOR_SEGMENTS := 64
 
-# Boss alert
 var boss_alert_label: Label
 var boss_alert_timer: float = 0.0
-var boss_alert_duration: float = 4.0
+var boss_alert_duration: float = GameConstants.BOSS_ALERT_DURATION
 var boss_warning_sound: AudioStream
 var boss_alert_player: AudioStreamPlayer
-var coin_sound_players: Array = []  # Pool de players para som de moeda (evitar sobreposição)
-const MAX_COIN_SOUND_PLAYERS := 3  # Máximo de 3 sons simultâneos
+var coin_sound_players: Array = []
 
-# Special Wave System
 var special_wave_alert_label: Label
 var special_wave_alert_timer: float = 0.0
 var current_special_wave_type: WaveManager.SpecialWaveType = WaveManager.SpecialWaveType.NONE
-var special_wave_coin_multiplier: float = 1.0  # Multiplicador de moedas para waves especiais
-var perfect_wave_bonus_given: bool = false  # Para rastrear se já deu bônus de wave perfeita
+var special_wave_coin_multiplier: float = 1.0
+var perfect_wave_bonus_given: bool = false
 
-# Weather System (Eventos Climáticos)
-var weather_overlay: ColorRect  # Overlay para noite (escurecimento)
-var weather_clouds: Array = []  # Nuvens para efeito de névoa/chuva: {pos: Vector2, size: float, alpha: float, speed: float}
-var weather_rain_particles: Array = []  # Partículas de chuva: {pos: Vector2, speed: float, length: float}
-var weather_snow_particles: Array = []  # Partículas de neve: {pos: Vector2, speed_y: float, speed_x: float, size: float, rotation: float, rotation_speed: float}
+var weather_overlay: ColorRect
+var weather_clouds: Array = []
+var weather_rain_particles: Array = []
+var weather_snow_particles: Array = []
 var weather_alert_label: Label
 var weather_alert_timer: float = 0.0
 var weather_effects_active: bool = false
 
-# Special Currency UI
 var emerald_label: Label
 var diamond_label: Label
 
-# Menu de pause
 var pause_overlay: Control
 var save_status_label: Label
 
-# Skills system
 var skills_panel: Panel
-# Variáveis antigas de skills - DEPRECATED: Usar skills_manager agora
-# Mantidas temporariamente para compatibilidade durante migração
-# var skill_damage_boost_active: bool = false
-# var skill_damage_boost_time: float = 0.0
-# var skill_speed_boost_active: bool = false
-# var skill_speed_boost_time: float = 0.0
-# var skill_collect_coins_cooldown: float = 0.0
-# var skill_damage_boost_cooldown: float = 0.0
-# var skill_speed_boost_cooldown: float = 0.0
-# var skill_slow_all_cooldown: float = 0.0
-# var skill_slow_all_active: bool = false
-# var skill_slow_all_time: float = 0.0
-# var skill_magnetism_cooldown: float = 0.0
-# var skill_magnetism_active: bool = false
-# var skill_magnetism_time: float = 0.0
-var skill_buttons: Dictionary = {}  # Armazenar referências aos botões para atualizar cooldown
-# var has_coin_magnetism_perk: bool = false  # DEPRECATED: Usar skills_manager.has_coin_magnetism_perk
+var skill_buttons: Dictionary = {}
 
-# Sistema de DPS das torres
-var tower_dps_data: Dictionary = {}  # {tower_id: {dps: float, damage_dealt: float, shots: int, wave_damage: Dictionary}}
+var tower_dps_data: Dictionary = {}
 var dps_menu_panel: Panel = null
 var dps_menu_visible: bool = false
 
-# Wave management agora em wave_manager
 func _wave_factor() -> float:
 	return wave_manager.wave_factor()
 
-# Funções auxiliares para aplicar multiplicadores de clima
 func get_effective_tower_range(base_range: float) -> float:
-	"""Retorna o alcance efetivo de uma torre considerando o clima"""
 	if weather_manager:
 		return base_range * weather_manager.get_tower_range_multiplier()
 	return base_range
 
 func get_effective_tower_damage(base_damage: float) -> float:
-	"""Retorna o dano efetivo de uma torre considerando o clima (multiplica o dano já calculado)"""
 	if weather_manager:
 		return base_damage * weather_manager.get_tower_damage_multiplier()
 	return base_damage
 
-# ========== FUNÇÕES DE BALANCEAMENTO ==========
-# Delegadas para RewardCalculator para melhor organização
-
-# Calcula recompensa escalada de inimigo normal baseada na wave
 func get_enemy_reward() -> int:
-	"""Calcula recompensa de inimigo normal baseada na wave atual"""
 	var base_reward = reward_calculator.get_enemy_reward()
-	# Aplicar multiplicador de wave especial (DOUBLE_COINS aplica 2x)
 	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
 		return int(base_reward * 2.0)
 	return int(base_reward * special_wave_coin_multiplier)
 
-# Calcula recompensa de boss baseada na wave
 func get_boss_reward() -> int:
-	"""Calcula recompensa de boss baseada na wave atual"""
 	var base_reward = reward_calculator.get_boss_reward()
-	# Aplicar multiplicador de wave especial
 	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
 		return int(base_reward * 2.0)
 	return int(base_reward * special_wave_coin_multiplier)
@@ -554,8 +498,8 @@ func _apply_hero_home_upgrade_effects(level: int) -> void:
 			hero["damage"] *= 1.15  # +15% dano do herói
 			hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"] - 0.08)
 			hero["range"] += 150
-			base_hp += 100
-			base_hp_max += 100  # Atualizar HP máximo também
+			base_hp += GameConstants.HERO_BASE_HP
+			base_hp_max += GameConstants.HERO_BASE_HP
 
 
 func _try_load(path: String) -> Texture2D:
@@ -706,7 +650,7 @@ func _ready() -> void:
 	hero_damage_base = GameConstants.HERO_BASE_DAMAGE
 	hero_fire_rate_base = GameConstants.HERO_BASE_FIRE_RATE
 	hero_crit_chance_base = 0.0
-	base_hp_base = 100  # Valor base padrão
+	base_hp_base = GameConstants.HERO_BASE_HP
 	global_tower_damage_boost_base = 1.0
 	coin_drop_chance_base = GameConstants.COIN_DROP_CHANCE
 	
@@ -7707,7 +7651,7 @@ func _show_load_slot_dialog() -> void:
 			var slot_name = slot_info.get("slot_name", "Desconhecido")
 			var wave = slot_info.get("wave", 0)
 			var coins = slot_info.get("coins", 0)
-			var base_hp = slot_info.get("base_hp", 100)
+			var base_hp = slot_info.get("base_hp", GameConstants.HERO_BASE_HP)
 			var save_time = slot_info.get("save_time", "Desconhecido")
 			var is_autosave = slot_info.get("is_autosave", false)
 			
@@ -8181,7 +8125,7 @@ func _play_coin_sound() -> void:
 			break
 	
 	# Se não houver player disponível e ainda não atingiu o limite, criar um novo
-	if available_player == null and coin_sound_players.size() < MAX_COIN_SOUND_PLAYERS:
+	if available_player == null and coin_sound_players.size() < GameConstants.UI_MAX_COIN_SOUND_PLAYERS:
 		available_player = AudioStreamPlayer.new()
 		available_player.name = "CoinSoundPlayer_%d" % coin_sound_players.size()
 		available_player.volume_db = 0.0
@@ -9447,8 +9391,8 @@ func _set_range_indicator_points(radius: float) -> void:
 	if range_indicator == null:
 		return
 	var pts := PackedVector2Array()
-	for i in range(RANGE_INDICATOR_SEGMENTS + 1):
-		var angle = TAU * float(i) / float(RANGE_INDICATOR_SEGMENTS)
+	for i in range(GameConstants.UI_RANGE_INDICATOR_SEGMENTS + 1):
+		var angle = TAU * float(i) / float(GameConstants.UI_RANGE_INDICATOR_SEGMENTS)
 		pts.append(Vector2(cos(angle), sin(angle)) * radius)
 	range_indicator.points = pts
 
@@ -10694,7 +10638,7 @@ func _update_game_tooltip(delta: float) -> void:
 	
 	if tooltip_info != "":
 		tooltip_timer += delta
-		if tooltip_timer >= TOOLTIP_DELAY:
+		if tooltip_timer >= GameConstants.UI_TOOLTIP_DELAY:
 			tooltip_text_label.text = tooltip_info
 			game_tooltip.visible = true
 			

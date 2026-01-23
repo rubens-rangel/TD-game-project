@@ -17,25 +17,24 @@ const MINE_COST := 10
 const SLOW_TOWER_COST := 80
 const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
-const BOOST_TOWER_COST := 100  # Aumentado de 80 para 100
-const SHOCK_TOWER_COST := 48  # Aumentado em 20% (de 40 para 48)
+const BOOST_TOWER_COST := 100
+const SHOCK_TOWER_COST := 48
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
 
-const MINE_DAMAGE := 15.0  # Dano base
+const MINE_DAMAGE := 15.0
 const MINE_TRIGGER_RADIUS := 18.0
-const MINE_EXPLOSION_RADIUS := 60.0  # Raio base de explosão
+const MINE_EXPLOSION_RADIUS := 60.0
 const MINE_SLOW_DURATION := 1.5
 const MINE_SLOW_AMOUNT := 0.4
 
-# Mine Upgrades (globais)
-const MINE_UPGRADE_DAMAGE_COST := 50  # Custo base para upgrade de dano
-const MINE_UPGRADE_DAMAGE_AMOUNT := 10.0  # Dano adicionado por nível
-const MINE_UPGRADE_DAMAGE_MAX_LEVEL := 20  # Máximo de níveis de dano
+const MINE_UPGRADE_DAMAGE_COST := 50
+const MINE_UPGRADE_DAMAGE_AMOUNT := 10.0
+const MINE_UPGRADE_DAMAGE_MAX_LEVEL := 20
 
-const MINE_UPGRADE_RADIUS_COST := 40  # Custo base para upgrade de raio
-const MINE_UPGRADE_RADIUS_AMOUNT := 8.0  # Raio adicionado por nível
-const MINE_UPGRADE_RADIUS_MAX_LEVEL := 15  # Máximo de níveis de raio
+const MINE_UPGRADE_RADIUS_COST := 40
+const MINE_UPGRADE_RADIUS_AMOUNT := 8.0
+const MINE_UPGRADE_RADIUS_MAX_LEVEL := 15
 
 # Sizes
 const TOWER_SIZE_GRID := 3
@@ -66,13 +65,13 @@ const TOWER_RANGE_COST := 15
 const TOWER_RATE_COST := 10
 const TOWER_DIRS_COST := 40
 const TOWER_DMG_COST := 10
-const TOWER_FREEZE_COST := 40  # Aumentado de 25 para 40
-const TOWER_FIRE_COST := 40  # Aumentado de 25 para 40
+const TOWER_FREEZE_COST := 40
+const TOWER_FIRE_COST := 40
 
 # Barracks upgrades
 const BARRACKS_DMG_COST := 15
 const BARRACKS_HOLD_COST := 30
-const BARRACKS_SPAWN_RATE_COST := 30  # Aumentado de 20 para 30 (50% mais caro)
+const BARRACKS_SPAWN_RATE_COST := 30
 const BARRACKS_PROJECTILE_SPEED_COST := 20
 
 # Sniper tower upgrades
@@ -88,21 +87,21 @@ const AOE_AREA_COST := 20
 const SHOCK_DMG_COST := 15
 const SHOCK_RATE_COST := 25
 const SHOCK_CHAIN_COST := 20
-const SHOCK_CHAIN_COST_MULTIPLIER := 1.35  # Multiplicador de custo para upgrade de chain (mais caro que outros upgrades)
+const SHOCK_CHAIN_COST_MULTIPLIER := 1.35
 
 # Slow tower upgrades
-const SLOW_RANGE_COST := 30  # Aumentado de 15 para 25 para balancear
+const SLOW_RANGE_COST := 30
 const SLOW_AMOUNT_COST := 40
 const SLOW_DURATION_COST := 20
 const SLOW_RATE_COST := 15
 
 # Boost tower upgrades
-const BOOST_DMG_COST := 50  # Aumentado de 40 para 50
-const BOOST_RATE_COST := 40  # Aumentado de 30 para 40
+const BOOST_DMG_COST := 50
+const BOOST_RATE_COST := 40
 
 # Waves
-const WAVE_SCALE := 1.045  # Reduzido de 1.06 para 1.04 - crescimento mais suave
-const INTERMISSION := 12.0  # Aumentado de 5.0 para 8.0 para dar mais tempo entre waves
+const WAVE_SCALE := 1.045
+const INTERMISSION := 12.0
 
 # Enemy stats
 const ENEMY_BASE_SPEED := 38.0  # Aumentado de 30.0 para 38.0 (~27% mais rápido)
@@ -271,6 +270,7 @@ const COLOR_UI_BUTTON_HOVER := Color(0.3, 0.3, 0.4)
 const UI_TOP_BAR_HEIGHT := 44.0
 const UI_RANGE_INDICATOR_SEGMENTS := 64
 const UI_MAX_COIN_SOUND_PLAYERS := 3
+const UI_TOOLTIP_DELAY := 0.5  # Delay antes de mostrar tooltip
 
 # Audio
 const MUSIC_VOLUME_DEFAULT := -7.0
@@ -411,6 +411,7 @@ const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.35  # Aumento de dano do soldado por
 const SPECIAL_WAVE_INTERVAL := 10  # A cada 10 waves aparece uma wave especial
 const SPECIAL_WAVE_ALERT_DURATION := 2.0  # Duração total do alerta visual (1s visível + 1s fade out)
 const SPECIAL_WAVE_ALERT_FADE_OUT_START := 1.0  # Quando começa o fade out (1 segundo)
+const BOSS_ALERT_DURATION := 4.0  # Duração do alerta de boss em segundos
 
 # Talisman Sell Prices (em esmeraldas, baseado na raridade)
 const TALISMAN_SELL_PRICE_COMMON := 1  # Comum: 1 esmeralda
