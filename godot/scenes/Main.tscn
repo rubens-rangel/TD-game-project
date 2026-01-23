@@ -32,6 +32,39 @@ offset_top = 0.0
 offset_right = 0.0
 offset_bottom = 44.0
 
+[node name="BottomBar" type="Panel" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 0.0
+offset_top = -40.0
+offset_right = 0.0
+offset_bottom = 0.0
+
+[node name="LblTime" type="Label" parent="CanvasLayer/HUD/BottomBar"]
+layout_mode = 0
+offset_left = 12.0
+offset_top = 10.0
+text = "Tempo: 00:00"
+horizontal_alignment = 0
+
+[node name="LblEnemies" type="Label" parent="CanvasLayer/HUD/BottomBar"]
+layout_mode = 0
+offset_left = 200.0
+offset_top = 10.0
+text = "Inimigos: 0"
+horizontal_alignment = 0
+
+[node name="LblFPS" type="Label" parent="CanvasLayer/HUD/BottomBar"]
+layout_mode = 0
+offset_left = 350.0
+offset_top = 10.0
+text = "FPS: 60"
+horizontal_alignment = 0
+
 [node name="LblLeft" type="Label" parent="CanvasLayer/HUD/TopBar"]
 layout_mode = 0
 offset_left = 12.0
@@ -40,13 +73,13 @@ text = "Onda 1  Inimigos 0  FPS 0"
 
 [node name="LblCenter" type="Label" parent="CanvasLayer/HUD/TopBar"]
 layout_mode = 0
-offset_left = 280.0
+offset_left = 350.0
 offset_top = 10.0
 text = "Moedas 0"
 
 [node name="LblRight" type="Label" parent="CanvasLayer/HUD/TopBar"]
 layout_mode = 0
-offset_left = 500.0
+offset_left = 570.0
 offset_top = 10.0
 text = "Vida 100"
 horizontal_alignment = 2
@@ -216,9 +249,7 @@ visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
-anchor_bottom = 1.0
-
-[node name="Background" type="ColorRect" parent="CanvasLayer/PauseOverlay"]
+anchor_bottom = 1.0[node name="Background" type="ColorRect" parent="CanvasLayer/PauseOverlay"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -302,9 +333,7 @@ offset_left = -80.0
 offset_top = 0.0
 offset_right = 80.0
 offset_bottom = 30.0
-text = "Menu Principal"
-
-[node name="BtnQuit" type="Button" parent="CanvasLayer/PauseOverlay/Panel"]
+text = "Menu Principal"[node name="BtnQuit" type="Button" parent="CanvasLayer/PauseOverlay/Panel"]
 layout_mode = 1
 anchors_preset = 10
 anchor_left = 0.5

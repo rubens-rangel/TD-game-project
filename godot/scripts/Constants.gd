@@ -88,6 +88,7 @@ const AOE_AREA_COST := 20
 const SHOCK_DMG_COST := 15
 const SHOCK_RATE_COST := 25
 const SHOCK_CHAIN_COST := 20
+const SHOCK_CHAIN_COST_MULTIPLIER := 1.35  # Multiplicador de custo para upgrade de chain (mais caro que outros upgrades)
 
 # Slow tower upgrades
 const SLOW_RANGE_COST := 30  # Aumentado de 15 para 25 para balancear
@@ -112,6 +113,93 @@ const BOSS_BASE_HP := 23  # Reduzido de 35 para 28 (~20% menos) para melhor bala
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
+# Tipos de inimigos (padronizado para facilitar adição de novos)
+enum EnemyType {
+	ZOMBIE,         # Zombie normal (waves iniciais)
+	ZOMBIE_GORDO,   # Zombie gordo (waves iniciais, mais HP, menos velocidade)
+	ZOMBIE_CORREDOR, # Zombie corredor (waves iniciais, menos HP, mais velocidade)
+	HUMANOID,       # Humanoid (wave 6+)
+	ROBOT,          # Robot (wave 11+)
+	ALIEN           # Alien (wave 50+)
+}
+
+# Configuração de tipos de inimigos
+# Formato: {hp_multiplier: float, speed_multiplier: float, max_speed_multiplier: float, texture_name: String, min_wave: int, max_wave: int}
+static func get_enemy_type_config(type: EnemyType) -> Dictionary:
+	match type:
+		EnemyType.ZOMBIE:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
+				"texture_name": "enemy_zombie",
+				"min_wave": 1,
+				"max_wave": 50  # Aparece até wave 50
+			}
+		EnemyType.ZOMBIE_GORDO:
+			return {
+				"hp_multiplier": 1.5,  # 50% mais HP
+				"speed_multiplier": 0.75,  # 25% menos velocidade
+				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
+				"texture_name": "enemy_zombie_gordo",
+				"min_wave": 1,
+				"max_wave": 50  # Aparece até wave 50
+			}
+		EnemyType.ZOMBIE_CORREDOR:
+			return {
+				"hp_multiplier": 0.5,  # 50% menos HP (bem menos vida)
+				"speed_multiplier": 1.4,  # 40% mais rápido
+				"max_speed_multiplier": 1.15,  # Cap de velocidade 15% maior
+				"texture_name": "enemy_zombie_corredor",
+				"min_wave": 1,
+				"max_wave": 50  # Aparece até wave 50
+			}
+		EnemyType.HUMANOID:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "enemy_humanoid",
+				"min_wave": 6,
+				"max_wave": 10
+			}
+		EnemyType.ROBOT:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "enemy_robot",
+				"min_wave": 11,
+				"max_wave": 49
+			}
+		EnemyType.ALIEN:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "enemy_alien",
+				"min_wave": 50,
+				"max_wave": 9999
+			}
+		_:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "enemy_zombie",
+				"min_wave": 1,
+				"max_wave": 9999
+			}
+
+# Obter tipos de inimigos disponíveis para uma wave específica
+static func get_available_enemy_types(wave: int) -> Array:
+	var available_types = []
+	for type in EnemyType.values():
+		var config = get_enemy_type_config(type)
+		if wave >= config.min_wave and wave <= config.max_wave:
+			available_types.append(type)
+	return available_types
+
 # Balanceamento: Escala de recompensas e upgrades
 const REWARD_SCALE := 1.03  # Recompensas crescem 2% por wave (reduzido de 1.05 para balancear níveis altos)
 const REWARD_SCALE_SOFT_CAP := 50  # A partir da wave 30, a escala diminui ainda mais
@@ -124,7 +212,10 @@ const WAVE_COMPLETION_BONUS_MAX := 100  # Cap máximo de bônus por wave (evita 
 # Hero
 const HERO_START_COINS := 0
 const HERO_BASE_FIRE_RATE := 1.0 
-const HERO_BASE_DAMAGE := 0.9  
+const HERO_BASE_DAMAGE := 0.9
+
+# Tower Base Stats
+const TOWER_BASE_DAMAGE := 0.6  # Dano básico da torre básica (aumentado de 0.5 para 0.6)  
 
 # Coin drops
 const COIN_DROP_CHANCE := 0.12  
@@ -203,14 +294,13 @@ const WALL_BOSS_DAMAGE_MULTIPLIER := 2.0  # Bosses causam 2x mais dano
 const WALL_UPGRADE_HP_COST := 75  # Custo para upgrade de HP (aumentado de 30 para 75)
 const WALL_UPGRADE_HP_AMOUNT := 25.0  # Quantidade de HP adicionada por upgrade
 const WALL_MAX_UPGRADES := 5  # Máximo de upgrades de HP
-
 # Tower Cost Scaling
 const TOWER_COST_SCALE_PER_WAVE := 1.02  # 2% por wave
 
 # Tower Fire Rate Limits (minimum fire rate - towers can't shoot faster than this)
 const TOWER_MIN_FIRE_RATE := 0.4  # Limite mínimo de fire_rate para torres básicas (em segundos)
 const SNIPER_MIN_FIRE_RATE := 1.5  # Limite mínimo de fire_rate para sniper towers (em segundos)
-const AOE_MIN_FIRE_RATE := 1.0  # Limite mínimo de fire_rate para AOE towers (em segundos)
+const AOE_MIN_FIRE_RATE := 1.8  # Limite mínimo de fire_rate para AOE towers (em segundos)
 const SHOCK_MIN_FIRE_RATE := 0.8 # Limite mínimo de fire_rate para shock towers (em segundos)
 const HERO_MIN_FIRE_RATE := 0.1  # Limite mínimo de fire_rate para o herói (em segundos)
 
@@ -258,6 +348,9 @@ const QUEST_REWARD_MONTHLY_COINS := 500  # Recompensa base de moedas para quests
 # Esmeraldas removidas das quests - não faz sentido ter esmeraldas como recompensa
 const QUEST_REWARD_MONTHLY_DIAMONDS := 1  # Diamantes dados em quests mensais
 
+# Emerald Value (Valor da Esmeralda)
+const EMERALD_VALUE_IN_COINS := 100  # 1 esmeralda = 100 moedas
+
 # Special Currency Drop Rates (em waves altas)
 const EMERALD_DROP_START_WAVE := 50  # Wave a partir da qual esmeraldas podem dropar (reduzido de 100)
 const EMERALD_DROP_CHANCE := 0.04  # 2% de chance de dropar esmeralda (aumentado de 1%)
@@ -267,7 +360,8 @@ const BOSS_EMERALD_REWARD_WAVE := 25  # A cada X waves, boss dá esmeralda garan
 const BOSS_EMERALD_REWARD_COUNT := 20  # Quantidade de esmeraldas por boss especial
 
 # Tower Upgrades with Emeralds (escalado)
-const TOWER_UPGRADE_EMERALD_BASE_COST := 1  # Custo base em esmeraldas para upgrade de torre
+# Nota: 1 esmeralda equivale aproximadamente a 100 moedas
+const TOWER_UPGRADE_EMERALD_BASE_COST := 1  # Custo base em esmeraldas para upgrade de torre (equivalente a ~100 moedas)
 const TOWER_UPGRADE_EMERALD_SCALE := 1.2  # Multiplicador escalado por nível (1.2x por nível - reduzido de 1.3 para ser mais acessível)
 
 # Prestige Shop - Emerald Costs
@@ -311,4 +405,29 @@ const BARRACKS_HOLD_TIME_INCREASE := 0.5  # Aumento de hold time por upgrade
 const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.4  # Dano por segundo do soldado inicial
 const BARRACKS_INITIAL_PROJECTILE_SPEED := 80.0  # Velocidade inicial do projetil do soldado
 const BARRACKS_PROJECTILE_SPEED_INCREASE := 20.0  # Aumento de velocidade do projetil por upgrade
-const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.2  # Aumento de dano do soldado por upgrade
+const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.35  # Aumento de dano do soldado por upgrade
+
+# Special Waves
+const SPECIAL_WAVE_INTERVAL := 10  # A cada 10 waves aparece uma wave especial
+const SPECIAL_WAVE_ALERT_DURATION := 2.0  # Duração total do alerta visual (1s visível + 1s fade out)
+const SPECIAL_WAVE_ALERT_FADE_OUT_START := 1.0  # Quando começa o fade out (1 segundo)
+
+# Talisman Sell Prices (em esmeraldas, baseado na raridade)
+const TALISMAN_SELL_PRICE_COMMON := 1  # Comum: 1 esmeralda
+const TALISMAN_SELL_PRICE_UNCOMMON := 2  # Incomum: 2 esmeraldas
+const TALISMAN_SELL_PRICE_RARE := 5  # Raro: 5 esmeraldas
+const TALISMAN_SELL_PRICE_EPIC := 10  # Épico: 10 esmeraldas
+const TALISMAN_SELL_PRICE_LEGENDARY := 25  # Lendário: 25 esmeraldas
+
+# Weather System (Eventos Climáticos)
+const WEATHER_CHANGE_INTERVAL := 5  # A cada 5 waves muda o clima
+const WEATHER_DURATION_WAVES := 3  # Duração do clima em waves
+
+# Weather Effects
+const WEATHER_RAIN_TOWER_DAMAGE_REDUCTION := 0.15  # Reduz 15% do dano das torres
+const WEATHER_RAIN_TOWER_RANGE_REDUCTION := 0.10  # Reduz 10% do alcance das torres
+const WEATHER_HEAT_ENEMY_SPEED_BOOST := 1.25  # Inimigos 25% mais rápidos
+const WEATHER_HEAT_ENEMY_HP_BOOST := 1.15  # Inimigos 15% mais HP
+const WEATHER_FOG_VISIBILITY_REDUCTION := 0.20  # Reduz 20% do alcance (visibilidade)
+const WEATHER_NIGHT_VISIBILITY_REDUCTION := 0.30  # Reduz 30% do alcance (noite escura)
+const WEATHER_NIGHT_ENEMY_SPEED_BOOST := 1.10  # Inimigos 10% mais rápidos na noite

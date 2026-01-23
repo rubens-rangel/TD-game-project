@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cu5dubapfvbqb"
-path="res://.godot/imported/path.png-14c54019dbcc6aa513e04194f7050e63.ctex"
+uid="uid://cbpup5f13xi4m"
+path="res://.godot/imported/enemy_zombie_corredor.png-dff963cd8a8b7d932807432c18a76933.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/path.png"
-dest_files=["res://.godot/imported/path.png-14c54019dbcc6aa513e04194f7050e63.ctex"]
+source_file="res://assets/images/enemies/enemy_zombie_corredor.png"
+dest_files=["res://.godot/imported/enemy_zombie_corredor.png-dff963cd8a8b7d932807432c18a76933.ctex"]
 
 [params]
 

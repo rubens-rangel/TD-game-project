@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://0llp2rqtkdxb"
-path="res://.godot/imported/enemy_alien.png-5d4485384c710e219d15d6cd56e7787a.ctex"
+uid="uid://r6erm4tfvq7k"
+path="res://.godot/imported/enemy_zombie.png-699114e86db470dd8859d303bc077f39.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/enemy_alien.png"
-dest_files=["res://.godot/imported/enemy_alien.png-5d4485384c710e219d15d6cd56e7787a.ctex"]
+source_file="res://assets/images/enemies/enemy_zombie.png"
+dest_files=["res://.godot/imported/enemy_zombie.png-699114e86db470dd8859d303bc077f39.ctex"]
 
 [params]
 

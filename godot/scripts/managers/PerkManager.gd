@@ -143,16 +143,6 @@ static var ALL_PERKS: Dictionary = {
 		"icon": "📡",
 		"effect": "tower_range",
 		"effect_value": 0.10
-	},
-	"base_regen": {
-		"name": "Regeneração da Base",
-		"description": "Base regenera 1 HP por minuto",
-		"category": Category.DEFENSE,
-		"cost": 200,
-		"max_level": 1,
-		"icon": "💚",
-		"effect": "base_regen",
-		"effect_value": 1.0
 	}
 }
 

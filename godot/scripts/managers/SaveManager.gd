@@ -29,6 +29,7 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["time_to_next_wave"] = game_instance.wave_manager.time_to_next_wave
 	save_data["spawning"] = game_instance.wave_manager.spawning
 	save_data["to_spawn"] = game_instance.wave_manager.to_spawn
+	save_data["game_time"] = game_instance.game_time  # Salvar tempo de jogo
 	
 	# Estado do herói
 	save_data["hero"] = {
@@ -189,6 +190,10 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	# Dados básicos
 	game_instance.base_hp = save_data.get("base_hp", 100)
 	game_instance.hero["coins"] = save_data.get("coins", 0)
+	
+	# Restaurar tempo de jogo
+	game_instance.game_time = save_data.get("game_time", 0.0)
+	game_instance.game_time_start = Time.get_ticks_msec() / 1000.0 - game_instance.game_time  # Ajustar timestamp para continuar de onde parou
 	
 	# Wave manager
 	var wave = save_data.get("wave", 1)

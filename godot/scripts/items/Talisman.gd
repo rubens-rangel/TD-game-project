@@ -6,9 +6,9 @@ class_name Talisman
 
 enum TalismanType {
 	TOWER_DAMAGE,      # Aumenta dano das torres
-	TOWER_RANGE,       # Aumenta alcance das torres
+	TOWER_CRIT_DAMAGE, # Aumenta dano de crítico das torres
 	TOWER_FIRE_RATE,   # Aumenta cadência das torres
-	BASE_HP,           # Aumenta HP da base
+	TOWER_RANGE,       # Aumenta alcance das torres
 	BASE_DAMAGE,       # Aumenta dano da base
 	COIN_DROP,         # Aumenta chance de drop de moedas
 	ENEMY_SLOW,        # Reduz velocidade dos inimigos
@@ -33,21 +33,21 @@ func _apply_talisman_effects():
 			if name.is_empty():
 				name = "Talismã de Dano"
 			description = "Aumenta o dano de todas as torres em %.1f%%" % (bonus_value * 100)
-		TalismanType.TOWER_RANGE:
-			effects["tower_range_boost"] = bonus_value
+		TalismanType.TOWER_CRIT_DAMAGE:
+			effects["tower_crit_damage_boost"] = bonus_value
 			if name.is_empty():
-				name = "Talismã de Alcance"
-			description = "Aumenta o alcance de todas as torres em %.0f" % bonus_value
+				name = "Talismã de Dano Crítico"
+			description = "Aumenta o dano de crítico das torres em %.1f%%" % (bonus_value * 100)
 		TalismanType.TOWER_FIRE_RATE:
 			effects["tower_fire_rate_boost"] = bonus_value
 			if name.is_empty():
 				name = "Talismã de Cadência"
 			description = "Aumenta a cadência de todas as torres em %.1f%%" % (bonus_value * 100)
-		TalismanType.BASE_HP:
-			effects["base_hp_boost"] = bonus_value
+		TalismanType.TOWER_RANGE:
+			effects["tower_range_boost"] = bonus_value
 			if name.is_empty():
-				name = "Talismã de Vida"
-			description = "Aumenta o HP máximo da base em %.0f" % bonus_value
+				name = "Talismã de Alcance"
+			description = "Aumenta o alcance de todas as torres em %.1f%%" % (bonus_value * 100)
 		TalismanType.BASE_DAMAGE:
 			effects["base_damage_boost"] = bonus_value
 			if name.is_empty():
@@ -89,11 +89,8 @@ static func create_random(rarity: EquippableItem.ItemRarity = EquippableItem.Ite
 		EquippableItem.ItemRarity.LEGENDARY:  # Laranja - 1.5x do epic
 			base_bonus = randf_range(0.20, 0.30)  # 20-30% (1.5x)
 	
-	# Ajustar valores absolutos para tipos específicos
-	if random_type == TalismanType.TOWER_RANGE:
-		base_bonus = base_bonus * 50.0  # Alcance em unidades
-	elif random_type == TalismanType.BASE_HP:
-		base_bonus = base_bonus * 20.0  # HP em pontos
+	# Ajustar valores absolutos para tipos específicos (se necessário)
+	# TOWER_RANGE usa valores percentuais como os outros, então não precisa ajuste especial
 	
 	# Criar talismã com todos os valores corretos desde o início
 	var talisman_id = "talisman_%s_%d" % [TalismanType.keys()[random_type], randi() % 10000]
@@ -116,7 +113,16 @@ static func deserialize(data: Dictionary) -> Talisman:
 	talisman.item_type = EquippableItem.ItemType.TALISMAN
 	talisman.rarity = data.get("rarity", EquippableItem.ItemRarity.COMMON)
 	talisman.icon_path = data.get("icon_path", "")
-	talisman.talisman_type = data.get("talisman_type", TalismanType.TOWER_DAMAGE)
+	var old_type = data.get("talisman_type", TalismanType.TOWER_DAMAGE)
+	# Converter tipo antigo TOWER_RANGE (índice 1) para TOWER_CRIT_DAMAGE (compatibilidade com saves antigos)
+	# Se for um número (índice do enum antigo), converter
+	if typeof(old_type) == TYPE_INT:
+		if old_type == 1:  # TOWER_RANGE era índice 1 no enum antigo
+			old_type = TalismanType.TOWER_CRIT_DAMAGE
+		elif old_type >= TalismanType.TOWER_CRIT_DAMAGE:  # Se o índice for >= 2, ajustar (TOWER_RANGE foi removido)
+			# Os tipos após TOWER_RANGE precisam ser ajustados em -1
+			old_type = old_type - 1
+	talisman.talisman_type = old_type
 	talisman.bonus_value = data.get("bonus_value", 0.0)
 	# Aplicar efeitos para atualizar description e effects com valores corretos
 	talisman._apply_talisman_effects()

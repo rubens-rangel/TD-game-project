@@ -18,18 +18,21 @@ func load_all_textures() -> void:
 	loading_progress = 0.0
 	loading_progress_updated.emit(0.0)
 	
-	# Carregar texturas de inimigos
-	textures["enemy_zombie"] = load_texture("res://assets/images/enemy_zombie.png", true)
+	# Carregar texturas de inimigos (agora na pasta enemies/)
+	textures["enemy_zombie"] = load_texture("res://assets/images/enemies/enemy_zombie.png", true)
+	_update_progress(0.10)
+	
+	textures["enemy_zombie_gordo"] = load_texture("res://assets/images/enemies/enemy_zombie_gordo.png", true)
+	_update_progress(0.12)
+	
+	textures["enemy_zombie_corredor"] = load_texture("res://assets/images/enemies/enemy_zombie_corredor.png", true)
 	_update_progress(0.15)
 	
-	textures["enemy_humanoid"] = load_texture("res://assets/images/enemy_humanoid.png", true)
+	textures["enemy_boss"] = load_texture("res://assets/images/enemies/enemy_boss.png", true)
+	_update_progress(0.20)
+	
+	textures["enemy_alien"] = load_texture("res://assets/images/enemies/enemy_alien.png", true)
 	_update_progress(0.25)
-	
-	textures["enemy_robot"] = load_texture("res://assets/images/enemy_robot.png", true)
-	_update_progress(0.30)
-	
-	textures["enemy_alien"] = load_texture("res://assets/images/enemy_alien.png", true)
-	_update_progress(0.35)
 	
 	# Carregar texturas de estruturas
 	textures["tent"] = load_texture("res://assets/images/tent.png", true)

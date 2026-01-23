@@ -320,6 +320,54 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 500,
 		"icon": "🛡️"
 	},
+	"play_time_5min": {
+		"name": "Iniciante",
+		"description": "Jogue por 5 minutos",
+		"category": Category.PROGRESSION,
+		"max_progress": 300,  # 5 minutos em segundos
+		"reward_points": 15,
+		"icon": "⏱️"
+	},
+	"play_time_15min": {
+		"name": "Persistente",
+		"description": "Jogue por 15 minutos",
+		"category": Category.PROGRESSION,
+		"max_progress": 900,  # 15 minutos em segundos
+		"reward_points": 30,
+		"icon": "⏰"
+	},
+	"play_time_30min": {
+		"name": "Dedicado",
+		"description": "Jogue por 30 minutos",
+		"category": Category.PROGRESSION,
+		"max_progress": 1800,  # 30 minutos em segundos
+		"reward_points": 50,
+		"icon": "🕐"
+	},
+	"play_time_1hour": {
+		"name": "Veterano do Tempo",
+		"description": "Jogue por 1 hora",
+		"category": Category.PROGRESSION,
+		"max_progress": 3600,  # 1 hora em segundos
+		"reward_points": 100,
+		"icon": "🕑"
+	},
+	"play_time_2hours": {
+		"name": "Maratonista",
+		"description": "Jogue por 2 horas",
+		"category": Category.PROGRESSION,
+		"max_progress": 7200,  # 2 horas em segundos
+		"reward_points": 200,
+		"icon": "🕒"
+	},
+	"play_time_5hours": {
+		"name": "Lenda do Tempo",
+		"description": "Jogue por 5 horas",
+		"category": Category.PROGRESSION,
+		"max_progress": 18000,  # 5 horas em segundos
+		"reward_points": 500,
+		"icon": "⏳"
+	},
 	
 	# === SPECIAL ===
 	"first_play": {

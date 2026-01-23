@@ -24,6 +24,12 @@ const Talisman = preload("res://scripts/items/Talisman.gd")
 const SpecialCurrencyManager = preload("res://scripts/managers/SpecialCurrencyManager.gd")
 const PrestigeShop = preload("res://scripts/managers/PrestigeShop.gd")
 const QuestManager = preload("res://scripts/managers/QuestManager.gd")
+const WeatherManager = preload("res://scripts/managers/WeatherManager.gd")
+const ObjectPoolManager = preload("res://scripts/managers/ObjectPoolManager.gd")
+const CullingManager = preload("res://scripts/managers/CullingManager.gd")
+const ThreadManager = preload("res://scripts/managers/ThreadManager.gd")
+const ComboManager = preload("res://scripts/managers/ComboManager.gd")
+const NotificationManager = preload("res://scripts/managers/NotificationManager.gd")
 
 const HERO_ARROW_SPEED := 260.0
 
@@ -47,6 +53,12 @@ var item_manager: ItemManager
 var special_currency_manager: SpecialCurrencyManager
 var prestige_shop: PrestigeShop
 var quest_manager: QuestManager
+var weather_manager: WeatherManager
+var object_pool_manager: ObjectPoolManager
+var culling_manager: CullingManager
+var thread_manager: ThreadManager
+var combo_manager: ComboManager
+var notification_manager: NotificationManager
 
 # Estatísticas para achievements
 var total_kills: int = 0
@@ -62,6 +74,7 @@ var skill_used: bool = false
 var maxed_towers_count: int = 0  # Contador de torres maximizadas
 var walls_built: int = 0  # Contador de muros construídos
 var global_tower_damage_boost: float = 1.0  # Multiplicador global de dano para todas as torres
+var global_tower_range_boost: float = 1.0  # Multiplicador global de alcance para todas as torres
 
 # Efeitos de perks aplicados
 var perk_effects: Dictionary = {}  # armazena efeitos dos perks
@@ -88,6 +101,8 @@ var base_hp_max := 100  # HP máximo atual da base (incluindo todos os bônus pe
 var paused := false
 var game_over := false
 var diamond_150_given: bool = false  # Rastreia se diamante da wave 150 já foi dado nesta run
+var game_time: float = 0.0  # Tempo de jogo em segundos
+var game_time_start: float = 0.0  # Timestamp de início do jogo
 
 # Flag para modo admin (testes/debug) - desabilitar em produção
 var isAdmin: bool = true
@@ -168,9 +183,12 @@ var enemy_effects: Dictionary = {}  # enemy_idx -> {freeze_time: float, fire_tim
 # textures (opcionais)
 var tex_hero: Texture2D
 var tex_enemy_zombie: Texture2D
+var tex_enemy_zombie_gordo: Texture2D
+var tex_enemy_zombie_corredor: Texture2D
 var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
+var tex_enemy_boss: Texture2D
 var tex_tent: Texture2D  # Base/tenda no centro
 var tex_house: Texture2D
 var tex_castle: Texture2D
@@ -233,6 +251,22 @@ var boss_alert_player: AudioStreamPlayer
 var coin_sound_players: Array = []  # Pool de players para som de moeda (evitar sobreposição)
 const MAX_COIN_SOUND_PLAYERS := 3  # Máximo de 3 sons simultâneos
 
+# Special Wave System
+var special_wave_alert_label: Label
+var special_wave_alert_timer: float = 0.0
+var current_special_wave_type: WaveManager.SpecialWaveType = WaveManager.SpecialWaveType.NONE
+var special_wave_coin_multiplier: float = 1.0  # Multiplicador de moedas para waves especiais
+var perfect_wave_bonus_given: bool = false  # Para rastrear se já deu bônus de wave perfeita
+
+# Weather System (Eventos Climáticos)
+var weather_overlay: ColorRect  # Overlay para noite (escurecimento)
+var weather_clouds: Array = []  # Nuvens para efeito de névoa/chuva: {pos: Vector2, size: float, alpha: float, speed: float}
+var weather_rain_particles: Array = []  # Partículas de chuva: {pos: Vector2, speed: float, length: float}
+var weather_snow_particles: Array = []  # Partículas de neve: {pos: Vector2, speed_y: float, speed_x: float, size: float, rotation: float, rotation_speed: float}
+var weather_alert_label: Label
+var weather_alert_timer: float = 0.0
+var weather_effects_active: bool = false
+
 # Special Currency UI
 var emerald_label: Label
 var diamond_label: Label
@@ -270,18 +304,39 @@ var dps_menu_visible: bool = false
 func _wave_factor() -> float:
 	return wave_manager.wave_factor()
 
+# Funções auxiliares para aplicar multiplicadores de clima
+func get_effective_tower_range(base_range: float) -> float:
+	"""Retorna o alcance efetivo de uma torre considerando o clima"""
+	if weather_manager:
+		return base_range * weather_manager.get_tower_range_multiplier()
+	return base_range
+
+func get_effective_tower_damage(base_damage: float) -> float:
+	"""Retorna o dano efetivo de uma torre considerando o clima (multiplica o dano já calculado)"""
+	if weather_manager:
+		return base_damage * weather_manager.get_tower_damage_multiplier()
+	return base_damage
+
 # ========== FUNÇÕES DE BALANCEAMENTO ==========
 # Delegadas para RewardCalculator para melhor organização
 
 # Calcula recompensa escalada de inimigo normal baseada na wave
 func get_enemy_reward() -> int:
 	"""Calcula recompensa de inimigo normal baseada na wave atual"""
-	return reward_calculator.get_enemy_reward()
+	var base_reward = reward_calculator.get_enemy_reward()
+	# Aplicar multiplicador de wave especial (DOUBLE_COINS aplica 2x)
+	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
+		return int(base_reward * 2.0)
+	return int(base_reward * special_wave_coin_multiplier)
 
 # Calcula recompensa de boss baseada na wave
 func get_boss_reward() -> int:
 	"""Calcula recompensa de boss baseada na wave atual"""
-	return reward_calculator.get_boss_reward()
+	var base_reward = reward_calculator.get_boss_reward()
+	# Aplicar multiplicador de wave especial
+	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
+		return int(base_reward * 2.0)
+	return int(base_reward * special_wave_coin_multiplier)
 
 # Calcula custo progressivo de upgrade
 func get_upgrade_cost(base_cost: int, current_level: int) -> int:
@@ -291,7 +346,11 @@ func get_upgrade_cost(base_cost: int, current_level: int) -> int:
 # Calcula bonus de completion de wave
 func get_wave_completion_bonus() -> int:
 	"""Calcula bonus de moedas por completar uma wave (com cap máximo)"""
-	return reward_calculator.get_wave_completion_bonus()
+	var base_bonus = reward_calculator.get_wave_completion_bonus()
+	# Aplicar multiplicador de wave especial (exceto PERFECT_WAVE que tem bônus próprio)
+	if current_special_wave_type != WaveManager.SpecialWaveType.NONE and current_special_wave_type != WaveManager.SpecialWaveType.PERFECT_WAVE:
+		return int(base_bonus * special_wave_coin_multiplier)
+	return base_bonus
 
 # Calcula custo de torre escalado com wave
 func get_tower_cost(base_cost: int) -> int:
@@ -443,11 +502,11 @@ func _get_hero_home_benefits_text(level: int) -> String:
 		1:
 			return "Nível inicial. Proteção básica da tenda."
 		2:
-			return "• Dano Global das Torres +10%\n• Alcance +100\n• Vida da base +40"
+			return "• Dano Global das Torres +10%\n• Alcance +100\n• HP da base +40"
 		3:
-			return "• Dano Global das Torres +10%\n• +1 perfuração\n• Cadência -0.05s\n• Vida da base +60"
+			return "• Dano Global das Torres +10%\n• +1 perfuração\n• Cadência -0.05s\n• HP da base +60"
 		4:
-			return "• Dano Global das Torres +15%\n• Dano do Herói +15%\n• Cadência -0.08s\n• Alcance +150\n• Vida da base +100"
+			return "• Dano Global das Torres +15%\n• Dano do Herói +15%\n• Cadência -0.08s\n• Alcance +150\n• HP da base +100"
 		_:
 			return "Nível máximo alcançado"
 
@@ -623,9 +682,24 @@ func _ready() -> void:
 	special_currency_manager = SpecialCurrencyManager.new()
 	quest_manager = QuestManager.new()
 	prestige_shop = PrestigeShop.new()
+	weather_manager = WeatherManager.new()
+	object_pool_manager = ObjectPoolManager.new()
+	culling_manager = CullingManager.new()
+	thread_manager = ThreadManager.new()
+	combo_manager = ComboManager.new()
+	notification_manager = NotificationManager.new()
+	
+	# Inicializar culling manager com tamanho da viewport
+	var viewport = get_viewport()
+	if viewport:
+		culling_manager.update_viewport_size(viewport.get_visible_rect().size)
 	
 	# Carregar recompensas pendentes de quests (do Menu)
 	_load_pending_quest_rewards()
+	
+	# Inicializar contador de tempo
+	game_time = 0.0
+	game_time_start = Time.get_ticks_msec() / 1000.0
 	
 	# Armazenar valores base antes de aplicar bônus
 	# Nota: Esses valores são definidos no início do arquivo, mas garantimos que estão corretos aqui
@@ -642,7 +716,14 @@ func _ready() -> void:
 	hero["crit_chance"] = hero_crit_chance_base
 	base_hp = base_hp_base
 	global_tower_damage_boost = global_tower_damage_boost_base
+	global_tower_range_boost = 1.0  # Resetar boost de alcance
 	coin_drop_chance = coin_drop_chance_base
+	game_time = 0.0  # Resetar tempo de jogo
+	game_time_start = Time.get_ticks_msec() / 1000.0
+	
+	# Limpar pools ao resetar
+	if object_pool_manager:
+		object_pool_manager.clear_all_pools()
 	
 	# Aplicar bônus de prestígio
 	_apply_prestige_bonuses()
@@ -653,8 +734,10 @@ func _ready() -> void:
 	_apply_talisman_bonuses()
 	
 	# Garantir que base_hp_max está sincronizado com base_hp após todos os bônus
-	# (base_hp já contém todos os bônus aplicados, então base_hp_max deve ser igual)
-	base_hp_max = base_hp
+	# (base_hp já contém todos os bônus aplicados, então base_hp_max deve ser igual ou maior)
+	base_hp_max = max(base_hp_max, base_hp)  # Usar max para garantir que nunca seja menor
+	# Garantir que base_hp atual não excede o máximo
+	base_hp = min(base_hp, base_hp_max)
 	
 	# Atualizar HP máximo de todas as muralhas existentes (incluindo as carregadas de save)
 	_update_all_walls_max_hp()
@@ -668,6 +751,7 @@ func _ready() -> void:
 	
 	# Conectar signal do wave_manager
 	wave_manager.wave_started.connect(_on_wave_started)
+	# Sistema de waves especiais
 	
 	# Achievement: primeira partida
 	if first_play:
@@ -715,9 +799,12 @@ func _ready() -> void:
 	
 	tex_hero = _try_load("res://assets/images/hero.png")
 	tex_enemy_zombie = resource_manager.get_texture("enemy_zombie")
+	tex_enemy_zombie_gordo = resource_manager.get_texture("enemy_zombie_gordo")
+	tex_enemy_zombie_corredor = resource_manager.get_texture("enemy_zombie_corredor")
 	tex_enemy_humanoid = resource_manager.get_texture("enemy_humanoid")
 	tex_enemy_robot = resource_manager.get_texture("enemy_robot")
 	tex_enemy_alien = resource_manager.get_texture("enemy_alien")
+	tex_enemy_boss = resource_manager.get_texture("enemy_boss")
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
@@ -775,6 +862,34 @@ func _ready() -> void:
 	top_bar_style.border_width_bottom = 2
 	tb.add_theme_stylebox_override("panel", top_bar_style)
 	
+	# Estilizar BottomBar (com maior transparência)
+	var bottom_bar = $CanvasLayer/HUD.get_node_or_null("BottomBar")
+	if bottom_bar:
+		var bottom_bar_style = StyleBoxFlat.new()
+		bottom_bar_style.bg_color = Color(0.1, 0.1, 0.15, 0.6)  # Transparência aumentada (0.6 ao invés de 0.95)
+		bottom_bar_style.border_color = Color(0.3, 0.3, 0.4, 0.6)
+		bottom_bar_style.border_width_left = 0
+		bottom_bar_style.border_width_top = 2
+		bottom_bar_style.border_width_right = 0
+		bottom_bar_style.border_width_bottom = 0
+		bottom_bar.add_theme_stylebox_override("panel", bottom_bar_style)
+		
+		# Estilizar labels da BottomBar
+		var time_label = bottom_bar.get_node_or_null("LblTime")
+		if time_label:
+			time_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
+			time_label.add_theme_font_size_override("font_size", 14)
+		
+		var enemies_label = bottom_bar.get_node_or_null("LblEnemies")
+		if enemies_label:
+			enemies_label.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
+			enemies_label.add_theme_font_size_override("font_size", 14)
+		
+		var fps_label = bottom_bar.get_node_or_null("LblFPS")
+		if fps_label:
+			fps_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+			fps_label.add_theme_font_size_override("font_size", 14)
+	
 	# Melhorar labels
 	var lbl_left = tb.get_node("LblLeft")
 	lbl_left.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
@@ -823,42 +938,9 @@ func _ready() -> void:
 	if tb.has_node("BuyMenuButton"):
 		tb.get_node("BuyMenuButton").queue_free()
 	
-	# Adicionar botão para mutar música (usar anchors para posicionamento responsivo)
-	if not tb.has_node("BtnMuteMusic"):
-		var btn_mute = Button.new()
-		btn_mute.name = "BtnMuteMusic"
-		btn_mute.text = "🔊"
-		btn_mute.layout_mode = 1  # Usar layout com anchors
-		btn_mute.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		# Mute: 40px de largura, bem mais à esquerda do grupo
-		# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume, Mute
-		btn_mute.offset_left = -560  # 40px de largura, bem mais à esquerda
-		btn_mute.offset_top = 8
-		btn_mute.offset_right = -610  # Terminar 10px antes de Volume (que começa em -580)
-		btn_mute.offset_bottom = 36
-		tb.add_child(btn_mute)
-		
-		# Estilizar botão de mute
-		var mute_btn_style_normal = StyleBoxFlat.new()
-		mute_btn_style_normal.bg_color = Color(0.2, 0.2, 0.3)
-		mute_btn_style_normal.border_color = Color(0.4, 0.4, 0.5)
-		mute_btn_style_normal.border_width_left = 1
-		mute_btn_style_normal.border_width_top = 1
-		mute_btn_style_normal.border_width_right = 1
-		mute_btn_style_normal.border_width_bottom = 1
-		btn_mute.add_theme_stylebox_override("normal", mute_btn_style_normal)
-		
-		var mute_btn_style_hover = StyleBoxFlat.new()
-		mute_btn_style_hover.bg_color = Color(0.3, 0.3, 0.4)
-		mute_btn_style_hover.border_color = Color(0.5, 0.5, 0.6)
-		mute_btn_style_hover.border_width_left = 1
-		mute_btn_style_hover.border_width_top = 1
-		mute_btn_style_hover.border_width_right = 1
-		mute_btn_style_hover.border_width_bottom = 1
-		btn_mute.add_theme_stylebox_override("hover", mute_btn_style_hover)
-		
-		btn_mute.add_theme_font_size_override("font_size", 16)
-		btn_mute.pressed.connect(_toggle_music)
+	# Remover botão de mute se existir
+	if tb.has_node("BtnMuteMusic"):
+		tb.get_node("BtnMuteMusic").queue_free()
 	
 	# Adicionar slider de volume (usar anchors para posicionamento responsivo)
 	if not tb.has_node("MusicVolumeSlider"):
@@ -866,12 +948,13 @@ func _ready() -> void:
 		volume_container.name = "MusicVolumeContainer"
 		volume_container.layout_mode = 1  # Usar layout com anchors
 		volume_container.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		# Volume: 110px de largura, após Mute (que termina em -520), com 10px de espaçamento
-		volume_container.offset_left = -530  # 10px após Mute
+		# Volume: 130px de largura fixa, bem posicionado
+		# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume
+		volume_container.offset_left = -580  # Posição ajustada
 		volume_container.offset_top = 8
-		volume_container.offset_right = -420  # 110px de largura, terminar 10px antes de Admin
+		volume_container.offset_right = -450  # 130px de largura fixa
 		volume_container.offset_bottom = 36
-		volume_container.custom_minimum_size = Vector2(110, 28)
+		volume_container.custom_minimum_size = Vector2(130, 28)
 		
 		var volume_label = Label.new()
 		volume_label.text = "🔊"
@@ -882,7 +965,7 @@ func _ready() -> void:
 		
 		var volume_slider = HSlider.new()
 		volume_slider.name = "MusicVolumeSlider"
-		volume_slider.custom_minimum_size = Vector2(80, 28)  # Reduzir para caber melhor no container
+		volume_slider.custom_minimum_size = Vector2(100, 28)  # Tamanho fixo único
 		volume_slider.min_value = -60.0  # Mínimo: muito baixo
 		volume_slider.max_value = 0.0    # Máximo: volume normal
 		volume_slider.value = music_volume
@@ -927,18 +1010,18 @@ func _ready() -> void:
 	tower_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	# Alcance
 	tower_menu.add_item("Alcance +60 (💰 Moedas)", 1)
-	tower_menu.add_item("Alcance +60 (💚 Esmeraldas)", 11)
+	tower_menu.add_item("Alcance +60 (🟢 Esmeraldas)", 11)
 	tower_menu.add_separator()
 	# Cadência
 	tower_menu.add_item("Cadência + (💰 Moedas)", 2)
-	tower_menu.add_item("Cadência + (💚 Esmeraldas)", 12)
+	tower_menu.add_item("Cadência + (🟢 Esmeraldas)", 12)
 	tower_menu.add_separator()
 	# Direções
 	tower_menu.add_item("+4 Direções", 3)
 	tower_menu.add_separator()
 	# Dano
 	tower_menu.add_item("Dano +0.5 (💰 Moedas)", 4)
-	tower_menu.add_item("Dano +0.5 (💚 Esmeraldas)", 14)
+	tower_menu.add_item("Dano +0.5 (🟢 Esmeraldas)", 14)
 	tower_menu.add_separator()
 	# Efeitos especiais
 	tower_menu.add_item("Congelamento", 5)
@@ -957,16 +1040,16 @@ func _ready() -> void:
 	barracks_menu.name = "BarracksMenu"
 	barracks_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	barracks_menu.add_item("Dano +0.2 (💰 Moedas)", 1)
-	barracks_menu.add_item("Dano +0.2 (💚 Esmeraldas)", 10)
+	barracks_menu.add_item("Dano +0.2 (🟢 Esmeraldas)", 10)
 	barracks_menu.add_separator()
 	barracks_menu.add_item("Tempo Hold +1s (💰 Moedas)", 2)
-	barracks_menu.add_item("Tempo Hold +1s (💚 Esmeraldas)", 11)
+	barracks_menu.add_item("Tempo Hold +1s (🟢 Esmeraldas)", 11)
 	barracks_menu.add_separator()
 	barracks_menu.add_item("Spawn Rate -0.5s (💰 Moedas)", 3)
-	barracks_menu.add_item("Spawn Rate -0.5s (💚 Esmeraldas)", 12)
+	barracks_menu.add_item("Spawn Rate -0.5s (🟢 Esmeraldas)", 12)
 	barracks_menu.add_separator()
 	barracks_menu.add_item("Velocidade Projétil +20 (💰 Moedas)", 4)
-	barracks_menu.add_item("Velocidade Projétil +20 (💚 Esmeraldas)", 13)
+	barracks_menu.add_item("Velocidade Projétil +20 (🟢 Esmeraldas)", 13)
 	barracks_menu.id_pressed.connect(Callable(self, "_on_barracks_menu_pressed"))
 	barracks_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	barracks_menu_container.add_child(barracks_menu)
@@ -981,10 +1064,10 @@ func _ready() -> void:
 	sniper_menu.name = "SniperMenu"
 	sniper_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	sniper_menu.add_item("Dano +2 (💰 Moedas)", 1)
-	sniper_menu.add_item("Dano +2 (💚 Esmeraldas)", 10)
+	sniper_menu.add_item("Dano +2 (🟢 Esmeraldas)", 10)
 	sniper_menu.add_separator()
 	sniper_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
-	sniper_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
+	sniper_menu.add_item("Taxa de Tiro + (🟢 Esmeraldas)", 11)
 	sniper_menu.add_separator()
 	sniper_menu.add_item("Alvo: Boss", 3)
 	sniper_menu.add_item("Alvo: Mais Próximo ao Centro", 4)
@@ -1002,13 +1085,13 @@ func _ready() -> void:
 	aoe_menu.name = "AOEMenu"
 	aoe_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	aoe_menu.add_item("Dano +1 (💰 Moedas)", 1)
-	aoe_menu.add_item("Dano +1 (💚 Esmeraldas)", 10)
+	aoe_menu.add_item("Dano +1 (🟢 Esmeraldas)", 10)
 	aoe_menu.add_separator()
 	aoe_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
-	aoe_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
+	aoe_menu.add_item("Taxa de Tiro + (🟢 Esmeraldas)", 11)
 	aoe_menu.add_separator()
 	aoe_menu.add_item("Área +20 (💰 Moedas)", 3)
-	aoe_menu.add_item("Área +20 (💚 Esmeraldas)", 12)
+	aoe_menu.add_item("Área +20 (🟢 Esmeraldas)", 12)
 	aoe_menu.id_pressed.connect(Callable(self, "_on_aoe_menu_pressed"))
 	aoe_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	aoe_menu_container.add_child(aoe_menu)
@@ -1023,13 +1106,13 @@ func _ready() -> void:
 	shock_menu.name = "ShockMenu"
 	shock_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	shock_menu.add_item("Dano +0.5 (💰 Moedas)", 1)
-	shock_menu.add_item("Dano +0.5 (💚 Esmeraldas)", 10)
+	shock_menu.add_item("Dano +0.5 (🟢 Esmeraldas)", 10)
 	shock_menu.add_separator()
 	shock_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
-	shock_menu.add_item("Taxa de Tiro + (💚 Esmeraldas)", 11)
+	shock_menu.add_item("Taxa de Tiro + (🟢 Esmeraldas)", 11)
 	shock_menu.add_separator()
 	shock_menu.add_item("Corrente +1 (💰 Moedas)", 3)
-	shock_menu.add_item("Corrente +1 (💚 Esmeraldas)", 12)
+	shock_menu.add_item("Corrente +1 (🟢 Esmeraldas)", 12)
 	shock_menu.id_pressed.connect(Callable(self, "_on_shock_menu_pressed"))
 	shock_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
 	shock_menu_container.add_child(shock_menu)
@@ -1044,10 +1127,10 @@ func _ready() -> void:
 	slow_menu.name = "SlowMenu"
 	slow_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	slow_menu.add_item("Alcance +30 (💰 Moedas)", 1)
-	slow_menu.add_item("Alcance +30 (💚 Esmeraldas)", 10)
+	slow_menu.add_item("Alcance +30 (🟢 Esmeraldas)", 10)
 	slow_menu.add_separator()
 	slow_menu.add_item("Slow x1.05 (💰 Moedas)", 2)
-	slow_menu.add_item("Slow x1.05 (💚 Esmeraldas)", 11)
+	slow_menu.add_item("Slow x1.05 (🟢 Esmeraldas)", 11)
 	# Removido duração - funciona enquanto está dentro da área
 	# Removido completamente "Taxa de Aplicação" (era id 4) - não faz sentido
 	slow_menu.id_pressed.connect(Callable(self, "_on_slow_menu_pressed"))
@@ -1064,10 +1147,10 @@ func _ready() -> void:
 	boost_menu.name = "BoostMenu"
 	boost_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
 	boost_menu.add_item("Boost Dano +10% (💰 Moedas)", 1)
-	boost_menu.add_item("Boost Dano +10% (💚 Esmeraldas)", 10)
+	boost_menu.add_item("Boost Dano +10% (🟢 Esmeraldas)", 10)
 	boost_menu.add_separator()
 	boost_menu.add_item("Boost Cadência +5% (💰 Moedas)", 2)
-	boost_menu.add_item("Boost Cadência +5% (💚 Esmeraldas)", 11)
+	boost_menu.add_item("Boost Cadência +5% (🟢 Esmeraldas)", 11)
 	# Removido upgrade de alcance - range é global (9999)
 	boost_menu.id_pressed.connect(Callable(self, "_on_boost_menu_pressed"))
 	boost_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
@@ -1231,6 +1314,8 @@ func _ready() -> void:
 	
 	_create_boss_alert_ui()
 	_load_boss_warning_sound()
+	_create_special_wave_alert_ui()
+	_create_weather_ui()
 	
 	# Verificar se há um slot para carregar (vindo do menu)
 	var load_slot = get_tree().get_meta("load_slot", "")
@@ -1268,6 +1353,47 @@ func _process(delta: float) -> void:
 		boss_alert_timer -= delta
 		if boss_alert_timer <= 0.0 and boss_alert_label:
 			boss_alert_label.visible = false
+		
+		# Atualizar timer de alerta de wave especial com fade out
+		# Primeiro, verificar se ainda há wave especial ativa - se não, esconder imediatamente
+		if current_special_wave_type == WaveManager.SpecialWaveType.NONE:
+			if special_wave_alert_label and special_wave_alert_label.visible:
+				special_wave_alert_label.visible = false
+				special_wave_alert_timer = 0.0
+		elif special_wave_alert_timer > 0.0:
+			special_wave_alert_timer -= delta
+			if special_wave_alert_label and special_wave_alert_label.visible:
+				if special_wave_alert_timer <= GameConstants.SPECIAL_WAVE_ALERT_FADE_OUT_START:
+					# Iniciar fade out gradual (quando timer <= 1.0s)
+					var fade_time = GameConstants.SPECIAL_WAVE_ALERT_FADE_OUT_START
+					var fade_progress = special_wave_alert_timer / fade_time  # De 1.0 (1.0s) a 0.0 (0s)
+					fade_progress = clamp(fade_progress, 0.0, 1.0)
+					# Aplicar alpha baseado no progresso do fade
+					var base_color = Color(1.0, 0.8, 0.2)  # Cor base dourada
+					var new_color = Color(base_color.r, base_color.g, base_color.b, fade_progress)
+					special_wave_alert_label.add_theme_color_override("font_color", new_color)
+					var outline_alpha = 0.9 * fade_progress
+					special_wave_alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, outline_alpha))
+				else:
+					# Totalmente visível (quando timer > 1.0s)
+					var current_color = special_wave_alert_label.get_theme_color("font_color")
+					if current_color.a < 1.0:
+						special_wave_alert_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2, 1.0))
+						special_wave_alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		if special_wave_alert_timer <= 0.0 and special_wave_alert_label:
+			special_wave_alert_label.visible = false
+			# Resetar alpha para próxima vez
+			special_wave_alert_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2, 1.0))
+			special_wave_alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		
+		# Atualizar timer de alerta de clima
+		if weather_alert_timer > 0.0:
+			weather_alert_timer -= delta
+		if weather_alert_timer <= 0.0 and weather_alert_label:
+			weather_alert_label.visible = false
+		
+		# Atualizar efeitos visuais do clima
+		_update_weather_visuals(delta)
 
 	# Atualizar skills usando SkillsManager
 	if skills_manager:
@@ -1298,14 +1424,50 @@ func _process(delta: float) -> void:
 	
 	# Atualizar DPS das torres periodicamente
 	_update_tower_dps(delta)
+	
+	# Verificar combos de torres (a cada 0.5 segundos para performance)
+	if combo_manager:
+		var combo_check_timer = get_meta("combo_check_timer", 0.0)
+		combo_check_timer += delta
+		if combo_check_timer >= 0.5:  # Verificar a cada 0.5s
+			_check_tower_combos()
+			combo_check_timer = 0.0
+		set_meta("combo_check_timer", combo_check_timer)
+	
+	# Atualizar notificações
+	if notification_manager:
+		notification_manager.update_notifications(delta)
+	
+	# Atualizar tempo de jogo
+	if not paused and not game_over:
+		game_time += delta
+		# Verificar achievements de tempo
+		_check_time_achievements()
+	
+	# Atualizar HUD inferior (tempo, FPS, inimigos)
+	_update_bottom_bar()
 
-	# update
+	# update com culling
+	var camera_pos = Vector2.ZERO  # Posição da câmera (pode ser ajustada se houver câmera móvel)
+	if culling_manager:
+		# Atualizar tamanho da viewport periodicamente
+		var viewport = get_viewport()
+		if viewport:
+			culling_manager.update_viewport_size(viewport.get_visible_rect().size)
+	
+	# Atualizar inimigos (com culling - apenas lógica, renderização é separada)
 	for e in enemies:
-		_enemy_update(e, delta)
+		# Aplicar culling: atualizar lógica apenas se estiver próximo ou visível
+		if not culling_manager or culling_manager.should_update_logic(e["pos"], camera_pos):
+			_enemy_update(e, delta)
+	
+	# Atualizar projéteis (com culling)
 	for a in arrows:
-		_arrow_update(a, delta)
+		if not culling_manager or culling_manager.is_visible(a["pos"], camera_pos):
+			_arrow_update(a, delta)
 	for b in tower_bullets:
-		_arrow_update(b, delta)
+		if not culling_manager or culling_manager.is_visible(b["pos"], camera_pos):
+			_arrow_update(b, delta)
 	_handle_collisions()
 	# filtrar setas vivas
 	var new_arrows: Array = []
@@ -1426,8 +1588,13 @@ func _process(delta: float) -> void:
 				var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 				var dist_to_base = hs.pos.distance_to(base_center)
 				if dist_to_base <= hs.range:
-					# Usar base_hp_max ao invés de BASE_MAX_HP para respeitar bônus permanentes
-					base_hp = min(base_hp_max, base_hp + hs.heal_amount)
+					# Garantir que base_hp_max está atualizado (pode ter mudado durante a wave)
+					# Recalcular se necessário
+					if base_hp_max < base_hp:
+						base_hp_max = base_hp  # Corrigir inconsistência
+					# Aplicar cura respeitando o limite máximo
+					var new_hp = base_hp + hs.heal_amount
+					base_hp = min(base_hp_max, new_hp)
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
 			# Usar pool do HeroManager se disponível
@@ -1517,6 +1684,9 @@ func _process(delta: float) -> void:
 
 	wave_manager.update_intermission(delta)
 	if not choosing_upgrade and not wave_manager.spawning and enemies.is_empty():
+		# Verificar bônus de wave perfeita quando a wave termina
+		if current_special_wave_type == WaveManager.SpecialWaveType.PERFECT_WAVE:
+			_check_perfect_wave_bonus()
 		if wave_manager.should_start_wave():
 			wave_manager.start_next_wave()
 
@@ -1525,24 +1695,41 @@ func _process(delta: float) -> void:
 		if should_spawn:
 			var s = _random_spawn()
 			if s != null:
-				if wave_manager.is_boss_wave() and wave_manager.bosses_spawned_this_wave < 2:
+				# Boss Rush: spawnar apenas bosses
+				if current_special_wave_type == WaveManager.SpecialWaveType.BOSS_RUSH:
+					# Spawnar mais bosses durante Boss Rush (4 ao invés de 2)
+					if wave_manager.bosses_spawned_this_wave < 4:
+						enemies.append(_enemy_new_boss(s.x, s.y))
+				elif wave_manager.is_boss_wave() and wave_manager.bosses_spawned_this_wave < 2:
 					enemies.append(_enemy_new_boss(s.x, s.y))
 				else:
-					enemies.append(_enemy_new(s.x, s.y))
+					# Escolher tipo de inimigo baseado na wave (sistema padronizado)
+					var enemy_type = _get_random_enemy_type_for_wave()
+					enemies.append(_enemy_new(s.x, s.y, enemy_type))
 
-	# UI
+	# UI - TopBar (apenas informações essenciais)
 	var tb = $CanvasLayer/HUD/TopBar
 	var is_boss_wave := wave_manager.is_boss_wave()
 	var wave_text = "Onda %d (CHEFE!)" % wave_manager.wave if is_boss_wave else "Onda %d" % wave_manager.wave
-	tb.get_node("LblLeft").text = "%s  Inimigos %d" % [wave_text, enemies.size()]
+	# Adicionar indicação de wave especial
+	if current_special_wave_type != WaveManager.SpecialWaveType.NONE:
+		var special_icon = wave_manager.get_special_wave_name().split(" ")[0]  # Pegar o emoji
+		wave_text = "%s %s" % [special_icon, wave_text]
+	var weather_text = ""
+	if weather_manager and weather_manager.current_weather != WeatherManager.WeatherType.NONE:
+		weather_text = "  " + weather_manager.get_weather_name()
+	tb.get_node("LblLeft").text = "%s%s" % [wave_text, weather_text]
 	tb.get_node("LblCenter").text = "💰 %d" % [int(hero["coins"])]
 	var lbl_right = tb.get_node_or_null("LblRight")
 	if lbl_right:
-		lbl_right.text = "Vida %d" % [base_hp]
+		lbl_right.text = "❤️ %d" % [base_hp]
 		lbl_right.visible = true  # Garantir que sempre esteja visível
 		# Garantir que o texto seja atualizado mesmo se o label estiver escondido
 		if not lbl_right.visible:
 			lbl_right.show()
+	
+	# UI - BottomBar (informações secundárias)
+	_update_bottom_bar()
 	
 	# Atualizar labels de moedas especiais
 	_update_special_currency_labels()
@@ -1997,6 +2184,9 @@ func _draw() -> void:
 	# Overlay escuro sobre o labirinto (22% de opacidade)
 	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.22))
 	
+	# Desenhar efeitos climáticos (chuva, neve, nuvens) - antes dos monstros
+	_draw_weather_effects()
+	
 	# base com transparência moderada - usar coordenadas exatas do grid
 	var base_half_size = int(GameConstants.BASE_SIZE_TILES / 2)  # 3
 	var base_start_col = grid_manager.center.x - base_half_size  # 14
@@ -2044,8 +2234,13 @@ func _draw() -> void:
 	else:
 		var half = hero_block_pixels / 2.0
 		draw_rect(Rect2(bc.x - half, bc.y - half, hero_block_pixels, hero_block_pixels), Color(0.9,0.7,0.2))
-	# enemies
+	# enemies (com culling)
+	var camera_pos = Vector2.ZERO  # Posição da câmera
 	for e in enemies:
+		# Aplicar culling: renderizar apenas se estiver visível
+		if culling_manager and not culling_manager.should_render(e["pos"], camera_pos):
+			continue
+		
 		# barra de vida melhorada (não mostrar se está morrendo)
 		var is_dying = e.get("dying", false)
 		var is_boss: bool = e.get("is_boss", false)
@@ -2080,15 +2275,36 @@ func _draw() -> void:
 		# corpo - desenhar sprite do monstro
 		var enemy_idx = e.get("idx", -1)
 		var enemy_tex: Texture2D = tex_enemy_zombie
-		# Selecionar sprite baseado na wave (prioridade: alien > robot > humanoid > zombie)
-		if wave_manager.wave >= 50 and tex_enemy_alien != null:
-			enemy_tex = tex_enemy_alien
-		elif wave_manager.wave >= 11 and tex_enemy_robot != null:
-			enemy_tex = tex_enemy_robot
-		elif wave_manager.wave >= 6 and tex_enemy_humanoid != null:
-			enemy_tex = tex_enemy_humanoid
-		elif tex_enemy_zombie != null:
-			enemy_tex = tex_enemy_zombie
+		
+		# Se for boss, usar textura do boss
+		if is_boss and tex_enemy_boss != null:
+			enemy_tex = tex_enemy_boss
+		else:
+			# Selecionar sprite baseado no tipo do inimigo (sistema padronizado)
+			var enemy_type = e.get("enemy_type", GameConstants.EnemyType.ZOMBIE)
+			match enemy_type:
+				GameConstants.EnemyType.ZOMBIE:
+					enemy_tex = tex_enemy_zombie if tex_enemy_zombie != null else enemy_tex
+				GameConstants.EnemyType.ZOMBIE_GORDO:
+					enemy_tex = tex_enemy_zombie_gordo if tex_enemy_zombie_gordo != null else tex_enemy_zombie
+				GameConstants.EnemyType.ZOMBIE_CORREDOR:
+					enemy_tex = tex_enemy_zombie_corredor if tex_enemy_zombie_corredor != null else tex_enemy_zombie
+				GameConstants.EnemyType.HUMANOID:
+					enemy_tex = tex_enemy_humanoid if tex_enemy_humanoid != null else enemy_tex
+				GameConstants.EnemyType.ROBOT:
+					enemy_tex = tex_enemy_robot if tex_enemy_robot != null else enemy_tex
+				GameConstants.EnemyType.ALIEN:
+					enemy_tex = tex_enemy_alien if tex_enemy_alien != null else enemy_tex
+				_:
+					# Fallback: usar seleção baseada em wave (compatibilidade com saves antigos)
+					if wave_manager.wave >= 50 and tex_enemy_alien != null:
+						enemy_tex = tex_enemy_alien
+					elif wave_manager.wave >= 11 and tex_enemy_robot != null:
+						enemy_tex = tex_enemy_robot
+					elif wave_manager.wave >= 6 and tex_enemy_humanoid != null:
+						enemy_tex = tex_enemy_humanoid
+					elif tex_enemy_zombie != null:
+						enemy_tex = tex_enemy_zombie
 		
 		if enemy_tex != null:
 			# Tamanho maior para bosses, tamanho normal para outros
@@ -2105,6 +2321,10 @@ func _draw() -> void:
 			
 			# Aplicar efeitos visuais através de modulate
 			var modulate_color = Color.WHITE
+			
+			# Efeito de noite: reduzir brilho e contraste dos monstros (torná-los mais difíceis de ver)
+			if weather_manager and weather_manager.is_night():
+				modulate_color = Color(0.5, 0.5, 0.6, 0.8)  # Escurecido mas com maior opacidade (80% ao invés de 60%)
 			
 			if is_dying:
 				# Aplicar animação de morte (fade e shrink)
@@ -2162,10 +2382,17 @@ func _draw() -> void:
 		else:
 			var enemy_color = Color(0.9,0.35,0.35)
 			
+			# Efeito de noite: reduzir brilho e contraste dos monstros (torná-los mais difíceis de ver)
+			if weather_manager and weather_manager.is_night():
+				enemy_color = Color(0.4, 0.4, 0.45, 0.8)  # Escurecido mas com maior opacidade (80% ao invés de 60%)
+			
 			# chefe tem cor diferente (roxo/vermelho escuro)
 			if is_boss:
 				enemy_color = Color(0.8,0.2,0.8)  # roxo para chefe
-			elif enemy_idx >= 0 and enemy_effects.has(enemy_idx):
+				# Aplicar efeito de noite também em bosses (mas menos intenso)
+				if weather_manager and weather_manager.is_night():
+					enemy_color = Color(0.5, 0.15, 0.5, 0.85)  # Boss um pouco mais visível (opacidade aumentada)
+			if not is_boss and enemy_idx >= 0 and enemy_effects.has(enemy_idx):
 				var effects = enemy_effects[enemy_idx]
 				if effects.freeze_time > 0.0:
 					enemy_color = Color(0.5,0.7,1.0)  # azul quando congelado
@@ -2186,46 +2413,66 @@ func _draw() -> void:
 			# desenhar borda mais grossa para chefe
 			if is_boss:
 				draw_circle(e["pos"], enemy_radius, Color(0.5,0.1,0.5), false, 3.0)  # borda roxa grossa
-	# arrows
+	
+	# Desenhar overlay de noite DEPOIS dos monstros (para ficar por cima deles)
+	if weather_manager and weather_manager.is_night():
+		# Usar map_width e map_height já declaradas no início da função _draw()
+		# Overlay escuro azulado sobre todo o labirinto incluindo o topo (60% de opacidade)
+		draw_rect(Rect2(0, 0, map_width, map_height), Color(0.05, 0.05, 0.15, 0.6))
+	
+	# arrows (com culling)
 	for a in arrows:
-		draw_circle(a["pos"], 2, Color(0.83,0.90,1.0))
+		if not culling_manager or culling_manager.should_render(a["pos"], camera_pos):
+			draw_circle(a["pos"], 2, Color(0.83,0.90,1.0))
 	for b in tower_bullets:
-		draw_circle(b["pos"], 2, Color(0.95,0.85,0.45))
-	# projéteis de canhão AOE (bolas pretas)
+		if not culling_manager or culling_manager.should_render(b["pos"], camera_pos):
+			draw_circle(b["pos"], 2, Color(0.95,0.85,0.45))
+	# projéteis de canhão AOE (bolas pretas) (com culling)
 	for proj in aoe_cannon_projectiles:
-		draw_circle(proj.pos, 6, Color(0.0, 0.0, 0.0))  # bola preta
-		draw_circle(proj.pos, 6, Color(0.2, 0.2, 0.2), false, 1.0)  # borda escura
-	# efeitos visuais AOE (explosões)
+		if not culling_manager or culling_manager.should_render(proj.pos, camera_pos):
+			draw_circle(proj.pos, 6, Color(0.0, 0.0, 0.0))  # bola preta
+			draw_circle(proj.pos, 6, Color(0.2, 0.2, 0.2), false, 1.0)  # borda escura
+	# efeitos visuais AOE (explosões) (com culling e LOD)
 	for effect in aoe_effects:
-		var alpha = 1.0 - (effect.time / effect.max_time)
-		var radius = effect.radius * (effect.time / effect.max_time)
-		draw_circle(effect.pos, radius, Color(1.0, 0.5, 0.0, alpha * 0.6))
-		draw_circle(effect.pos, radius, Color(1.0, 0.8, 0.0, alpha), false, 2.0)
-	# efeitos visuais Sniper (linhas de tiro)
+		if not culling_manager or culling_manager.should_render(effect.pos, camera_pos):
+			var lod_level = culling_manager.get_lod_level(effect.pos, camera_pos) if culling_manager else 0
+			var alpha = 1.0 - (effect.time / effect.max_time)
+			var radius = effect.radius * (effect.time / effect.max_time)
+			# Aplicar LOD: reduzir detalhes em objetos distantes
+			if lod_level <= 2:  # Renderizar apenas se não estiver muito distante
+				draw_circle(effect.pos, radius, Color(1.0, 0.5, 0.0, alpha * 0.6))
+				if lod_level <= 1:  # Borda apenas se estiver próximo
+					draw_circle(effect.pos, radius, Color(1.0, 0.8, 0.0, alpha), false, 2.0)
+	# efeitos visuais Sniper (linhas de tiro) (com culling)
 	for effect in sniper_effects:
-		var alpha = 1.0 - (effect.time / effect.max_time)
-		draw_line(effect.start, effect.end, Color(1.0, 1.0, 0.0, alpha), 3.0)
-	# efeitos visuais de choque elétrico (raios/trovões)
+		if not culling_manager or culling_manager.should_render(effect.start, camera_pos):
+			var alpha = 1.0 - (effect.time / effect.max_time)
+			draw_line(effect.start, effect.end, Color(1.0, 1.0, 0.0, alpha), 3.0)
+	# efeitos visuais de choque elétrico (raios/trovões) (com culling)
 	for effect in shock_effects:
-		var alpha = 1.0 - (effect.time / effect.max_time)
-		var progress = effect.time / effect.max_time
-		# Desenhar linha principal (azul brilhante)
-		draw_line(effect.start, effect.end, Color(0.5, 0.8, 1.0, alpha), 4.0)
-		# Desenhar linha interna mais brilhante (branco/azul claro)
-		draw_line(effect.start, effect.end, Color(1.0, 1.0, 1.0, alpha * 0.8), 2.0)
-		# Adicionar "zigzag" para parecer um raio
-		var segments = 8
-		var dir = (effect.end - effect.start).normalized()
-		var perp = Vector2(-dir.y, dir.x)
-		for i in range(segments):
-			var t1 = float(i) / float(segments)
-			var t2 = float(i + 1) / float(segments)
-			var p1 = effect.start.lerp(effect.end, t1)
-			var p2 = effect.start.lerp(effect.end, t2)
-			# Adicionar pequeno desvio aleatório para parecer um raio
-			var offset1 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
-			var offset2 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
-			draw_line(p1 + offset1, p2 + offset2, Color(0.7, 0.9, 1.0, alpha * 0.6), 2.0)
+		if not culling_manager or culling_manager.should_render(effect.start, camera_pos):
+			var lod_level = culling_manager.get_lod_level(effect.start, camera_pos) if culling_manager else 0
+			var alpha = 1.0 - (effect.time / effect.max_time)
+			var progress = effect.time / effect.max_time
+			# Desenhar linha principal (azul brilhante)
+			draw_line(effect.start, effect.end, Color(0.5, 0.8, 1.0, alpha), 4.0)
+			# Desenhar linha interna mais brilhante (branco/azul claro) apenas se próximo
+			if lod_level <= 1:
+				draw_line(effect.start, effect.end, Color(1.0, 1.0, 1.0, alpha * 0.8), 2.0)
+			# Adicionar "zigzag" para parecer um raio (apenas se próximo)
+			if lod_level <= 1:
+				var segments = 8 if lod_level == 0 else 4  # Menos segmentos se distante
+				var dir = (effect.end - effect.start).normalized()
+				var perp = Vector2(-dir.y, dir.x)
+				for i in range(segments):
+					var t1 = float(i) / float(segments)
+					var t2 = float(i + 1) / float(segments)
+					var p1 = effect.start.lerp(effect.end, t1)
+					var p2 = effect.start.lerp(effect.end, t2)
+					# Adicionar pequeno desvio aleatório para parecer um raio
+					var offset1 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
+					var offset2 = perp * randf_range(-3.0, 3.0) * (1.0 - progress)
+					draw_line(p1 + offset1, p2 + offset2, Color(0.7, 0.9, 1.0, alpha * 0.6), 2.0)
 	# Desenhar torre sendo arrastada (preview durante drag)
 	if dragging_tower:
 		var preview_pos = drag_current_pos - drag_offset
@@ -3286,11 +3533,35 @@ func _random_spawn():
 	
 	return selected
 
-func _enemy_new(col: int, row: int) -> Dictionary:
+func _get_random_enemy_type_for_wave() -> GameConstants.EnemyType:
+	"""Retorna um tipo de inimigo aleatório baseado na wave atual (sistema padronizado)"""
+	var current_wave = wave_manager.wave if wave_manager else 1
+	var available_types = GameConstants.get_available_enemy_types(current_wave)
+	
+	if available_types.is_empty():
+		return GameConstants.EnemyType.ZOMBIE  # Fallback
+	
+	# Escolher aleatoriamente entre os tipos disponíveis
+	return available_types[randi() % available_types.size()]
+
+func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameConstants.EnemyType.ZOMBIE) -> Dictionary:
+	"""Cria um novo inimigo do tipo especificado (sistema padronizado)"""
 	var pos = grid_manager.tile_center(col, row)
-	var initial_hp := GameConstants.ENEMY_BASE_HP  # HP suficiente para 2 ataques iniciais
+	
+	# Obter configuração do tipo de inimigo
+	var config = GameConstants.get_enemy_type_config(enemy_type)
+	
+	# Calcular HP base com multiplicador do tipo
+	var hp_multiplier: float = config.get("hp_multiplier", 1.0)
+	var initial_hp: float = GameConstants.ENEMY_BASE_HP * hp_multiplier
 	var f := _wave_factor()
 	var hp := int(max(1, round(initial_hp * f)))
+	
+	# Aplicar modificadores de wave especial
+	if current_special_wave_type == WaveManager.SpecialWaveType.HELL_WAVE:
+		hp = int(hp * 0.5)  # 50% menos HP
+		hp = max(1, hp)  # Garantir pelo menos 1 HP
+	
 	var enemy_idx = enemies.size()
 	# Calcular caminho único para cada inimigo (criar cópia para evitar compartilhamento)
 	var path = _bfs_path(col, row)
@@ -3309,11 +3580,42 @@ func _enemy_new(col: int, row: int) -> Dictionary:
 	if path_copy.is_empty():
 		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 		path_copy = [pos, base_center]
-	# Limitar velocidade máxima para evitar bugs em waves muito altas
-	var base_speed = GameConstants.ENEMY_BASE_SPEED * f
-	if base_speed > GameConstants.ENEMY_MAX_SPEED:
-		base_speed = GameConstants.ENEMY_MAX_SPEED
-	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 9, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = false }
+	
+	# Calcular velocidade base com multiplicador do tipo
+	var speed_multiplier: float = config.get("speed_multiplier", 1.0)
+	var base_speed: float = GameConstants.ENEMY_BASE_SPEED * f * speed_multiplier
+	
+	# Aplicar modificadores de velocidade de wave especial
+	if current_special_wave_type == WaveManager.SpecialWaveType.MAX_SPEED:
+		base_speed *= 1.5  # 50% mais rápido
+	elif current_special_wave_type == WaveManager.SpecialWaveType.HELL_WAVE:
+		base_speed *= 2.0  # 2x velocidade
+	
+	# Aplicar modificadores de clima
+	if weather_manager:
+		base_speed *= weather_manager.get_enemy_speed_multiplier()
+		hp = int(hp * weather_manager.get_enemy_hp_multiplier())
+	
+	# Aplicar cap de velocidade específico do tipo (padrão é 1.0, corredor tem 1.15)
+	var max_speed_for_type = GameConstants.ENEMY_MAX_SPEED * config.get("max_speed_multiplier", 1.0)
+	if base_speed > max_speed_for_type:
+		base_speed = max_speed_for_type
+	
+	# Criar dicionário do inimigo com tipo
+	var e = {
+		"pos": pos,
+		"speed": base_speed,
+		"base_speed": base_speed,
+		"hp": hp,
+		"max_hp": hp,
+		"radius": 9,
+		"path": path_copy,
+		"path_index": 0,
+		"reached": false,
+		"idx": enemy_idx,
+		"is_boss": false,
+		"enemy_type": enemy_type  # Armazenar tipo para renderização
+	}
 	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
 
@@ -3322,6 +3624,12 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 	var initial_hp := GameConstants.BOSS_BASE_HP  # chefe tem muito mais HP (equivalente a 25 hits iniciais)
 	var f := _wave_factor()
 	var hp := int(max(1, round(initial_hp * f)))
+	
+	# Aplicar modificadores de wave especial (bosses não são afetados por HELL_WAVE da mesma forma)
+	if current_special_wave_type == WaveManager.SpecialWaveType.HELL_WAVE:
+		hp = int(hp * 0.75)  # Bosses perdem menos HP (25% menos ao invés de 50%)
+		hp = max(1, hp)
+	
 	var enemy_idx = enemies.size()
 	# Calcular caminho único para cada inimigo (não usar cache compartilhado)
 	var path = _bfs_path(col, row)
@@ -3342,6 +3650,18 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 		path_copy = [pos, base_center]
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
 	var base_speed = GameConstants.ENEMY_BASE_SPEED * f * GameConstants.BOSS_SPEED_MULTIPLIER
+	
+	# Aplicar modificadores de velocidade de wave especial
+	if current_special_wave_type == WaveManager.SpecialWaveType.MAX_SPEED:
+		base_speed *= 1.5  # 50% mais rápido
+	elif current_special_wave_type == WaveManager.SpecialWaveType.HELL_WAVE:
+		base_speed *= 1.5  # Bosses não ficam tão rápidos (1.5x ao invés de 2x)
+	
+	# Aplicar modificadores de clima
+	if weather_manager:
+		base_speed *= weather_manager.get_enemy_speed_multiplier()
+		hp = int(hp * weather_manager.get_enemy_hp_multiplier())
+	
 	if base_speed > GameConstants.ENEMY_MAX_SPEED:
 		base_speed = GameConstants.ENEMY_MAX_SPEED
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 12, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = true }
@@ -3974,14 +4294,14 @@ func _open_tower_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
 	
 	# Atualizar textos dos itens do menu
-	# Estrutura do menu: 0=Alcance💰, 1=Alcance💚, 2=Separador, 3=Cadência💰, 4=Cadência💚, 5=Separador, 6=Direções, 7=Separador, 8=Dano💰, 9=Dano💚, 10=Separador, 11=Congelamento, 12=Fogo
+	# Estrutura do menu: 0=Alcance💰, 1=Alcance💎, 2=Separador, 3=Cadência💰, 4=Cadência💎, 5=Separador, 6=Direções, 7=Separador, 8=Dano💰, 9=Dano💎, 10=Separador, 11=Congelamento, 12=Fogo
 	tower_menu.set_item_text(0, "Alcance +60 (💰 %d moedas)" % range_cost)
-	tower_menu.set_item_text(1, "Alcance +60 (💚 %d esmeraldas)" % range_emerald_cost)
+	tower_menu.set_item_text(1, "Alcance +60 (🟢 %d esmeraldas)" % range_emerald_cost)
 	tower_menu.set_item_text(3, "Cadência + (💰 %d moedas)" % rate_cost)
-	tower_menu.set_item_text(4, "Cadência + (💚 %d esmeraldas)" % rate_emerald_cost)
+	tower_menu.set_item_text(4, "Cadência + (🟢 %d esmeraldas)" % rate_emerald_cost)
 	tower_menu.set_item_text(6, "+4 Direções (💰 %d moedas)" % dirs_cost)
 	tower_menu.set_item_text(8, "Dano +0.5 (💰 %d moedas)" % dmg_cost)
-	tower_menu.set_item_text(9, "Dano +0.5 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	tower_menu.set_item_text(9, "Dano +0.5 (🟢 %d esmeraldas)" % dmg_emerald_cost)
 	tower_menu.set_item_text(11, "Congelamento (💰 %d moedas)" % freeze_cost)
 	tower_menu.set_item_text(12, "Fogo (💰 %d moedas)" % fire_cost)
 	
@@ -4240,7 +4560,7 @@ func _create_special_currency_labels(tb: Panel) -> void:
 	# Criar label de Esmeraldas (mesmo tamanho e espaçamento maior)
 	emerald_label = Label.new()
 	emerald_label.name = "LblEmeralds"
-	emerald_label.text = "💚 0"
+	emerald_label.text = "🟢 0"
 	emerald_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.3))  # Verde
 	emerald_label.add_theme_font_size_override("font_size", 18)  # Mesmo tamanho que moedas
 	emerald_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -4287,7 +4607,7 @@ func _update_special_currency_labels() -> void:
 	var currency_info = special_currency_manager.get_currency_info()
 	
 	if emerald_label:
-		emerald_label.text = "💚 %d" % currency_info.emeralds
+		emerald_label.text = "🟢 %d" % currency_info.emeralds
 	
 	if diamond_label:
 		diamond_label.text = "💎 %d" % currency_info.diamonds
@@ -4429,7 +4749,7 @@ func _on_upgrade_hero_home() -> void:
 	_update_tower_shop_ui()  # Atualizar UI da loja também
 	queue_redraw()
 
-func _on_wave_started(wave_number: int, _is_boss_wave: bool):
+func _on_wave_started(wave_number: int, _is_boss_wave: bool, special_wave_type: WaveManager.SpecialWaveType):
 	# Resetar dados de DPS da wave anterior
 	for tower_id in tower_dps_data.keys():
 		if tower_dps_data[tower_id].has("wave_damage"):
@@ -4438,6 +4758,55 @@ func _on_wave_started(wave_number: int, _is_boss_wave: bool):
 		tower_dps_data[tower_id]["shots"] = 0
 	if ((wave_number + 1) % 5) == 0:
 		_show_boss_warning("ALERTA! Boss chegando na próxima wave!")
+	
+	# Sistema de waves especiais
+	var previous_special_wave_type = current_special_wave_type
+	current_special_wave_type = special_wave_type
+	perfect_wave_bonus_given = false
+	
+	# Sistema de clima
+	if weather_manager:
+		var old_weather = weather_manager.current_weather
+		var weather_changed = weather_manager.update_weather(wave_number)
+		# Mostrar aviso apenas quando o clima muda para um novo tipo (não quando expira ou permanece o mesmo)
+		if weather_changed and weather_manager.current_weather != WeatherManager.WeatherType.NONE and weather_manager.current_weather != old_weather:
+			_show_weather_alert(wave_number)
+		_apply_weather_effects()
+	
+	# Gerenciar alerta de wave especial
+	if special_wave_type == WaveManager.SpecialWaveType.NONE and previous_special_wave_type != WaveManager.SpecialWaveType.NONE:
+		# Wave especial terminou - esconder alerta imediatamente
+		if special_wave_alert_label:
+			special_wave_alert_label.visible = false
+			special_wave_alert_timer = 0.0
+		special_wave_coin_multiplier = 1.0
+	elif special_wave_type != WaveManager.SpecialWaveType.NONE and special_wave_type != previous_special_wave_type:
+		# Nova wave especial iniciou - mostrar alerta
+		_show_special_wave_alert(wave_number, special_wave_type)
+		# Aplicar multiplicador de moedas baseado no tipo de wave
+		match special_wave_type:
+			WaveManager.SpecialWaveType.NIGHT_HORDE:
+				special_wave_coin_multiplier = 1.5
+			WaveManager.SpecialWaveType.DOUBLE_COINS:
+				special_wave_coin_multiplier = 2.0
+			WaveManager.SpecialWaveType.MAX_SPEED:
+				special_wave_coin_multiplier = 2.0
+			WaveManager.SpecialWaveType.BOSS_RUSH:
+				special_wave_coin_multiplier = 3.0
+			WaveManager.SpecialWaveType.PERFECT_WAVE:
+				special_wave_coin_multiplier = 1.0  # Bônus será dado se completar sem perder HP
+			WaveManager.SpecialWaveType.HELL_WAVE:
+				special_wave_coin_multiplier = 1.5
+			_:
+				special_wave_coin_multiplier = 1.0
+	elif special_wave_type == WaveManager.SpecialWaveType.NONE:
+		# Wave normal (sem wave especial anterior) - garantir que alerta está escondido
+		if special_wave_alert_label and special_wave_alert_label.visible:
+			special_wave_alert_label.visible = false
+			special_wave_alert_timer = 0.0
+		special_wave_coin_multiplier = 1.0
+	else:
+		special_wave_coin_multiplier = 1.0
 	
 	# Rastrear HP da base no início da onda para achievement de onda perfeita
 	current_wave_base_hp_start = base_hp
@@ -4533,13 +4902,13 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	# Atualizar textos dos itens do menu
 	barracks_menu.set_item_text(0, "Dano +0.2 (💰 %d moedas)" % dmg_cost)
-	barracks_menu.set_item_text(1, "Dano +0.2 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	barracks_menu.set_item_text(1, "Dano +0.2 (🟢 %d esmeraldas)" % dmg_emerald_cost)
 	barracks_menu.set_item_text(3, "Tempo Hold +%.1fs (💰 %d moedas)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_cost])
-	barracks_menu.set_item_text(4, "Tempo Hold +%.1fs (💚 %d esmeraldas)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_emerald_cost])
+	barracks_menu.set_item_text(4, "Tempo Hold +%.1fs (🟢 %d esmeraldas)" % [GameConstants.BARRACKS_HOLD_TIME_INCREASE, hold_emerald_cost])
 	barracks_menu.set_item_text(6, "Spawn Rate -0.5s (💰 %d moedas) [%.1fs]" % [spawn_rate_cost, b.soldier_spawn_rate])
-	barracks_menu.set_item_text(7, "Spawn Rate -0.5s (💚 %d esmeraldas) [%.1fs]" % [spawn_rate_emerald_cost, b.soldier_spawn_rate])
+	barracks_menu.set_item_text(7, "Spawn Rate -0.5s (🟢 %d esmeraldas) [%.1fs]" % [spawn_rate_emerald_cost, b.soldier_spawn_rate])
 	barracks_menu.set_item_text(9, "Velocidade Projétil +20 (💰 %d moedas) [%.0f]" % [projectile_speed_cost, b.projectile_speed])
-	barracks_menu.set_item_text(10, "Velocidade Projétil +20 (💚 %d esmeraldas) [%.0f]" % [projectile_speed_emerald_cost, b.projectile_speed])
+	barracks_menu.set_item_text(10, "Velocidade Projétil +20 (🟢 %d esmeraldas) [%.0f]" % [projectile_speed_emerald_cost, b.projectile_speed])
 	barracks_menu.set_item_disabled(0, not can_dmg)
 	barracks_menu.set_item_disabled(1, not can_dmg_emerald)
 	barracks_menu.set_item_disabled(3, not can_hold)
@@ -4687,9 +5056,9 @@ func _open_sniper_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and s.fire_rate > GameConstants.SNIPER_MIN_FIRE_RATE
 	
 	sniper_menu.set_item_text(0, "Dano +2 (💰 %d moedas)" % dmg_cost)
-	sniper_menu.set_item_text(1, "Dano +2 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	sniper_menu.set_item_text(1, "Dano +2 (🟢 %d esmeraldas)" % dmg_emerald_cost)
 	sniper_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, s.fire_rate])
-	sniper_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
+	sniper_menu.set_item_text(4, "Taxa de Tiro + (🟢 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
 	var target_mode = s.get("target_mode", 0)
 	sniper_menu.set_item_text(6, "Alvo: Boss" + (" ✓" if target_mode == 0 else ""))
 	sniper_menu.set_item_text(7, "Alvo: Mais Próximo ao Centro" + (" ✓" if target_mode == 1 else ""))
@@ -4812,11 +5181,11 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_area_emerald: bool = currency_info.emeralds >= area_emerald_cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS
 	
 	aoe_menu.set_item_text(0, "Dano +1 (💰 %d moedas)" % dmg_cost)
-	aoe_menu.set_item_text(1, "Dano +1 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	aoe_menu.set_item_text(1, "Dano +1 (🟢 %d esmeraldas)" % dmg_emerald_cost)
 	aoe_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, a.fire_rate])
-	aoe_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, a.fire_rate])
+	aoe_menu.set_item_text(4, "Taxa de Tiro + (🟢 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, a.fire_rate])
 	aoe_menu.set_item_text(6, "Área +20 (💰 %d moedas) [%.0f]" % [area_cost, a.aoe_radius])
-	aoe_menu.set_item_text(7, "Área +20 (💚 %d esmeraldas) [%.0f]" % [area_emerald_cost, a.aoe_radius])
+	aoe_menu.set_item_text(7, "Área +20 (🟢 %d esmeraldas) [%.0f]" % [area_emerald_cost, a.aoe_radius])
 	aoe_menu.set_item_disabled(0, not can_dmg)
 	aoe_menu.set_item_disabled(1, not can_dmg_emerald)
 	aoe_menu.set_item_disabled(3, not can_rate)
@@ -4931,7 +5300,9 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	var chain_level = s.levels.get("CHAIN", 0)
 	var dmg_cost = get_upgrade_cost(GameConstants.SHOCK_DMG_COST, dmg_level)
 	var rate_cost = get_upgrade_cost(GameConstants.SHOCK_RATE_COST, rate_level)
-	var chain_cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
+	# Aplicar multiplicador especial para upgrade de chain (mais caro)
+	var base_chain_cost = GameConstants.SHOCK_CHAIN_COST
+	var chain_cost = int(base_chain_cost * pow(GameConstants.SHOCK_CHAIN_COST_MULTIPLIER, chain_level))
 	
 	# Custos em esmeraldas (escalados)
 	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
@@ -4949,11 +5320,11 @@ func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	var can_chain_emerald: bool = currency_info.emeralds >= chain_emerald_cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT
 	
 	shock_menu.set_item_text(0, "Dano +0.5 (💰 %d moedas)" % dmg_cost)
-	shock_menu.set_item_text(1, "Dano +0.5 (💚 %d esmeraldas)" % dmg_emerald_cost)
+	shock_menu.set_item_text(1, "Dano +0.5 (🟢 %d esmeraldas)" % dmg_emerald_cost)
 	shock_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, s.fire_rate])
-	shock_menu.set_item_text(4, "Taxa de Tiro + (💚 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
+	shock_menu.set_item_text(4, "Taxa de Tiro + (🟢 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, s.fire_rate])
 	shock_menu.set_item_text(6, "Corrente +1 (💰 %d moedas) [%d]" % [chain_cost, s.chain_count])
-	shock_menu.set_item_text(7, "Corrente +1 (💚 %d esmeraldas) [%d]" % [chain_emerald_cost, s.chain_count])
+	shock_menu.set_item_text(7, "Corrente +1 (🟢 %d esmeraldas) [%d]" % [chain_emerald_cost, s.chain_count])
 	shock_menu.set_item_disabled(0, not can_dmg)
 	shock_menu.set_item_disabled(1, not can_dmg_emerald)
 	shock_menu.set_item_disabled(3, not can_rate)
@@ -5004,7 +5375,9 @@ func _on_shock_menu_pressed(id: int) -> void:
 				s.levels["RATE"] += 1
 				_update_special_currency_labels()
 		3:  # Corrente com moedas
-			var cost = get_upgrade_cost(GameConstants.SHOCK_CHAIN_COST, chain_level)
+			# Aplicar multiplicador especial para upgrade de chain (mais caro)
+			var base_chain_cost = GameConstants.SHOCK_CHAIN_COST
+			var cost = int(base_chain_cost * pow(GameConstants.SHOCK_CHAIN_COST_MULTIPLIER, chain_level))
 			if hero["coins"] >= cost and s.chain_count < GameConstants.SHOCK_MAX_CHAIN_COUNT:
 				s.chain_count = min(GameConstants.SHOCK_MAX_CHAIN_COUNT, s.chain_count + 1)
 				s.levels["CHAIN"] += 1
@@ -5082,9 +5455,9 @@ func _open_slow_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	# Atualizar itens (alcance e slow com opções de moedas e esmeraldas)
 	slow_menu.set_item_text(0, "Alcance +30 (💰 %d moedas) [%.0f/222250]" % [range_cost, s.range])
-	slow_menu.set_item_text(1, "Alcance +30 (💚 %d esmeraldas) [%.0f/250]" % [range_emerald_cost, s.range])
+	slow_menu.set_item_text(1, "Alcance +30 (🟢 %d esmeraldas) [%.0f/250]" % [range_emerald_cost, s.range])
 	slow_menu.set_item_text(3, "Slow x1.05 (💰 %d moedas) [%.0f%%/50%%]" % [amount_cost, s.slow_amount * 100])
-	slow_menu.set_item_text(4, "Slow x1.05 (💚 %d esmeraldas) [%.0f%%/50%%]" % [amount_emerald_cost, s.slow_amount * 100])
+	slow_menu.set_item_text(4, "Slow x1.05 (🟢 %d esmeraldas) [%.0f%%/50%%]" % [amount_emerald_cost, s.slow_amount * 100])
 	slow_menu.set_item_disabled(0, not can_range)
 	slow_menu.set_item_disabled(1, not can_range_emerald)
 	slow_menu.set_item_disabled(3, not can_amount)
@@ -5202,9 +5575,9 @@ func _open_boost_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	# Apenas dano e cadência (sem alcance)
 	boost_menu.set_item_text(0, "Boost Dano +5%% (💰 %d moedas) [%.0f%%]" % [dmg_cost, b.damage_boost * 100])
-	boost_menu.set_item_text(1, "Boost Dano +5%% (💚 %d esmeraldas) [%.0f%%]" % [dmg_emerald_cost, b.damage_boost * 100])
+	boost_menu.set_item_text(1, "Boost Dano +5%% (🟢 %d esmeraldas) [%.0f%%]" % [dmg_emerald_cost, b.damage_boost * 100])
 	boost_menu.set_item_text(3, "Boost Cadência +5%% (💰 %d moedas) [%.0f%%]" % [rate_cost, b.rate_boost * 100])
-	boost_menu.set_item_text(4, "Boost Cadência +5%% (💚 %d esmeraldas) [%.0f%%]" % [rate_emerald_cost, b.rate_boost * 100])
+	boost_menu.set_item_text(4, "Boost Cadência +5%% (🟢 %d esmeraldas) [%.0f%%]" % [rate_emerald_cost, b.rate_boost * 100])
 	boost_menu.set_item_disabled(0, not can_dmg)
 	boost_menu.set_item_disabled(1, not can_dmg_emerald)
 	boost_menu.set_item_disabled(3, not can_rate)
@@ -5330,15 +5703,17 @@ func _try_place_tower(pos: Vector2) -> void:
 	if dir_vec.length() < 0.1:
 		dir_vec = Vector2(1, 0)  # padrão: direita
 	
+	var base_range = 260.0
 	towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
 		"cooldown": 0.0,
 		"fire_rate": 1.5,
-		"range": 260.0,
+		"range": base_range * global_tower_range_boost,
+		"base_range": base_range,  # Guardar range base para recalcular quando boost mudar
 		"dirs": [dir_vec],
-		"damage": 0.5,
+		"damage": GameConstants.TOWER_BASE_DAMAGE,
 		"levels": { "RANGE": 0, "RATE": 0, "DIRS": 0, "DMG": 0 }
 	})
 	hero["coins"] -= tower_cost
@@ -5566,11 +5941,13 @@ func _try_place_slow_tower(pos: Vector2) -> void:
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 	pathfinder.invalidate_cache()
 	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SLOW_TOWER_SIZE_GRID)
+	var slow_base_range = 200.0
 	slow_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
-		"range": 200.0,
+		"range": slow_base_range * global_tower_range_boost,
+		"base_range": slow_base_range,
 		"slow_amount": 0.2,  # Valor inicial 20% (pode aumentar até 40% com upgrades)
 		"slow_duration": 1.0,
 		"cooldown": 0.0,
@@ -5618,11 +5995,13 @@ func _try_place_aoe_tower(pos: Vector2) -> void:
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	pathfinder.invalidate_cache()
 	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.AOE_TOWER_SIZE_GRID)
+	var aoe_base_range = 180.0
 	aoe_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
-		"range": 180.0,
+		"range": aoe_base_range * global_tower_range_boost,
+		"base_range": aoe_base_range,
 		"damage": 2.0,
 		"aoe_radius": 60.0,
 		"cooldown": 0.0,
@@ -5670,11 +6049,13 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
 	pathfinder.invalidate_cache()
 	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SNIPER_TOWER_SIZE_GRID)
+	var sniper_base_range = 400.0
 	sniper_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
-		"range": 400.0,
+		"range": sniper_base_range * global_tower_range_boost,
+		"base_range": sniper_base_range,
 		"damage": 8.0,  # Aumentado de 5.0 para 8.0
 		"cooldown": 0.0,
 		"fire_rate": 8.0,  # Reduzido de 15.0 para 8.0 para melhor correlação com dano e outras torres
@@ -5774,11 +6155,13 @@ func _try_place_shock_tower(pos: Vector2) -> void:
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 	pathfinder.invalidate_cache()
 	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID)
+	var shock_base_range = 200.0
 	shock_towers.append({
 		"pos": tower_world_pos,
 		"grid_x": grid_coord.x,
 		"grid_y": grid_coord.y,
-		"range": 200.0,
+		"range": shock_base_range * global_tower_range_boost,
+		"base_range": shock_base_range,
 		"damage": 1.5,
 		"chain_count": 3,  # número de inimigos que o choque pode atingir
 		"cooldown": 0.0,
@@ -6299,7 +6682,7 @@ func _physics_process(delta: float) -> void:
 		var effective_fire_rate = t.fire_rate / rate_multiplier
 		# Garantir que o effective_fire_rate nunca seja menor que o limite mínimo
 		effective_fire_rate = max(GameConstants.TOWER_MIN_FIRE_RATE, effective_fire_rate)
-		t.cooldown = max(0.0, t.cooldown - delta)
+		t.cooldown = max(0.0, t.cooldown - delta * rate_multiplier)
 		if t.cooldown <= 0.0:
 			_tower_fire_cross(t)
 			t.cooldown = effective_fire_rate
@@ -6320,7 +6703,7 @@ func _physics_process(delta: float) -> void:
 func _tower_fire_cross(tower: Dictionary) -> void:
 	var speed := 260.0
 	var dirs: Array = tower.get("dirs", [Vector2(1, 0)])
-	var tower_damage: float = tower.get("damage", 0.5) * global_tower_damage_boost
+	var tower_damage: float = tower.get("damage", GameConstants.TOWER_BASE_DAMAGE) * global_tower_damage_boost
 	var has_freeze: bool = tower.get("has_freeze", false)
 	var has_fire: bool = tower.get("has_fire", false)
 	
@@ -6335,8 +6718,16 @@ func _tower_fire_cross(tower: Dictionary) -> void:
 	if skills_manager:
 		damage_multiplier *= skills_manager.get_damage_multiplier()
 	
+	# Aplicar multiplicador de clima
+	if weather_manager:
+		damage_multiplier *= weather_manager.get_tower_damage_multiplier()
+	
 	tower_damage *= damage_multiplier
-	var life := float(tower.get("range", 260.0)) / speed
+	var tower_range = tower.get("range", 260.0)
+	# Aplicar multiplicador de alcance do clima
+	if weather_manager:
+		tower_range *= weather_manager.get_tower_range_multiplier()
+	var life := float(tower_range) / speed
 	
 	# Rastrear DPS da torre
 	var tower_id = _get_tower_id(tower, "tower")
@@ -6513,12 +6904,13 @@ func _update_aoe_towers(delta: float) -> void:
 		if aoe.cooldown <= 0.0:
 			# encontrar inimigo mais próximo
 			var closest_enemy = null
-			var closest_dist = aoe.range + 1.0  # +1 para garantir que encontre o mais próximo
+			var effective_range = get_effective_tower_range(aoe.range)
+			var closest_dist = effective_range + 1.0  # +1 para garantir que encontre o mais próximo
 			for e in enemies:
 				if e["hp"] <= 0 or e["reached"]:
 					continue
 				var dist = aoe.pos.distance_to(e["pos"])
-				if dist <= aoe.range and dist < closest_dist:
+				if dist <= effective_range and dist < closest_dist:
 					closest_dist = dist
 					closest_enemy = e
 			if closest_enemy != null:
@@ -6538,6 +6930,9 @@ func _update_aoe_towers(delta: float) -> void:
 				# aplicar skill de boost de dano
 				if skills_manager:
 					aoe_damage *= skills_manager.get_damage_multiplier()
+				
+				# Aplicar multiplicador de clima
+				aoe_damage = get_effective_tower_damage(aoe_damage)
 				
 				aoe_cannon_projectiles.append({
 					"pos": aoe.pos,
@@ -6670,7 +7065,8 @@ func _update_sniper_towers(delta: float) -> void:
 					if e["hp"] <= 0 or e["reached"]:
 						continue
 					var dist_to_sniper = sniper.pos.distance_to(e["pos"])
-					if dist_to_sniper <= sniper.range:
+					var effective_range = get_effective_tower_range(sniper.range)
+					if dist_to_sniper <= effective_range:
 						var dist_to_center = e["pos"].distance_to(base_center)
 						if dist_to_center < closest_to_center:
 							target_enemy = e
@@ -6708,6 +7104,9 @@ func _update_sniper_towers(delta: float) -> void:
 				# aplicar skill de boost de dano
 				if skills_manager:
 					sniper_damage *= skills_manager.get_damage_multiplier()
+				
+				# Aplicar multiplicador de clima (depois de todos os outros multiplicadores)
+				sniper_damage = get_effective_tower_damage(sniper_damage)
 				
 				# causar dano nos primeiros (pierce + 1) inimigos
 				var pierce_count = sniper.pierce + 1  # pierce=1 significa atinge 2 inimigos
@@ -6755,6 +7154,23 @@ func _update_boost_towers(_delta: float) -> void:
 	# boost towers não precisam de atualização - o efeito é aplicado quando torres atiram
 	pass
 
+func _check_tower_combos() -> void:
+	"""Verifica e atualiza combos de torres usando o ComboManager"""
+	if not combo_manager:
+		return
+	
+	combo_manager.check_tower_combos(
+		towers,
+		slow_towers,
+		aoe_towers,
+		sniper_towers,
+		shock_towers,
+		boost_towers,
+		barracks,
+		healing_stations,
+		walls
+	)
+
 func _update_shock_towers(delta: float) -> void:
 	for shock in shock_towers:
 		# aplicar boost de rate de boost towers próximos
@@ -6776,7 +7192,8 @@ func _update_shock_towers(delta: float) -> void:
 		if shock.cooldown <= 0.0:
 			# Encontrar inimigo mais próximo
 			var closest_enemy = null
-			var closest_dist = shock.range
+			var effective_range = get_effective_tower_range(shock.range)
+			var closest_dist = effective_range
 			for e in enemies:
 				if e["hp"] <= 0 or e["reached"] or e.get("dying", false):
 					continue
@@ -6813,7 +7230,6 @@ func _update_shock_towers(delta: float) -> void:
 				
 				# aplicar bônus globais de dano
 				var shock_damage = shock.damage * global_tower_damage_boost
-				
 				# aplicar boost de dano de boost towers próximos
 				var damage_multiplier = 1.0
 				for boost in boost_towers:
@@ -6825,6 +7241,9 @@ func _update_shock_towers(delta: float) -> void:
 				# aplicar skill de boost de dano
 				if skills_manager:
 					shock_damage *= skills_manager.get_damage_multiplier()
+				
+				# Aplicar multiplicador de clima (depois de todos os outros multiplicadores)
+				shock_damage = get_effective_tower_damage(shock_damage)
 				
 				# Rastrear DPS da shock tower
 				var shock_id = _get_tower_id(shock, "shock")
@@ -7478,7 +7897,7 @@ func _try_drop_special_currency(pos: Vector2, is_boss: bool) -> void:
 func _create_special_currency_notification(pos: Vector2, currency_type: String, amount: int) -> void:
 	"""Cria notificação visual de moeda especial coletada"""
 	# Por enquanto, apenas print. Pode ser expandido com efeitos visuais
-	var icon = "💚" if currency_type == "emerald" else "💎"
+	var icon = "🟢" if currency_type == "emerald" else "💎"
 	print("%s +%d %s" % [icon, amount, currency_type])
 
 func _load_pending_quest_rewards() -> void:
@@ -8943,6 +9362,12 @@ func _create_talisman_item_ui(item: EquippableItem, is_equipped: bool) -> void:
 	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(desc_label)
 	
+	# Botões de ação
+	var btn_container = VBoxContainer.new()
+	btn_container.add_theme_constant_override("separation", 5)
+	btn_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(btn_container)
+	
 	# Botão equipar/desequipar
 	var btn = Button.new()
 	if is_equipped:
@@ -8952,10 +9377,59 @@ func _create_talisman_item_ui(item: EquippableItem, is_equipped: bool) -> void:
 		btn.text = "Equipar"
 		btn.pressed.connect(func(): item_manager.equip_item(item); _update_talisman_inventory_ui())
 	btn.custom_minimum_size = Vector2(90, 35)
-	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	hbox.add_child(btn)
+	btn_container.add_child(btn)
+	
+	# Botão vender (apenas para talismãs não equipados)
+	if not is_equipped and item is Talisman:
+		var sell_price = get_talisman_sell_price(item)
+		var sell_btn = Button.new()
+		sell_btn.text = "Vender\n🟢 %d" % sell_price
+		sell_btn.custom_minimum_size = Vector2(90, 35)
+		sell_btn.pressed.connect(func(): _sell_talisman(item); _update_talisman_inventory_ui())
+		btn_container.add_child(sell_btn)
 	
 	talisman_inventory_container.add_child(item_container)
+
+func get_talisman_sell_price(talisman: Talisman) -> int:
+	"""Retorna o preço de venda de um talismã baseado na sua raridade"""
+	match talisman.rarity:
+		EquippableItem.ItemRarity.COMMON:
+			return GameConstants.TALISMAN_SELL_PRICE_COMMON
+		EquippableItem.ItemRarity.UNCOMMON:
+			return GameConstants.TALISMAN_SELL_PRICE_UNCOMMON
+		EquippableItem.ItemRarity.RARE:
+			return GameConstants.TALISMAN_SELL_PRICE_RARE
+		EquippableItem.ItemRarity.EPIC:
+			return GameConstants.TALISMAN_SELL_PRICE_EPIC
+		EquippableItem.ItemRarity.LEGENDARY:
+			return GameConstants.TALISMAN_SELL_PRICE_LEGENDARY
+		_:
+			return GameConstants.TALISMAN_SELL_PRICE_COMMON
+
+func _sell_talisman(talisman: Talisman) -> void:
+	"""Vende um talismã por esmeraldas"""
+	if not item_manager or not special_currency_manager:
+		return
+	
+	# Verificar se o talismã está no inventário (não pode vender equipados)
+	if talisman in item_manager.equipped_items:
+		print("Não é possível vender talismãs equipados")
+		return
+	
+	if not talisman in item_manager.inventory:
+		print("Talismã não encontrado no inventário")
+		return
+	
+	# Remover do inventário
+	item_manager.inventory.erase(talisman)
+	
+	# Adicionar esmeraldas
+	var sell_price = get_talisman_sell_price(talisman)
+	special_currency_manager.add_emeralds(sell_price, "talisman_sell")
+	
+	# Atualizar UI
+	_update_special_currency_labels()
+	print("Talismã vendido por %d esmeraldas" % sell_price)
 
 func _create_range_indicator() -> void:
 	if range_indicator and range_indicator.is_inside_tree():
@@ -9378,7 +9852,7 @@ func _create_boss_alert_ui() -> void:
 	alert_label.add_theme_constant_override("outline_size", 3)
 	alert_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	alert_label.size = Vector2(800, 140)
-	alert_label.position = Vector2(-alert_label.size.x * 0.5, -alert_label.size.y * 0.5)
+	alert_label.position = Vector2(-alert_label.size.x * 0.5, -alert_label.size.y * 0.5 + 100)  # Abaixo do centro
 	canvas.add_child(alert_label)
 	boss_alert_label = alert_label
 	
@@ -9395,6 +9869,11 @@ func _load_boss_warning_sound() -> void:
 func _show_boss_warning(message: String) -> void:
 	if boss_alert_label == null:
 		return
+	# Esconder outros avisos temporariamente para evitar sobreposição
+	if weather_alert_label and weather_alert_label.visible:
+		weather_alert_timer = 0.0  # Forçar fechamento
+		weather_alert_label.visible = false
+	# Wave especial pode permanecer visível, mas o boss alert fica abaixo do centro
 	boss_alert_label.text = message
 	boss_alert_label.visible = true
 	boss_alert_timer = boss_alert_duration
@@ -9410,20 +9889,324 @@ func _play_boss_warning_sound() -> void:
 	boss_alert_player.stream = boss_warning_sound
 	boss_alert_player.play()
 
-func _toggle_music() -> void:
-	music_muted = not music_muted
-	var music_player = get_node_or_null("MusicPlayer")
-	if music_player:
-		if music_muted:
-			music_player.volume_db = -80.0  # Muito baixo = mutado
-		else:
-			music_player.volume_db = music_volume  # Volume configurável
+func _create_special_wave_alert_ui() -> void:
+	var canvas = $CanvasLayer
+	if special_wave_alert_label and special_wave_alert_label.is_inside_tree():
+		special_wave_alert_label.queue_free()
+	var alert_label = Label.new()
+	alert_label.name = "SpecialWaveAlertLabel"
+	alert_label.text = ""
+	alert_label.visible = false
+	alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	alert_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	alert_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	alert_label.add_theme_font_size_override("font_size", 42)
+	alert_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))  # Dourado
+	alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	alert_label.add_theme_constant_override("outline_size", 4)
+	alert_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	alert_label.size = Vector2(900, 180)
+	alert_label.position = Vector2(-alert_label.size.x * 0.5, -alert_label.size.y * 0.5)  # Centro da tela
+	canvas.add_child(alert_label)
+	special_wave_alert_label = alert_label
+
+func _show_special_wave_alert(wave_number: int, special_wave_type: WaveManager.SpecialWaveType) -> void:
+	if special_wave_alert_label == null:
+		return
 	
-	# Atualizar texto do botão
-	var tb = $CanvasLayer/HUD/TopBar
-	if tb.has_node("BtnMuteMusic"):
-		var btn_mute = tb.get_node("BtnMuteMusic")
-		btn_mute.text = "🔇" if music_muted else "🔊"
+	# Não mostrar se já está visível (evitar repetição)
+	if special_wave_alert_label.visible and special_wave_alert_timer > 0.0:
+		return
+	
+	# Esconder outros avisos temporariamente para evitar sobreposição
+	if weather_alert_label and weather_alert_label.visible:
+		weather_alert_timer = 0.0  # Forçar fechamento
+		weather_alert_label.visible = false
+	# Boss alert pode permanecer, mas wave especial tem prioridade visual
+	var wave_name = wave_manager.get_special_wave_name()
+	var wave_desc = wave_manager.get_special_wave_description()
+	special_wave_alert_label.text = "%s\nWave %d Especial!\n%s" % [wave_name, wave_number, wave_desc]
+	# Resetar alpha para totalmente visível
+	special_wave_alert_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2, 1.0))
+	special_wave_alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	special_wave_alert_label.visible = true
+	special_wave_alert_timer = GameConstants.SPECIAL_WAVE_ALERT_DURATION
+
+func _check_perfect_wave_bonus() -> void:
+	"""Verifica se completou wave perfeita e dá bônus"""
+	if current_special_wave_type == WaveManager.SpecialWaveType.PERFECT_WAVE and not perfect_wave_bonus_given:
+		# Verificar se não perdeu HP durante a wave
+		if base_hp >= current_wave_base_hp_start:
+			perfect_wave_bonus_given = true
+			# Dar bônus especial: moedas + esmeraldas
+			var bonus_coins = get_wave_completion_bonus() * 3  # 3x o bônus normal
+			hero["coins"] += bonus_coins
+			if special_currency_manager:
+				special_currency_manager.add_emeralds(5, "perfect_wave")
+			# Mostrar mensagem
+			_show_special_wave_alert(wave_manager.wave, WaveManager.SpecialWaveType.PERFECT_WAVE)
+			special_wave_alert_timer = GameConstants.SPECIAL_WAVE_ALERT_DURATION  # Usar duração padrão com fade out
+			special_wave_alert_label.text = "🎯 WAVE PERFEITA!\n+%d Moedas\n+5 Esmeraldas" % bonus_coins
+
+func _create_weather_ui() -> void:
+	"""Cria a UI para eventos climáticos"""
+	var canvas = $CanvasLayer
+	# Criar label de alerta de clima
+	if weather_alert_label and weather_alert_label.is_inside_tree():
+		weather_alert_label.queue_free()
+	var alert_label = Label.new()
+	alert_label.name = "WeatherAlertLabel"
+	alert_label.text = ""
+	alert_label.visible = false
+	alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	alert_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	alert_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	alert_label.add_theme_font_size_override("font_size", 32)  # Reduzido de 36
+	alert_label.add_theme_color_override("font_color", Color(0.6, 0.8, 1.0, 0.85))  # Azul claro com opacidade
+	alert_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))  # Outline com opacidade reduzida
+	alert_label.add_theme_constant_override("outline_size", 3)
+	alert_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)  # Mudado para topo
+	alert_label.size = Vector2(800, 80)  # Reduzido altura
+	alert_label.position = Vector2(-alert_label.size.x * 0.5, 60)  # Posicionado no topo do labirinto, abaixo da barra
+	canvas.add_child(alert_label)
+	weather_alert_label = alert_label
+	
+	# Criar overlay para noite (escurecimento apenas do labirinto)
+	if weather_overlay and weather_overlay.is_inside_tree():
+		weather_overlay.queue_free()
+	var overlay = ColorRect.new()
+	overlay.name = "WeatherOverlay"
+	overlay.color = Color(0, 0, 0, 0)  # Inicialmente transparente
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Não bloquear cliques
+	# Posicionar sobre o labirinto (não tela inteira)
+	var bar_height: float = 44.0
+	var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+	var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+	overlay.position = Vector2(0, bar_height)  # Abaixo da barra
+	overlay.size = Vector2(map_width, map_height)  # Tamanho do labirinto
+	canvas.add_child(overlay)
+	weather_overlay = overlay
+
+func _show_weather_alert(wave_number: int) -> void:
+	"""Mostra alerta de mudança de clima"""
+	if weather_alert_label == null or weather_manager == null:
+		return
+	
+	# Não mostrar se já está visível (evitar repetição)
+	if weather_alert_label.visible and weather_alert_timer > 0.0:
+		return
+	
+	# Esconder outros avisos temporariamente para evitar sobreposição
+	if boss_alert_label and boss_alert_label.visible:
+		boss_alert_timer = 0.0  # Forçar fechamento
+		boss_alert_label.visible = false
+	if special_wave_alert_label and special_wave_alert_label.visible:
+		# Não fechar wave especial, mas ajustar posição
+		pass
+	
+	var weather_name = weather_manager.get_weather_name()
+	var weather_desc = weather_manager.get_weather_description()
+	if weather_name != "":
+		weather_alert_label.text = "%s\nClima: %s" % [weather_name, weather_desc]
+		weather_alert_label.visible = true
+		weather_alert_timer = 8.0  # Mostrar por 8 segundos
+
+func _apply_weather_effects() -> void:
+	"""Aplica efeitos visuais do clima"""
+	if weather_manager == null:
+		return
+	
+	# Atualizar overlay de noite (apenas no labirinto)
+	if weather_overlay:
+		# Garantir que o overlay está posicionado corretamente sobre o labirinto
+		var bar_height: float = 44.0
+		var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+		weather_overlay.position = Vector2(0, bar_height)
+		weather_overlay.size = Vector2(map_width, map_height)
+		
+		# Overlay de noite agora é desenhado diretamente na função _draw() após os monstros
+		# Manter transparente aqui (não usar mais o ColorRect para overlay de noite)
+		weather_overlay.color = Color(0, 0, 0, 0)
+	
+	# Inicializar partículas de chuva (apenas sobre o labirinto)
+	if weather_manager.is_rainy():
+		if weather_rain_particles.is_empty():
+			# Criar partículas de chuva apenas sobre o labirinto
+			var bar_height: float = 44.0
+			var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			for i in range(250):  # Mais partículas para efeito mais denso
+				weather_rain_particles.append({
+					"pos": Vector2(randf() * map_width, bar_height + randf() * map_height),
+					"speed": 350.0 + randf() * 250.0,  # Mais rápido
+					"length": 15.0 + randf() * 25.0  # Mais longo
+				})
+	else:
+		weather_rain_particles.clear()
+	
+	# Inicializar nuvens para névoa (apenas sobre o labirinto)
+	if weather_manager.has_visibility_reduction():
+		if weather_clouds.is_empty():
+			# Criar nuvens apenas sobre o labirinto
+			var bar_height: float = 44.0
+			var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			for i in range(40):  # Mais nuvens para efeito mais denso
+				weather_clouds.append({
+					"pos": Vector2(randf() * map_width, bar_height + randf() * map_height),
+					"size": 60.0 + randf() * 120.0,  # Nuvens maiores
+					"alpha": 0.35 + randf() * 0.35,  # Mais opacas
+					"speed": 15.0 + randf() * 25.0
+				})
+	else:
+		weather_clouds.clear()
+	
+	# Inicializar partículas de neve
+	if weather_manager.is_snowy():
+		if weather_snow_particles.is_empty():
+			# Criar partículas de neve apenas sobre o labirinto
+			var bar_height: float = 44.0
+			var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			for i in range(150):  # Flocos de neve
+				weather_snow_particles.append({
+					"pos": Vector2(randf() * map_width, bar_height + randf() * map_height),
+					"speed_y": 30.0 + randf() * 50.0,  # Velocidade vertical (lenta)
+					"speed_x": -10.0 + randf() * 20.0,  # Movimento horizontal (deriva)
+					"size": 2.0 + randf() * 4.0,  # Tamanho do floco
+					"rotation": randf() * PI * 2.0,  # Rotação inicial
+					"rotation_speed": -2.0 + randf() * 4.0  # Velocidade de rotação
+				})
+	else:
+		weather_snow_particles.clear()
+
+func _update_weather_visuals(delta: float) -> void:
+	"""Atualiza efeitos visuais do clima"""
+	if weather_manager == null:
+		return
+	
+	# Atualizar partículas de chuva (apenas sobre o labirinto)
+	if weather_manager.is_rainy():
+		var bar_height: float = 44.0
+		var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+		var labirinto_bottom = bar_height + map_height
+		for i in range(weather_rain_particles.size()):
+			var p = weather_rain_particles[i]
+			p.pos.y += p.speed * delta
+			# Reposicionar quando sair do labirinto
+			if p.pos.y > labirinto_bottom:
+				p.pos.y = bar_height - p.length
+				p.pos.x = randf() * map_width
+	else:
+		weather_rain_particles.clear()
+	
+	# Atualizar nuvens (apenas sobre o labirinto)
+	if weather_manager.has_visibility_reduction():
+		var bar_height: float = 44.0
+		var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+		for i in range(weather_clouds.size()):
+			var c = weather_clouds[i]
+			c.pos.x += c.speed * delta
+			# Reposicionar quando sair do labirinto
+			if c.pos.x > map_width:
+				c.pos.x = -c.size
+				c.pos.y = bar_height + randf() * map_height
+	
+	# Atualizar partículas de neve (apenas sobre o labirinto)
+	if weather_manager.is_snowy():
+		var bar_height: float = 44.0
+		var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+		var labirinto_bottom = bar_height + map_height
+		for i in range(weather_snow_particles.size()):
+			var s = weather_snow_particles[i]
+			# Movimento vertical (queda)
+			s.pos.y += s.speed_y * delta
+			# Movimento horizontal (deriva)
+			s.pos.x += s.speed_x * delta
+			# Rotação
+			s.rotation += s.rotation_speed * delta
+			# Reposicionar quando sair do labirinto
+			if s.pos.y > labirinto_bottom:
+				s.pos.y = bar_height - 10.0
+				s.pos.x = randf() * map_width
+			# Reposicionar horizontalmente se sair das bordas
+			if s.pos.x < 0:
+				s.pos.x = map_width
+			elif s.pos.x > map_width:
+				s.pos.x = 0
+
+func _draw_weather_effects() -> void:
+	"""Desenha efeitos visuais do clima (apenas sobre o labirinto)"""
+	if weather_manager == null:
+		return
+	
+	# Obter limites do labirinto
+	var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+	var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+	
+	# Função auxiliar para verificar se uma posição está dentro do labirinto
+	var is_inside_maze = func(pos: Vector2, margin: float = 0.0) -> bool:
+		return pos.x >= -margin and pos.x <= map_width + margin and \
+			   pos.y >= -margin and pos.y <= map_height + margin
+	
+	# Desenhar partículas de chuva (mais visíveis) - apenas dentro do labirinto
+	if weather_manager.is_rainy():
+		for p in weather_rain_particles:
+			# Verificar se a partícula está dentro do labirinto
+			if not is_inside_maze.call(p.pos, 10.0):  # Margem de 10px para partículas próximas à borda
+				continue
+			var end_pos = p.pos + Vector2(0, p.length)
+			# Verificar se o ponto final também está dentro
+			if not is_inside_maze.call(end_pos, 10.0):
+				# Clamp o ponto final para dentro do labirinto
+				end_pos.y = clamp(end_pos.y, 0.0, map_height)
+			# Chuva mais visível e com leve brilho
+			draw_line(p.pos, end_pos, Color(0.6, 0.8, 1.0, 0.7), 1.5)  # Mais opaco e mais grosso
+			# Adicionar leve brilho
+			draw_line(p.pos, end_pos, Color(0.8, 0.9, 1.0, 0.3), 0.5)
+	
+	# Desenhar nuvens (névoa) - melhoradas, apenas dentro do labirinto
+	if weather_manager.has_visibility_reduction():
+		for c in weather_clouds:
+			# Verificar se a nuvem está dentro do labirinto (com margem para nuvens grandes)
+			var cloud_margin = c.size * 1.2  # Margem maior para nuvens grandes
+			if not is_inside_maze.call(c.pos, cloud_margin):
+				continue
+			# Desenhar nuvem com gradiente (múltiplos círculos sobrepostos)
+			var cloud_color = Color(0.6, 0.6, 0.65, c.alpha)
+			# Círculo principal
+			draw_circle(c.pos, c.size, cloud_color)
+			# Círculos menores para dar profundidade (apenas se estiverem dentro)
+			var offset1 = c.pos + Vector2(-c.size * 0.3, -c.size * 0.2)
+			var offset2 = c.pos + Vector2(c.size * 0.3, -c.size * 0.2)
+			if is_inside_maze.call(offset1, c.size * 0.6):
+				draw_circle(offset1, c.size * 0.6, Color(0.65, 0.65, 0.7, c.alpha * 0.8))
+			if is_inside_maze.call(offset2, c.size * 0.6):
+				draw_circle(offset2, c.size * 0.6, Color(0.65, 0.65, 0.7, c.alpha * 0.8))
+	
+	# Desenhar partículas de neve (flocos) - apenas dentro do labirinto
+	if weather_manager.is_snowy():
+		for s in weather_snow_particles:
+			# Verificar se o floco está dentro do labirinto
+			if not is_inside_maze.call(s.pos, s.size):
+				continue
+			# Desenhar floco de neve (estrela simples rotacionada)
+			var snow_color = Color(1.0, 1.0, 1.0, 0.8)  # Branco com opacidade
+			# Desenhar floco como pequeno círculo com linhas (estrela simples)
+			draw_circle(s.pos, s.size, snow_color)
+			# Adicionar linhas para parecer mais com floco de neve
+			var dir1 = Vector2(cos(s.rotation), sin(s.rotation)) * s.size
+			var dir2 = Vector2(cos(s.rotation + PI/3), sin(s.rotation + PI/3)) * s.size
+			var dir3 = Vector2(cos(s.rotation + 2*PI/3), sin(s.rotation + 2*PI/3)) * s.size
+			draw_line(s.pos - dir1, s.pos + dir1, snow_color, 1.0)
+			draw_line(s.pos - dir2, s.pos + dir2, snow_color, 1.0)
+			draw_line(s.pos - dir3, s.pos + dir3, snow_color, 1.0)
+
+# Função _toggle_music removida - agora o volume é controlado apenas pelo slider
 
 func _toggle_auto_benefit() -> void:
 	"""Alterna entre escolha manual e automática de benefícios"""
@@ -9471,7 +10254,6 @@ func _update_auto_benefit_button() -> void:
 		btn.add_theme_stylebox_override("hover", hover_style)
 	
 	# Reposicionar todos os botões após atualizar o texto (apenas Auto Benefício)
-	# Não reposicionar Mute se foi customizado manualmente
 	if tb.has_node("BtnAutoBenefit"):
 		var btn_auto = tb.get_node("BtnAutoBenefit")
 		btn_auto.layout_mode = 1
@@ -9483,7 +10265,7 @@ func _update_auto_benefit_button() -> void:
 
 func _reposition_right_side_buttons(tb: Panel) -> void:
 	"""Reposiciona todos os botões da direita da HUD com espaçamento correto"""
-	# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume, Mute
+	# Ordem (da direita para esquerda): DPS, Auto Benefício, Quests, Admin, Volume
 	# Todos com 10px de espaçamento entre eles
 	# Adicionar 20px de margem à direita para evitar corte
 	
@@ -9519,30 +10301,15 @@ func _reposition_right_side_buttons(tb: Panel) -> void:
 		btn_admin.offset_right = -360  # 100px de largura, 10px antes de Quests
 		btn_admin.offset_bottom = 36
 	
-	# 5. Volume (110px)
+	# 5. Volume (130px fixo)
 	if tb.has_node("MusicVolumeContainer"):
 		var volume_container = tb.get_node("MusicVolumeContainer")
 		volume_container.layout_mode = 1
 		volume_container.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		volume_container.offset_left = -580  # 10px após Mute
+		volume_container.offset_left = -580  # Posição ajustada
 		volume_container.offset_top = 8
-		volume_container.offset_right = -470  # 110px de largura, 10px antes de Admin
+		volume_container.offset_right = -450  # 130px de largura fixa, 10px antes de Admin
 		volume_container.offset_bottom = 36
-	
-	# 6. Mute (40px, mais à esquerda, com espaçamento adequado)
-	# Nota: Se o botão já foi criado com valores customizados, esta função não os sobrescreverá
-	# Para ajustar o Mute, modifique os valores na criação do botão (linha ~697)
-	if tb.has_node("BtnMuteMusic"):
-		var btn_mute = tb.get_node("BtnMuteMusic")
-		# Só reposicionar se o botão ainda não tiver sido customizado
-		# Verificar se está usando valores padrão (offset_left = -600 ou -540)
-		if btn_mute.offset_left == -600 or btn_mute.offset_left == -540:
-			btn_mute.layout_mode = 1
-			btn_mute.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-			btn_mute.offset_left = -600  # 40px de largura
-			btn_mute.offset_top = 8
-			btn_mute.offset_right = -560  # Terminar 10px antes de Volume (que começa em -580)
-			btn_mute.offset_bottom = 36
 
 func _on_music_volume_changed(value: float) -> void:
 	music_volume = value
@@ -9635,6 +10402,21 @@ func _track_enemy_kill(is_boss: bool) -> void:
 		# Atualizar progresso de quests de boss
 		if quest_manager:
 			quest_manager.update_quest_progress(GameConstants.QuestType.KILL_BOSSES, 1)
+
+func _check_time_achievements() -> void:
+	"""Verifica e atualiza achievements relacionados ao tempo de jogo"""
+	if not achievement_manager:
+		return
+	
+	var time_seconds = int(game_time)
+	
+	# Verificar cada achievement de tempo
+	achievement_manager.set_progress("play_time_5min", time_seconds)
+	achievement_manager.set_progress("play_time_15min", time_seconds)
+	achievement_manager.set_progress("play_time_30min", time_seconds)
+	achievement_manager.set_progress("play_time_1hour", time_seconds)
+	achievement_manager.set_progress("play_time_2hours", time_seconds)
+	achievement_manager.set_progress("play_time_5hours", time_seconds)
 
 func _track_tower_built(tower_type: String) -> void:
 	towers_built += 1
@@ -9754,11 +10536,12 @@ func _apply_talisman_bonuses() -> void:
 		var boost = talisman_effects["tower_damage_boost"]
 		global_tower_damage_boost *= (1.0 + boost)
 	
-	# Aplicar bônus de HP da base (aditivo sobre valor já modificado)
-	if talisman_effects.has("base_hp_boost"):
-		var boost = talisman_effects["base_hp_boost"]
-		base_hp += boost
-		base_hp_max += boost  # Atualizar HP máximo também
+	# Aplicar bônus de alcance das torres (multiplicador sobre valor já modificado)
+	if talisman_effects.has("tower_range_boost"):
+		var boost = talisman_effects["tower_range_boost"]
+		global_tower_range_boost *= (1.0 + boost)
+		# Aplicar boost em todas as torres existentes
+		_apply_range_boost_to_all_towers()
 	
 	# Aplicar bônus de dano da base (multiplicador no dano do herói sobre valor já modificado)
 	if talisman_effects.has("base_damage_boost"):
@@ -9777,8 +10560,66 @@ func _apply_talisman_bonuses() -> void:
 		hero["crit_chance"] += boost
 		hero["crit_chance"] = min(hero["crit_chance"], 1.0)
 	
-	# Nota: Bônus de alcance e cadência das torres serão aplicados dinamicamente
-	# quando as torres verificam alcance ou calculam fire_rate
+	# Aplicar bônus de dano crítico das torres (multiplicador sobre valor já modificado)
+	if talisman_effects.has("tower_crit_damage_boost"):
+		var boost = talisman_effects["tower_crit_damage_boost"]
+		# Armazenar em perk_effects para uso nas torres
+		if not perk_effects.has("tower_crit_damage_multiplier"):
+			perk_effects["tower_crit_damage_multiplier"] = 1.0
+		perk_effects["tower_crit_damage_multiplier"] += boost
+	
+	# Nota: Bônus de cadência das torres será aplicado dinamicamente
+	# quando as torres calculam fire_rate
+
+func _apply_range_boost_to_all_towers() -> void:
+	"""Aplica o boost de alcance global a todas as torres existentes"""
+	# Aplicar em torres normais
+	for t in towers:
+		var base_range = t.get("base_range", 260.0)
+		if base_range == 0:
+			base_range = 260.0  # Fallback se não tiver base_range
+		t["base_range"] = base_range
+		t["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em slow towers
+	for st in slow_towers:
+		var base_range = st.get("base_range", 200.0)
+		if base_range == 0:
+			base_range = 200.0
+		st["base_range"] = base_range
+		st["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em AOE towers
+	for aoe in aoe_towers:
+		var base_range = aoe.get("base_range", 180.0)
+		if base_range == 0:
+			base_range = 180.0
+		aoe["base_range"] = base_range
+		aoe["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em sniper towers
+	for sniper in sniper_towers:
+		var base_range = sniper.get("base_range", 400.0)
+		if base_range == 0:
+			base_range = 400.0
+		sniper["base_range"] = base_range
+		sniper["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em boost towers
+	for boost in boost_towers:
+		var base_range = boost.get("base_range", 150.0)
+		if base_range == 0:
+			base_range = 150.0
+		boost["base_range"] = base_range
+		boost["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em shock towers
+	for shock in shock_towers:
+		var base_range = shock.get("base_range", 200.0)
+		if base_range == 0:
+			base_range = 200.0
+		shock["base_range"] = base_range
+		shock["range"] = base_range * global_tower_range_boost
 
 func _recalculate_all_bonuses() -> void:
 	"""Recalcula todos os bônus do zero (usado quando talismãs são equipados/desequipados)"""
@@ -9789,6 +10630,7 @@ func _recalculate_all_bonuses() -> void:
 	base_hp = base_hp_base
 	base_hp_max = base_hp_base  # Resetar HP máximo também
 	global_tower_damage_boost = global_tower_damage_boost_base
+	global_tower_range_boost = 1.0  # Resetar multiplicador de alcance das torres
 	coin_drop_chance = coin_drop_chance_base
 	wall_hp_multiplier = 1.0  # Resetar multiplicador de HP das muralhas
 	
@@ -9798,7 +10640,10 @@ func _recalculate_all_bonuses() -> void:
 	_apply_talisman_bonuses()
 	
 	# Garantir que base_hp_max está sincronizado com base_hp após todos os bônus
-	base_hp_max = base_hp
+	# base_hp_max deve ser igual ao base_hp atual (que inclui todos os bônus)
+	base_hp_max = max(base_hp_max, base_hp)  # Usar max para garantir que nunca seja menor
+	# Garantir que base_hp atual não excede o máximo
+	base_hp = min(base_hp, base_hp_max)
 	
 	# Atualizar HP máximo de todas as muralhas existentes
 	_update_all_walls_max_hp()
@@ -10396,7 +11241,17 @@ func _adjust_hud_to_screen_size() -> void:
 		hud.offset_left = 0.0
 		hud.offset_right = 0.0
 		hud.offset_top = 0.0
-		hud.offset_bottom = 60.0
+		hud.offset_bottom = 0.0
+	
+	# Ajustar BottomBar
+	var bottom_bar = $CanvasLayer/HUD.get_node_or_null("BottomBar")
+	if bottom_bar:
+		bottom_bar.layout_mode = 1
+		bottom_bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		bottom_bar.offset_left = 0.0
+		bottom_bar.offset_right = 0.0
+		bottom_bar.offset_top = -40.0
+		bottom_bar.offset_bottom = 0.0
 	
 	var tb = $CanvasLayer/HUD/TopBar
 	if tb == null:
@@ -10418,84 +11273,90 @@ func _adjust_hud_to_screen_size() -> void:
 	var lbl_center = tb.get_node_or_null("LblCenter")  # Moeda
 	var lbl_right = tb.get_node_or_null("LblRight")  # Vida
 	
-	# Posicionar elementos da esquerda para a direita:
-	# 1. LblLeft (Onda/Inimigos) - à esquerda
+	# Organizar elementos da TopBar de forma responsiva
+	# Usar porcentagens da largura da tela para melhor adaptação
+	var screen_width = screen_size.x
+	var spacing = 15.0  # Espaçamento entre elementos
+	
+	# 1. LblLeft (Onda/Clima) - à esquerda, largura adaptável
 	if lbl_left:
-		lbl_left.layout_mode = 1  # Mudar para layout com anchors
+		lbl_left.layout_mode = 1
 		lbl_left.anchor_left = 0.0
 		lbl_left.anchor_top = 0.0
 		lbl_left.anchor_right = 0.0
 		lbl_left.anchor_bottom = 0.0
 		lbl_left.offset_left = 12
-		lbl_left.offset_right = 250  # Largura fixa
+		lbl_left.offset_right = min(250.0, screen_width * 0.15)  # Máximo 15% da tela ou 250px
 		lbl_left.offset_top = 10
 		lbl_left.offset_bottom = 34
 	
-	# 2. Moeda (LblCenter) - após LblLeft, mesmo tamanho que Vida
+	# 2. Moeda (LblCenter) - após LblLeft, posição relativa
 	if lbl_center:
-		lbl_center.layout_mode = 1  # Mudar para layout com anchors
+		var left_end = lbl_left.offset_right if lbl_left else 250.0
+		lbl_center.layout_mode = 1
 		lbl_center.anchor_left = 0.0
 		lbl_center.anchor_top = 0.0
 		lbl_center.anchor_right = 0.0
 		lbl_center.anchor_bottom = 0.0
-		lbl_center.offset_left = 250  # Posição fixa após LblLeft
-		lbl_center.offset_right = 350  # Largura de 100 (mesmo tamanho que Vida)
+		lbl_center.offset_left = left_end + spacing
+		lbl_center.offset_right = left_end + spacing + 120.0  # Largura fixa de 120px
 		lbl_center.offset_top = 10
 		lbl_center.offset_bottom = 34
 	
-	# 3. Vida (LblRight) - após Moeda, mesmo tamanho com pequena separação
+	# 3. Vida (LblRight) - após Moeda
 	if lbl_right:
-		lbl_right.layout_mode = 1  # Mudar para layout com anchors
+		var center_end = lbl_center.offset_right if lbl_center else 370.0
+		lbl_right.layout_mode = 1
 		lbl_right.anchor_left = 0.0
 		lbl_right.anchor_top = 0.0
 		lbl_right.anchor_right = 0.0
 		lbl_right.anchor_bottom = 0.0
-		lbl_right.offset_left = 360  # 10px de separação após Moeda (350 + 10)
-		lbl_right.offset_right = 460  # Mesmo tamanho que Moedas (100 de largura)
+		lbl_right.offset_left = center_end + spacing
+		lbl_right.offset_right = center_end + spacing + 100.0  # Largura fixa de 100px
 		lbl_right.offset_top = 10
 		lbl_right.offset_bottom = 34
 		lbl_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		lbl_right.visible = true
 		lbl_right.z_index = 10
-		lbl_right.text = "Vida %d" % [base_hp]
+		lbl_right.text = "❤️ %d" % [base_hp]
 	
-	# 4. Botão Mute - após Vida
-	var btn_mute = tb.get_node_or_null("BtnMuteMusic")
-	if btn_mute:
-		btn_mute.layout_mode = 1
-		btn_mute.anchor_left = 0.0
-		btn_mute.anchor_top = 0.0
-		btn_mute.anchor_right = 0.0
-		btn_mute.anchor_bottom = 0.0
-		btn_mute.offset_left = 470  # Após label Vida (460 + 10 de separação)
-		btn_mute.offset_right = 620
-		btn_mute.offset_top = 8
-		btn_mute.offset_bottom = 36
-	
-	# 5. Slider de Volume - após Mute
+	# 4. Slider de Volume - após Vida, mas pode ser escondido em telas pequenas
 	var volume_container = tb.get_node_or_null("MusicVolumeContainer")
 	if volume_container:
+		var vida_end = lbl_right.offset_right if lbl_right else 470.0
 		volume_container.layout_mode = 1
 		volume_container.anchor_left = 0.0
 		volume_container.anchor_top = 0.0
 		volume_container.anchor_right = 0.0
 		volume_container.anchor_bottom = 0.0
-		volume_container.offset_left = 630  # Após botão Mute (620 + 10 de separação)
-		volume_container.offset_right = 890
-		volume_container.offset_top = 8
-		volume_container.offset_bottom = 36
+		# Esconder slider se tela muito pequena
+		if screen_width < 1000:
+			volume_container.visible = false
+		else:
+			volume_container.visible = true
+			volume_container.offset_left = vida_end + spacing
+			volume_container.offset_right = vida_end + spacing + 130.0
+			volume_container.offset_top = 8
+			volume_container.offset_bottom = 36
 	
-	# 6. Menu Admin - após Slider de Volume
-	if admin_menu_button:
-		admin_menu_button.layout_mode = 1
-		admin_menu_button.anchor_left = 0.0
-		admin_menu_button.anchor_top = 0.0
-		admin_menu_button.anchor_right = 0.0
-		admin_menu_button.anchor_bottom = 0.0
-		admin_menu_button.offset_left = 900  # Após slider de volume (890 + 10 de separação)
-		admin_menu_button.offset_right = 1120
-		admin_menu_button.offset_top = 8
-		admin_menu_button.offset_bottom = 36
+	# 5. Menu Admin - após Slider de Volume (ou após Vida se slider escondido)
+	var admin_btn = tb.get_node_or_null("BtnAdmin")
+	if admin_btn:
+		var prev_end = volume_container.offset_right if volume_container and volume_container.visible else (lbl_right.offset_right if lbl_right else 470.0)
+		admin_btn.layout_mode = 1
+		admin_btn.anchor_left = 0.0
+		admin_btn.anchor_top = 0.0
+		admin_btn.anchor_right = 0.0
+		admin_btn.anchor_bottom = 0.0
+		# Esconder menu admin se tela muito pequena
+		if screen_width < 1200:
+			admin_btn.visible = false
+		else:
+			admin_btn.visible = true
+			admin_btn.offset_left = prev_end + spacing
+			admin_btn.offset_right = prev_end + spacing + 220.0
+			admin_btn.offset_top = 8
+			admin_btn.offset_bottom = 36
 	
 	# 7. Botão DPS - por último, à direita
 	var btn_dps = tb.get_node_or_null("BtnDPS")
@@ -10510,6 +11371,34 @@ func _adjust_hud_to_screen_size() -> void:
 		btn_dps.offset_top = 8
 		btn_dps.offset_bottom = 36
 
+func _update_bottom_bar() -> void:
+	"""Atualiza a HUD inferior com informações secundárias"""
+	var hud = $CanvasLayer/HUD
+	if not hud:
+		return
+	
+	var bottom_bar = hud.get_node_or_null("BottomBar")
+	if not bottom_bar:
+		return
+	
+	# Atualizar tempo de jogo
+	var time_label = bottom_bar.get_node_or_null("LblTime")
+	if time_label:
+		var minutes = int(game_time / 60.0)
+		var seconds = int(game_time) % 60
+		time_label.text = "Tempo: %02d:%02d" % [minutes, seconds]
+	
+	# Atualizar contador de inimigos
+	var enemies_label = bottom_bar.get_node_or_null("LblEnemies")
+	if enemies_label:
+		enemies_label.text = "Inimigos: %d" % enemies.size()
+	
+	# Atualizar FPS
+	var fps_label = bottom_bar.get_node_or_null("LblFPS")
+	if fps_label:
+		var fps = Engine.get_frames_per_second()
+		fps_label.text = "FPS: %d" % fps
+
 func _on_viewport_size_changed() -> void:
 	"""Chamado quando o tamanho da viewport muda (incluindo tela cheia)"""
 	_adjust_hud_to_screen_size()
@@ -10520,7 +11409,7 @@ func _on_viewport_size_changed() -> void:
 		var lbl_right = tb.get_node_or_null("LblRight")
 		if lbl_right:
 			lbl_right.visible = true
-			lbl_right.text = "Vida %d" % [base_hp]
+			lbl_right.text = "❤️ %d" % [base_hp]
 			lbl_right.z_index = 10
 		# Atualizar botão Auto Benefício para ajustar texto em telas menores
 		_update_auto_benefit_button()
@@ -10658,7 +11547,7 @@ func _adjust_shop_and_skills_panels() -> void:
 		if lbl_right:
 			lbl_right.visible = true
 			lbl_right.z_index = 10
-			lbl_right.text = "Vida %d" % [base_hp]
+			lbl_right.text = "❤️ %d" % [base_hp]
 	
 	# Ajustar painel de skills (precisa considerar largura da loja)
 	if skills_panel != null:
@@ -10718,7 +11607,7 @@ func _get_tower_id(tower: Dictionary, tower_type: String) -> String:
 
 func _calculate_tower_dps(tower: Dictionary, _tower_type: String) -> float:
 	"""Calcula o DPS teórico de uma torre baseado em dano e fire_rate"""
-	var damage = tower.get("damage", 0.5)
+	var damage = tower.get("damage", GameConstants.TOWER_BASE_DAMAGE)
 	var fire_rate = tower.get("fire_rate", 1.5)
 	var dirs_count = tower.get("dirs", [Vector2(1, 0)]).size()
 	
@@ -10818,7 +11707,7 @@ func _calculate_aoe_dps(aoe: Dictionary) -> float:
 
 func _calculate_shock_dps(shock: Dictionary) -> float:
 	"""Calcula o DPS teórico de uma shock tower"""
-	var damage = shock.get("damage", 0.5)
+	var damage = shock.get("damage", GameConstants.TOWER_BASE_DAMAGE)
 	var fire_rate = shock.get("fire_rate", 1.0)
 	var chain_count = shock.get("chain_count", 1)
 	
@@ -11107,7 +11996,7 @@ func _update_dps_menu() -> void:
 		tower_dps_data[tower_id]["tower_type"] = "tower"
 		tower_dps_data[tower_id]["pos"] = tower.pos
 		# Debug: verificar se o dano está atualizado
-		var tower_damage = tower.get("damage", 0.5)
+		var tower_damage = tower.get("damage", GameConstants.TOWER_BASE_DAMAGE)
 		if calculated_dps > 0:
 			print("Torre DPS: damage=%.2f, fire_rate=%.2f, dirs=%d, dps_calculado=%.2f" % [tower_damage, tower.get("fire_rate", 1.5), tower.get("dirs", []).size(), calculated_dps])
 	
