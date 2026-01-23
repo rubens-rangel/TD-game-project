@@ -437,10 +437,7 @@ const WEATHER_NIGHT_VISIBILITY_REDUCTION := 0.30  # Reduz 30% do alcance (noite 
 const WEATHER_NIGHT_ENEMY_SPEED_BOOST := 1.10  # Inimigos 10% mais rápidos na noite
 
 # Market Items (Itens do Mercado - custos em esmeraldas)
-const MARKET_ITEM_HEAL_FULL := 3  # Cura completa do herói
-const MARKET_ITEM_COINS_100 := 2  # 100 moedas
-const MARKET_ITEM_COINS_500 := 8  # 500 moedas
+const MARKET_ITEM_HEAL_FULL := 40  # Cura completa do herói (2 usos)
 const MARKET_ITEM_TOWER_DAMAGE_BOOST := 5  # +20% dano de todas as torres por 5 waves
 const MARKET_ITEM_HERO_DAMAGE_BOOST := 4  # +30% dano do herói por 5 waves
-const MARKET_ITEM_WAVE_SKIP := 10  # Pula a próxima wave
 const MARKET_ITEM_EXTRA_LIFE := 15  # +1 vida extra para a base

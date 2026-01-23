@@ -30,6 +30,7 @@ const CullingManager = preload("res://scripts/managers/CullingManager.gd")
 const ThreadManager = preload("res://scripts/managers/ThreadManager.gd")
 const ComboManager = preload("res://scripts/managers/ComboManager.gd")
 const NotificationManager = preload("res://scripts/managers/NotificationManager.gd")
+const Market = preload("res://scripts/structures/Market.gd")
 
 const HERO_ARROW_SPEED := GameConstants.HERO_ARROW_SPEED
 
@@ -74,6 +75,9 @@ var maxed_towers_count: int = 0
 var walls_built: int = 0
 var global_tower_damage_boost: float = 1.0
 var global_tower_range_boost: float = 1.0
+var tower_damage_boost_waves_remaining: int = 0  # Waves restantes do buff de dano de torres
+var hero_damage_boost_waves_remaining: int = 0  # Waves restantes do buff de dano do herói
+var heal_full_uses_remaining: int = 2  # Usos restantes da cura completa
 
 var perk_effects: Dictionary = {}
 var coin_drop_chance: float = GameConstants.COIN_DROP_CHANCE
@@ -255,6 +259,18 @@ var diamond_label: Label
 
 var pause_overlay: Control
 var save_status_label: Label
+
+# Cache para otimização de FPS
+var _cached_map_width: float = 0.0
+var _cached_map_height: float = 0.0
+var _cached_grid_size_px: float = 0.0
+var _ui_update_timer: float = 0.0
+var _ui_update_interval: float = 0.1  # Atualizar UI a cada 100ms ao invés de todo frame
+
+# Cache de valores pré-calculados
+var _cached_tile_size: float = float(GameConstants.TILE_SIZE)
+var _cached_base_half_size: int = int(GameConstants.BASE_SIZE_TILES / 2)
+var _cached_base_grid_size: int = GameConstants.BASE_GRID_SIZE
 
 var skills_panel: Panel
 var skill_buttons: Dictionary = {}
@@ -589,6 +605,11 @@ func _process_white_to_transparent(texture: Texture2D, image_path: String) -> Te
 	var new_texture = ImageTexture.create_from_image(image)
 	return new_texture
 
+func _exit_tree() -> void:
+	"""Limpa threads e recursos ao sair"""
+	if thread_manager:
+		thread_manager.cleanup()
+
 func _ready() -> void:
 	# Criar tela de carregamento primeiro
 	_create_loading_screen()
@@ -803,59 +824,49 @@ func _ready() -> void:
 	# wire UI
 	var tb = $CanvasLayer/HUD/TopBar
 	
-	# Melhorar design da top bar
-	var top_bar_style = StyleBoxFlat.new()
-	top_bar_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
-	top_bar_style.border_color = Color(0.3, 0.3, 0.4)
-	top_bar_style.border_width_left = 0
-	top_bar_style.border_width_top = 0
-	top_bar_style.border_width_right = 0
-	top_bar_style.border_width_bottom = 2
-	tb.add_theme_stylebox_override("panel", top_bar_style)
+	# Melhorar design da top bar (usar StyleBox pré-carregado)
+	var top_bar_style = resource_manager.get_style_box("top_bar")
+	if top_bar_style:
+		tb.add_theme_stylebox_override("panel", top_bar_style)
 	
-	# Estilizar BottomBar (com maior transparência)
+	# Estilizar BottomBar (usar StyleBox pré-carregado)
 	var bottom_bar = $CanvasLayer/HUD.get_node_or_null("BottomBar")
 	if bottom_bar:
-		var bottom_bar_style = StyleBoxFlat.new()
-		bottom_bar_style.bg_color = Color(0.1, 0.1, 0.15, 0.6)  # Transparência aumentada (0.6 ao invés de 0.95)
-		bottom_bar_style.border_color = Color(0.3, 0.3, 0.4, 0.6)
-		bottom_bar_style.border_width_left = 0
-		bottom_bar_style.border_width_top = 2
-		bottom_bar_style.border_width_right = 0
-		bottom_bar_style.border_width_bottom = 0
-		bottom_bar.add_theme_stylebox_override("panel", bottom_bar_style)
+		var bottom_bar_style = resource_manager.get_style_box("bottom_bar")
+		if bottom_bar_style:
+			bottom_bar.add_theme_stylebox_override("panel", bottom_bar_style)
 		
-		# Estilizar labels da BottomBar
+		# Estilizar labels da BottomBar (usar cores pré-carregadas)
 		var time_label = bottom_bar.get_node_or_null("LblTime")
 		if time_label:
-			time_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
+			time_label.add_theme_color_override("font_color", resource_manager.get_color("ui_text_blue"))
 			time_label.add_theme_font_size_override("font_size", 14)
 		
 		var enemies_label = bottom_bar.get_node_or_null("LblEnemies")
 		if enemies_label:
-			enemies_label.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
+			enemies_label.add_theme_color_override("font_color", resource_manager.get_color("ui_text_red"))
 			enemies_label.add_theme_font_size_override("font_size", 14)
 		
 		var fps_label = bottom_bar.get_node_or_null("LblFPS")
 		if fps_label:
-			fps_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+			fps_label.add_theme_color_override("font_color", resource_manager.get_color("ui_text_green"))
 			fps_label.add_theme_font_size_override("font_size", 14)
 	
 	# Melhorar labels
 	var lbl_left = tb.get_node("LblLeft")
-	lbl_left.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	lbl_left.add_theme_color_override("font_color", resource_manager.get_color("ui_text"))
 	lbl_left.add_theme_font_size_override("font_size", 16)
 	# Reduzir espaço - ajustar posição do LblCenter mais próximo
 	lbl_left.offset_left = 12
 	
 	var lbl_center = tb.get_node("LblCenter")
-	lbl_center.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	lbl_center.add_theme_color_override("font_color", resource_manager.get_color("ui_text_gold"))
 	lbl_center.add_theme_font_size_override("font_size", 18)
 	# Aumentar espaço entre Inimigos e Moedas
 	lbl_center.offset_left = 250
 
 	var lbl_right = tb.get_node("LblRight")
-	lbl_right.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+	lbl_right.add_theme_color_override("font_color", resource_manager.get_color("ui_text_red"))
 	lbl_right.add_theme_font_size_override("font_size", 20)  # Aumentar tamanho de 16 para 20
 	# Posicionar Vida após diamantes (diamantes está em 430, então colocar em 500)
 	lbl_right.offset_left = 500
@@ -1204,52 +1215,36 @@ func _ready() -> void:
 		var btn_restart = go.get_node("Panel/BtnRestart")
 		var btn_menu = go.get_node("Panel/BtnMenu")
 		
-		var btn_style = StyleBoxFlat.new()
-		btn_style.bg_color = Color(0.2, 0.4, 0.6, 0.9)
-		btn_style.border_color = Color(0.4, 0.6, 0.8, 1.0)
-		btn_style.border_width_left = 2
-		btn_style.border_width_top = 2
-		btn_style.border_width_right = 2
-		btn_style.border_width_bottom = 2
-		btn_style.corner_radius_top_left = 5
-		btn_style.corner_radius_top_right = 5
-		btn_style.corner_radius_bottom_left = 5
-		btn_style.corner_radius_bottom_right = 5
+		# Usar StyleBoxes pré-carregados
+		var btn_style = resource_manager.get_style_box("button_normal")
+		var btn_hover_style = resource_manager.get_style_box("button_hover")
 		
-		var btn_hover_style = StyleBoxFlat.new()
-		btn_hover_style.bg_color = Color(0.3, 0.5, 0.7, 0.95)
-		btn_hover_style.border_color = Color(0.5, 0.7, 0.9, 1.0)
-		btn_hover_style.border_width_left = 2
-		btn_hover_style.border_width_top = 2
-		btn_hover_style.border_width_right = 2
-		btn_hover_style.border_width_bottom = 2
-		btn_hover_style.corner_radius_top_left = 5
-		btn_hover_style.corner_radius_top_right = 5
-		btn_hover_style.corner_radius_bottom_left = 5
-		btn_hover_style.corner_radius_bottom_right = 5
-		
-		btn_restart.add_theme_stylebox_override("normal", btn_style)
-		btn_restart.add_theme_stylebox_override("hover", btn_hover_style)
-		btn_menu.add_theme_stylebox_override("normal", btn_style)
-		btn_menu.add_theme_stylebox_override("hover", btn_hover_style)
+		if btn_style:
+			btn_restart.add_theme_stylebox_override("normal", btn_style)
+			btn_menu.add_theme_stylebox_override("normal", btn_style)
+		if btn_hover_style:
+			btn_restart.add_theme_stylebox_override("hover", btn_hover_style)
+			btn_menu.add_theme_stylebox_override("hover", btn_hover_style)
 		
 		# Melhorar estilo do label de onda
 		var lbl_wave = go.get_node("Panel/LblWave")
 		lbl_wave.add_theme_color_override("font_color", Color(1.0, 0.9, 0.7, 1.0))  # Cor dourada
 		lbl_wave.add_theme_font_size_override("font_size", 18)
 
-	# Carregar e tocar música de fundo do jogo
+	# Carregar e tocar música de fundo do jogo (usar pré-carregado se disponível)
 	var music_player = get_node_or_null("MusicPlayer")
 	if music_player:
-		var music = _try_load_music("res://assets/music/game_music.ogg")
+		var music = resource_manager.get_audio_stream("game_music")
 		if music == null:
-			# Tentar formato alternativo
-			music = _try_load_music("res://assets/music/game_music.mp3")
-		if music == null:
-			# Se não houver música específica do jogo, tentar música do menu
-			music = _try_load_music("res://assets/music/menu_music.ogg")
+			music = _try_load_music("res://assets/music/game_music.ogg")
 			if music == null:
-				music = _try_load_music("res://assets/music/menu_music.mp3")
+				# Tentar formato alternativo
+				music = _try_load_music("res://assets/music/game_music.mp3")
+			if music == null:
+				# Se não houver música específica do jogo, tentar música do menu
+				music = _try_load_music("res://assets/music/menu_music.ogg")
+				if music == null:
+					music = _try_load_music("res://assets/music/menu_music.mp3")
 		if music != null:
 			# Configurar loop se for AudioStreamOggVorbis ou AudioStreamMP3
 			if music is AudioStreamOggVorbis:
@@ -1377,13 +1372,21 @@ func _process(delta: float) -> void:
 				redraw_timer = 0.0
 			set_meta("redraw_throttle", redraw_timer)
 	
-	var ui_update_timer = get_meta("ui_update_timer", 0.0)
-	ui_update_timer += delta
-	if ui_update_timer >= 0.1:
+	# Otimizar atualização de UI (usar variável de classe ao invés de meta)
+	_ui_update_timer += delta
+	if _ui_update_timer >= _ui_update_interval:
 		_update_skills_ui()
 		_update_bottom_bar()
-		ui_update_timer = 0.0
-	set_meta("ui_update_timer", ui_update_timer)
+		# Atualizar UI da loja de torres com throttle (menos frequente - a cada 200ms)
+		if _ui_update_timer >= 0.2:
+			_update_tower_shop_ui()
+			_ui_update_timer = 0.0
+		else:
+			_ui_update_timer -= _ui_update_interval
+	
+	# Processar resultados de pathfinding da thread (otimização de FPS)
+	if thread_manager:
+		thread_manager.process_pathfinding_results()
 	
 	var dps_update_timer = get_meta("dps_update_timer", 0.0)
 	dps_update_timer += delta
@@ -1559,6 +1562,21 @@ func _process(delta: float) -> void:
 					# Aplicar cura respeitando o limite máximo
 					var new_hp = base_hp + hs.heal_amount
 					base_hp = min(base_hp_max, new_hp)
+			
+			# Decrementar buffs temporários ao completar wave
+			if tower_damage_boost_waves_remaining > 0:
+				tower_damage_boost_waves_remaining -= 1
+				if tower_damage_boost_waves_remaining <= 0:
+					global_tower_damage_boost = 1.0
+					if notification_manager:
+						notification_manager.show_notification("Buff de Dano Torres expirou!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.2))
+			
+			if hero_damage_boost_waves_remaining > 0:
+				hero_damage_boost_waves_remaining -= 1
+				if hero_damage_boost_waves_remaining <= 0:
+					# Remover boost do herói (será implementado)
+					if notification_manager:
+						notification_manager.show_notification("Buff de Dano Herói expirou!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.2))
 			
 			# garantir que upgrade_options tenha 3 elementos e embaralhar
 			# Usar pool do HeroManager se disponível
@@ -2161,8 +2179,12 @@ func _draw() -> void:
 	if grid_manager.grid.is_empty() or grid_manager.grid.size() < GameConstants.GRID_ROWS:
 		return
 	
-	var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
-	var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+	# Usar cache para map_width e map_height (calculados apenas uma vez)
+	if _cached_map_width == 0.0 or _cached_map_height == 0.0:
+		_cached_map_width = float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		_cached_map_height = float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+	var map_width := _cached_map_width
+	var map_height := _cached_map_height
 	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.05, 0.06, 0.08))
 	draw_rect(Rect2(0, 0, map_width, map_height), Color(0.0, 0.0, 0.0, 0.4))
 	
@@ -2217,7 +2239,10 @@ func _draw() -> void:
 	draw_rect(base_rect, base_glow, false, 2.0)
 	
 	# desenhar grid da base com transparência - alinhado perfeitamente aos tiles
-	var grid_size_px: float = base_width_px / float(GameConstants.BASE_GRID_SIZE)
+	# Cache grid_size_px (calculado apenas uma vez)
+	if _cached_grid_size_px == 0.0:
+		_cached_grid_size_px = base_width_px / float(GameConstants.BASE_GRID_SIZE)
+	var grid_size_px: float = _cached_grid_size_px
 	var base_left: float = base_left_px
 	var base_top: float = base_top_px
 	var base_right: float = base_left_px + base_width_px
@@ -2600,22 +2625,36 @@ func _draw() -> void:
 		# Não renderizar preview para minas aqui (já tem renderização separada)
 		# Quartel agora usa o mesmo sistema de preview que as outras torres
 		if dragged_tower_type != "mine":
-			# Usar posição snapped para preview visual
-			var preview_rect = Rect2(snapped_preview_pos.x - preview_size/2, snapped_preview_pos.y - preview_size/2, preview_size, preview_size)
-			if can_place:
-				# Posição válida - verde semi-transparente
-				if preview_tex != null:
-					draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+			# Para mercado, usar preview sem borda verde
+			if dragged_tower_type == "market":
+				var preview_rect = Rect2(snapped_preview_pos.x - preview_size/2, snapped_preview_pos.y - preview_size/2, preview_size, preview_size)
+				if can_place:
+					if preview_tex != null:
+						draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+					else:
+						draw_rect(preview_rect, resource_manager.get_color("preview_valid"))
 				else:
-					draw_rect(preview_rect, Color(0.7, 0.9, 0.7, 0.7))
-				draw_rect(preview_rect, Color(0.5, 0.8, 0.5), false, 2.0)
+					if preview_tex != null:
+						draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
+					else:
+						draw_rect(preview_rect, resource_manager.get_color("preview_invalid"))
 			else:
-				# Posição inválida - vermelho semi-transparente
-				if preview_tex != null:
-					draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
+				# Usar posição snapped para preview visual
+				var preview_rect = Rect2(snapped_preview_pos.x - preview_size/2, snapped_preview_pos.y - preview_size/2, preview_size, preview_size)
+				if can_place:
+					# Posição válida - usar cores pré-carregadas
+					if preview_tex != null:
+						draw_texture_rect(preview_tex, preview_rect, false, Color(1, 1, 1, 0.7))
+					else:
+						draw_rect(preview_rect, resource_manager.get_color("preview_valid"))
+					draw_rect(preview_rect, resource_manager.get_color("preview_border_valid"), false, 2.0)
 				else:
-					draw_rect(preview_rect, Color(0.9, 0.3, 0.3, 0.7))
-				draw_rect(preview_rect, Color(0.8, 0.2, 0.2), false, 2.0)
+					# Posição inválida - usar cores pré-carregadas
+					if preview_tex != null:
+						draw_texture_rect(preview_tex, preview_rect, false, Color(1, 0.3, 0.3, 0.7))
+					else:
+						draw_rect(preview_rect, resource_manager.get_color("preview_invalid"))
+					draw_rect(preview_rect, resource_manager.get_color("preview_border_invalid"), false, 2.0)
 	
 	# towers (3x3 no grid)
 	for i in range(towers.size()):
@@ -2796,7 +2835,7 @@ func _draw() -> void:
 			draw_texture_rect(tex_market, m_rect, false)
 		else:
 			draw_rect(m_rect, Color(0.2,0.8,0.2))
-		draw_rect(m_rect, Color(0.1,0.6,0.3), false, 2.0)
+	
 	# soldados
 	for s in soldiers:
 		if s.hp > 0:
@@ -2915,7 +2954,7 @@ func _draw() -> void:
 			draw_circle(particle_pos, 3.0 * scale, Color(1.0, 0.7, 0.0, alpha))
 	
 	# preview de colocação
-	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
+	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
 		if grid_manager.is_inside_base_point(preview_mouse_pos):
 			var preview_grid_coord = grid_manager.world_to_base_grid(preview_mouse_pos)
 			# Usar tamanho padrão de 3 para preview (maioria das torres)
@@ -3066,22 +3105,21 @@ func _draw() -> void:
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
 			
 			elif placing_market:
+				var market_preview_world_pos = grid_manager.base_grid_to_world(preview_grid_coord.x, preview_grid_coord.y, GameConstants.MARKET_SIZE_GRID)
 				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11):
 					var preview_size := grid_size_px * GameConstants.MARKET_SIZE_GRID
-					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					var preview_rect := Rect2(market_preview_world_pos.x - preview_size/2, market_preview_world_pos.y - preview_size/2, preview_size, preview_size)
 					if tex_market != null:
 						draw_texture_rect(tex_market, preview_rect, false, Color(1, 1, 1, 0.5))
 					else:
 						draw_rect(preview_rect, Color(0.2,0.8,0.2,0.5))
-					draw_rect(preview_rect, Color(0.1,0.6,0.1), false, 2.0)
 				else:
 					var preview_size := grid_size_px * GameConstants.MARKET_SIZE_GRID
-					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					var preview_rect := Rect2(market_preview_world_pos.x - preview_size/2, market_preview_world_pos.y - preview_size/2, preview_size, preview_size)
 					if tex_market != null:
 						draw_texture_rect(tex_market, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
-					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
 		
 		if placing_mine:
 			var tile = _world_to_tile_coords(preview_mouse_pos)
@@ -4709,6 +4747,7 @@ func _create_admin_menu(tb: Panel) -> void:
 	admin_menu.add_item("+10 Waves", 2)
 	admin_menu.add_item("+100 Moedas", 3)
 	admin_menu.add_item("+1000 Moedas", 4)
+	admin_menu.add_item("+100 Esmeraldas", 5)
 	admin_menu.id_pressed.connect(_on_admin_menu_pressed)
 	menu_container.add_child(admin_menu)
 	
@@ -4766,6 +4805,8 @@ func _on_admin_menu_pressed(id: int) -> void:
 			_add_100_coins()
 		4:  # +1000 Moedas
 			_add_1000_coins()
+		5:  # +100 Esmeraldas
+			_add_100_emeralds()
 
 func _jump_10_waves() -> void:
 	# Pular 10 waves a partir da wave atual
@@ -4786,6 +4827,14 @@ func _add_1000_coins() -> void:
 	# Adicionar 1000 moedas ao jogador
 	hero["coins"] += 1000
 	print("Admin: +1000 moedas adicionadas (total: %d)" % hero["coins"])
+
+func _add_100_emeralds() -> void:
+	# Adicionar 100 esmeraldas ao jogador
+	if special_currency_manager:
+		special_currency_manager.add_emeralds(100)
+		print("Admin: +100 esmeraldas adicionadas")
+		if notification_manager:
+			notification_manager.show_notification("+100 Esmeraldas!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
 
 # Variáveis de reset de perks removidas - agora no Menu.gd
 
@@ -6770,12 +6819,9 @@ func _try_place_market(pos: Vector2) -> void:
 		return
 	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11)
 	pathfinder.invalidate_cache()
-	var market_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
-	markets.append({
-		"pos": market_world_pos,
-		"grid_x": grid_coord.x,
-		"grid_y": grid_coord.y
-	})
+	var market_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID)
+	var new_market = Market.new(grid_coord, market_world_pos)
+	markets.append(new_market)
 	if special_currency_manager:
 		special_currency_manager.spend_emeralds(GameConstants.MARKET_COST_EMERALDS)
 	placing_market = false
@@ -6791,30 +6837,34 @@ func _open_market_menu(idx: int, screen_pos: Vector2) -> void:
 	var has_emeralds = currency_info.emeralds > 0
 	
 	market_menu.clear()
-	market_menu.add_item("Cura Completa (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HEAL_FULL)
-	market_menu.set_item_disabled(0, currency_info.emeralds < GameConstants.MARKET_ITEM_HEAL_FULL)
-	
-	market_menu.add_item("100 Moedas (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_COINS_100)
-	market_menu.set_item_disabled(1, currency_info.emeralds < GameConstants.MARKET_ITEM_COINS_100)
-	
-	market_menu.add_item("500 Moedas (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_COINS_500)
-	market_menu.set_item_disabled(2, currency_info.emeralds < GameConstants.MARKET_ITEM_COINS_500)
-	
-	market_menu.add_separator()
-	
-	market_menu.add_item("+20%% Dano Torres (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
-	market_menu.set_item_disabled(4, currency_info.emeralds < GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
-	
-	market_menu.add_item("+30%% Dano Herói (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
-	market_menu.set_item_disabled(5, currency_info.emeralds < GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
+	# Cura Completa (2 usos)
+	var heal_text = "Cura Completa (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HEAL_FULL
+	if heal_full_uses_remaining <= 0:
+		heal_text += " [Sem usos]"
+	else:
+		heal_text += " [%d usos restantes]" % heal_full_uses_remaining
+	market_menu.add_item(heal_text)
+	market_menu.set_item_disabled(0, currency_info.emeralds < GameConstants.MARKET_ITEM_HEAL_FULL or heal_full_uses_remaining <= 0)
 	
 	market_menu.add_separator()
 	
-	market_menu.add_item("Pular Wave (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_WAVE_SKIP)
-	market_menu.set_item_disabled(7, currency_info.emeralds < GameConstants.MARKET_ITEM_WAVE_SKIP)
+	# Buffs temporários (não cumulativos)
+	var tower_boost_text = "+20%% Dano Torres (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST
+	if tower_damage_boost_waves_remaining > 0:
+		tower_boost_text += " [%d waves restantes]" % tower_damage_boost_waves_remaining
+	market_menu.add_item(tower_boost_text)
+	market_menu.set_item_disabled(1, currency_info.emeralds < GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST or tower_damage_boost_waves_remaining > 0)
+	
+	var hero_boost_text = "+30%% Dano Herói (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST
+	if hero_damage_boost_waves_remaining > 0:
+		hero_boost_text += " [%d waves restantes]" % hero_damage_boost_waves_remaining
+	market_menu.add_item(hero_boost_text)
+	market_menu.set_item_disabled(2, currency_info.emeralds < GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST or hero_damage_boost_waves_remaining > 0)
+	
+	market_menu.add_separator()
 	
 	market_menu.add_item("+1 Vida Extra (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_EXTRA_LIFE)
-	market_menu.set_item_disabled(8, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	market_menu.set_item_disabled(4, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
 	
 	market_menu.add_separator()
 	market_menu.add_item("Fechar")
@@ -6830,44 +6880,27 @@ func _on_market_menu_selected(id: int) -> void:
 	
 	match id:
 		0:  # Cura Completa
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HEAL_FULL:
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HEAL_FULL and heal_full_uses_remaining > 0:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HEAL_FULL)
 				base_hp = base_hp_max
+				heal_full_uses_remaining -= 1
 				if notification_manager:
-					notification_manager.show_notification("Herói curado completamente!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
-		1:  # 100 Moedas
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_COINS_100:
-				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_COINS_100)
-				hero["coins"] += 100
-				if notification_manager:
-					notification_manager.show_notification("+100 Moedas!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(1.0, 0.9, 0.3))
-		2:  # 500 Moedas
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_COINS_500:
-				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_COINS_500)
-				hero["coins"] += 500
-				if notification_manager:
-					notification_manager.show_notification("+500 Moedas!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(1.0, 0.9, 0.3))
-		4:  # Boost Dano Torres
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST:
+					notification_manager.show_notification("Herói curado completamente! (%d usos restantes)" % heal_full_uses_remaining, 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
+		1:  # Boost Dano Torres
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST and tower_damage_boost_waves_remaining <= 0:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
 				global_tower_damage_boost = 1.2  # +20%
-				# Resetar após 5 waves (será implementado no wave manager)
+				tower_damage_boost_waves_remaining = 5
 				if notification_manager:
 					notification_manager.show_notification("+20%% Dano Torres por 5 waves!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
-		5:  # Boost Dano Herói
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST:
+		2:  # Boost Dano Herói
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST and hero_damage_boost_waves_remaining <= 0:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
 				# Aplicar boost no herói (será implementado)
+				hero_damage_boost_waves_remaining = 5
 				if notification_manager:
 					notification_manager.show_notification("+30%% Dano Herói por 5 waves!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
-		7:  # Pular Wave
-			if currency_info.emeralds >= GameConstants.MARKET_ITEM_WAVE_SKIP:
-				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_WAVE_SKIP)
-				if wave_manager:
-					wave_manager.skip_current_wave()
-				if notification_manager:
-					notification_manager.show_notification("Wave pulada!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.6, 0.8))
-		8:  # Vida Extra
+		4:  # Vida Extra
 			if currency_info.emeralds >= GameConstants.MARKET_ITEM_EXTRA_LIFE:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_EXTRA_LIFE)
 				base_hp_max += 50
@@ -8395,21 +8428,17 @@ func _create_coin_collect_effect(pos: Vector2) -> void:
 
 func _play_coin_sound() -> void:
 	# Tocar som de coleta de moeda usando pool de players para evitar sobreposição
-	# Carregar som uma vez (cache)
-	if not has_meta("coin_sound_cache"):
-		var cached_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
-		if cached_sound == null:
-			cached_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
-		if cached_sound == null:
-			cached_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
-		if cached_sound != null:
-			set_meta("coin_sound_cache", cached_sound)
-		else:
-			return  # Sem som disponível
-	
-	var coin_sound = get_meta("coin_sound_cache", null)
+	# Usar som pré-carregado do ResourceManager
+	var coin_sound = resource_manager.get_audio_stream("coin_collect")
 	if coin_sound == null:
-		return
+		# Fallback para carregamento dinâmico se não foi pré-carregado
+		coin_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
+		if coin_sound == null:
+			coin_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
+		if coin_sound == null:
+			coin_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
+		if coin_sound == null:
+			return  # Sem som disponível
 	
 	# Encontrar um player disponível ou criar um novo
 	var available_player: AudioStreamPlayer = null
@@ -11641,6 +11670,31 @@ func _update_bottom_bar() -> void:
 	if fps_label:
 		var fps = Engine.get_frames_per_second()
 		fps_label.text = "FPS: %d" % fps
+	
+	# Atualizar buffs temporários no TopBar
+	var top_bar = hud.get_node_or_null("TopBar")
+	if top_bar:
+		var buff_label = top_bar.get_node_or_null("LblBuffs")
+		if not buff_label:
+			buff_label = Label.new()
+			buff_label.name = "LblBuffs"
+			buff_label.add_theme_font_size_override("font_size", 12)
+			buff_label.offset_left = 600
+			buff_label.offset_top = 10
+			top_bar.add_child(buff_label)
+		
+		var buff_text = ""
+		if tower_damage_boost_waves_remaining > 0:
+			buff_text += "⚔️ +20%% Torres (%d waves) " % tower_damage_boost_waves_remaining
+		if hero_damage_boost_waves_remaining > 0:
+			buff_text += "🗡️ +30%% Herói (%d waves) " % hero_damage_boost_waves_remaining
+		
+		if buff_text.is_empty():
+			buff_label.visible = false
+		else:
+			buff_label.visible = true
+			buff_label.text = buff_text.strip_edges()
+			buff_label.add_theme_color_override("font_color", Color(0.8, 0.2, 0.8))
 
 func _on_viewport_size_changed() -> void:
 	"""Chamado quando o tamanho da viewport muda (incluindo tela cheia)"""
