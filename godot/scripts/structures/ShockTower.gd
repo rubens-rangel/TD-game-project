@@ -11,8 +11,8 @@ var cooldown: float = 0.0
 var fire_rate: float = 1.5
 var levels: Dictionary = {}
 
-func _init(grid_pos: Vector2i = Vector2i.ZERO, world_pos: Vector2 = Vector2.ZERO).(grid_pos, world_pos):
-	pass
+func _init(grid_pos: Vector2i = Vector2i.ZERO, world_pos: Vector2 = Vector2.ZERO):
+	super._init(grid_pos, world_pos)
 
 func to_dict() -> Dictionary:
 	var dict = super.to_dict()

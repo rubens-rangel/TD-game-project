@@ -69,6 +69,7 @@ func load_all_textures() -> void:
 	textures["mine"] = load_texture("res://assets/images/mine.png", true)
 	textures["wall_structure"] = load_texture("res://assets/images/wall_structure.png", true)
 	textures["healing_station"] = load_texture("res://assets/images/healing_station.png", true)
+	textures["market"] = load_texture("res://assets/images/market.png", true)
 	textures["coin"] = load_texture("res://assets/images/coin.png", true)
 	textures["talism"] = load_texture("res://assets/images/talism.png", true)
 	textures["house"] = load_texture("res://assets/images/house.png", true)

@@ -113,6 +113,7 @@ var placing_boost_tower := false
 var placing_shock_tower := false
 var placing_wall := false
 var placing_healing_station := false
+var placing_market := false
 
 var towers: Array = []
 var barracks: Array = []
@@ -127,6 +128,7 @@ var shock_towers: Array = []
 var walls: Array = []
 var wall_hp_multiplier: float = 1.0
 var healing_stations: Array = []
+var markets: Array = []
 
 var mine_damage_level: int = 0
 var mine_radius_level: int = 0
@@ -160,6 +162,9 @@ var keep_boost_menu_open := false
 var wall_menu: PopupMenu
 var wall_selected_index := -1
 var keep_wall_menu_open := false
+var market_menu: PopupMenu
+var market_selected_index := -1
+var keep_market_menu_open := false
 
 var dragging_tower := false
 var dragged_tower_type := ""
@@ -194,6 +199,7 @@ var tex_barracks: Texture2D
 var tex_mine: Texture2D
 var tex_wall_structure: Texture2D
 var tex_healing_station: Texture2D
+var tex_market: Texture2D
 var tex_coin: Texture2D
 var tex_talisman: Texture2D
 var tex_game_over: Texture2D
@@ -785,6 +791,7 @@ func _ready() -> void:
 	tex_mine = resource_manager.get_texture("mine")
 	tex_wall_structure = resource_manager.get_texture("wall_structure")
 	tex_healing_station = resource_manager.get_texture("healing_station")
+	tex_market = resource_manager.get_texture("market")
 	tex_coin = resource_manager.get_texture("coin")
 	tex_talisman = resource_manager.get_texture("talism")
 	tex_game_over = resource_manager.get_texture("game_over")
@@ -1343,69 +1350,82 @@ func _process(delta: float) -> void:
 	if skills_manager:
 		skills_manager.update_skills(delta)
 	
-	# Coleta automática de moedas quando mouse passa sobre elas (se tem perk ou skill ativa)
 	if skills_manager and skills_manager.is_magnetism_active() and coin_manager:
 		var mouse_screen_pos = get_viewport().get_mouse_position()
-		# Converter posição da tela para coordenadas do mundo do Node2D
 		var world_pos = to_local(mouse_screen_pos)
 		var coin_value = coin_manager.try_collect_coin(world_pos)
-		# Tentar coletar talismã também
 		_try_collect_talisman(world_pos)
 		if coin_value > 0:
-			achievement_manager.increment_progress("collect_1000_coins", coin_value)
-			achievement_manager.increment_progress("collect_10000_coins", coin_value)
-			achievement_manager.increment_progress("collect_100000_coins", coin_value)
-			achievement_manager.increment_progress("collect_1000000_coins", coin_value)
-			if hero["coins"] >= 10000:
-				achievement_manager.set_progress("hold_10000_coins", 1)
-			if hero["coins"] >= 50000:
-				achievement_manager.set_progress("hold_50000_coins", 1)
+			var achievement_batch_timer = get_meta("achievement_batch_timer", 0.0)
+			achievement_batch_timer += delta
+			if achievement_batch_timer >= 0.2:
+				achievement_manager.increment_progress("collect_1000_coins", coin_value)
+				achievement_manager.increment_progress("collect_10000_coins", coin_value)
+				achievement_manager.increment_progress("collect_100000_coins", coin_value)
+				achievement_manager.increment_progress("collect_1000000_coins", coin_value)
+				if hero["coins"] >= 10000:
+					achievement_manager.set_progress("hold_10000_coins", 1)
+				if hero["coins"] >= 50000:
+					achievement_manager.set_progress("hold_50000_coins", 1)
+				achievement_batch_timer = 0.0
+			set_meta("achievement_batch_timer", achievement_batch_timer)
 			_play_coin_sound()
-			queue_redraw()
+			var redraw_timer = get_meta("redraw_throttle", 0.0)
+			redraw_timer += delta
+			if redraw_timer >= 0.05:
+				queue_redraw()
+				redraw_timer = 0.0
+			set_meta("redraw_throttle", redraw_timer)
 	
-	# Atualizar UI das skills (cooldown visual)
-	_update_skills_ui()
+	var ui_update_timer = get_meta("ui_update_timer", 0.0)
+	ui_update_timer += delta
+	if ui_update_timer >= 0.1:
+		_update_skills_ui()
+		_update_bottom_bar()
+		ui_update_timer = 0.0
+	set_meta("ui_update_timer", ui_update_timer)
 	
-	# Atualizar DPS das torres periodicamente
-	_update_tower_dps(delta)
+	var dps_update_timer = get_meta("dps_update_timer", 0.0)
+	dps_update_timer += delta
+	if dps_update_timer >= 0.5:
+		_update_tower_dps(delta)
+		dps_update_timer = 0.0
+	set_meta("dps_update_timer", dps_update_timer)
 	
-	# Verificar combos de torres (a cada 0.5 segundos para performance)
 	if combo_manager:
 		var combo_check_timer = get_meta("combo_check_timer", 0.0)
 		combo_check_timer += delta
-		if combo_check_timer >= 0.5:  # Verificar a cada 0.5s
+		if combo_check_timer >= 0.5:
 			_check_tower_combos()
 			combo_check_timer = 0.0
 		set_meta("combo_check_timer", combo_check_timer)
 	
-	# Atualizar notificações
 	if notification_manager:
 		notification_manager.update_notifications(delta)
 	
-	# Atualizar tempo de jogo
 	if not paused and not game_over:
 		game_time += delta
-		# Verificar achievements de tempo
-		_check_time_achievements()
-	
-	# Atualizar HUD inferior (tempo, FPS, inimigos)
-	_update_bottom_bar()
+		var achievement_check_timer = get_meta("achievement_check_timer", 0.0)
+		achievement_check_timer += delta
+		if achievement_check_timer >= 1.0:
+			_check_time_achievements()
+			achievement_check_timer = 0.0
+		set_meta("achievement_check_timer", achievement_check_timer)
 
-	# update com culling
-	var camera_pos = Vector2.ZERO  # Posição da câmera (pode ser ajustada se houver câmera móvel)
-	if culling_manager:
-		# Atualizar tamanho da viewport periodicamente
+	var camera_pos = Vector2.ZERO
+	var culling_update_timer = get_meta("culling_update_timer", 0.0)
+	culling_update_timer += delta
+	if culling_manager and culling_update_timer >= 0.2:
 		var viewport = get_viewport()
 		if viewport:
 			culling_manager.update_viewport_size(viewport.get_visible_rect().size)
+		culling_update_timer = 0.0
+	set_meta("culling_update_timer", culling_update_timer)
 	
-	# Atualizar inimigos (com culling - apenas lógica, renderização é separada)
 	for e in enemies:
-		# Aplicar culling: atualizar lógica apenas se estiver próximo ou visível
 		if not culling_manager or culling_manager.should_update_logic(e["pos"], camera_pos):
 			_enemy_update(e, delta)
 	
-	# Atualizar projéteis (com culling)
 	for a in arrows:
 		if not culling_manager or culling_manager.is_visible(a["pos"], camera_pos):
 			_arrow_update(a, delta)
@@ -1724,11 +1744,20 @@ func _update_tower_shop_ui() -> void:
 				current_cost = get_wall_cost()
 			"Estação de Cura":
 				current_cost = GameConstants.HEALING_STATION_COST
+			"Mercado de Esmeraldas":
+				current_cost = GameConstants.MARKET_COST_EMERALDS  # Custo em esmeraldas, não escalona
 		
 		# Atualizar o custo no tower_info para uso posterior
 		tower_info.cost = current_cost
 		
-		var can_afford = hero["coins"] >= current_cost
+		# Verificar se pode comprar (moedas ou esmeraldas)
+		var can_afford = false
+		if tower_info.has("cost_type") and tower_info.cost_type == "emeralds":
+			var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+			can_afford = currency_info.emeralds >= current_cost
+		else:
+			can_afford = hero["coins"] >= current_cost
+		
 		var can_buy = can_afford and current_count < tower_info.max
 		
 		# Atualizar label de limite
@@ -1738,14 +1767,19 @@ func _update_tower_shop_ui() -> void:
 		else:
 			tower_button_data.limit_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 		
-		# Atualizar texto do custo
-		tower_button_data.cost_label.text = "%d moedas" % current_cost
-		
-		# Atualizar cor do custo
-		if can_afford:
-			tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+		# Atualizar texto do custo (moedas ou esmeraldas)
+		if tower_info.has("cost_type") and tower_info.cost_type == "emeralds":
+			tower_button_data.cost_label.text = "🟢 %d esmeraldas" % current_cost
+			if can_afford:
+				tower_button_data.cost_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.3))  # Verde para esmeraldas
+			else:
+				tower_button_data.cost_label.add_theme_color_override("font_color", Color(0.8, 0.3, 0.3))  # Vermelho se não pode comprar
 		else:
-			tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+			tower_button_data.cost_label.text = "%d moedas" % current_cost
+			if can_afford:
+				tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+			else:
+				tower_button_data.cost_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 		
 		# Atualizar estado do botão
 		tower_button_data.buy_button.disabled = not can_buy
@@ -1818,6 +1852,8 @@ func _get_structure_array(array_name: String) -> Array:
 			return walls
 		"healing_stations":
 			return healing_stations
+		"markets":
+			return markets
 		_:
 			return []
 
@@ -1878,7 +1914,7 @@ func _input(event: InputEvent) -> void:
 	# Detectar início de drag (botão esquerdo pressionado)
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		# Não iniciar drag se estiver colocando algo ou escolhendo upgrade
-		if choosing_upgrade or placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
+		if choosing_upgrade or placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
 			pass  # Continuar com lógica normal de colocação
 		else:
 			# Verificar se clicou em uma torre para arrastar
@@ -1973,12 +2009,28 @@ func _input(event: InputEvent) -> void:
 				_try_place_wall(world_pos)
 			elif placing_healing_station:
 				_try_place_healing_station(world_pos)
+			elif placing_market:
+				_try_place_market(world_pos)
 			# tiro automático - removido tiro manual por clique
 	
 	# Detectar fim de drag (botão esquerdo solto)
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if dragging_tower:
 			var world_pos = to_local(event.position)
+			var mouse_screen_pos = event.position
+			# Se não moveu muito (menos de 5 pixels), considerar como clique e abrir menu para mercado
+			if dragged_tower_type == "market" and drag_start_pos.distance_to(world_pos) < 5.0:
+				dragging_tower = false
+				dragged_tower_type = ""
+				var market_idx = dragged_tower_index
+				dragged_tower_index = -1
+				drag_start_pos = Vector2.ZERO
+				drag_offset = Vector2.ZERO
+				drag_current_pos = Vector2.ZERO
+				queue_redraw()
+				if market_idx >= 0 and market_idx < markets.size():
+					_open_market_menu(market_idx, mouse_screen_pos)
+				return
 			# Atualizar drag_current_pos com a posição final do mouse antes de finalizar
 			# Isso garante que o preview e a colocação final usem exatamente a mesma posição
 			drag_current_pos = world_pos
@@ -2016,6 +2068,9 @@ func _input(event: InputEvent) -> void:
 				barracks_menu.hide()
 				_hide_range_indicator()
 				barracks_selected_index = -1
+			if market_menu and market_menu.visible:
+				market_menu.hide()
+				market_selected_index = -1
 			
 			# Cancelar drag se estiver arrastando
 			if dragging_tower:
@@ -2029,7 +2084,7 @@ func _input(event: InputEvent) -> void:
 				queue_redraw()
 				return
 			# cancelar colocação com botão direito
-			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station:
+			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
 				placing_tower = false
 				placing_barracks = false
 				placing_mine = false
@@ -2040,11 +2095,18 @@ func _input(event: InputEvent) -> void:
 				placing_shock_tower = false
 				placing_wall = false
 				placing_healing_station = false
+				placing_market = false
 				queue_redraw()
 				return
 			# converter posição do mouse para coordenadas do mundo do Node2D
 			var mouse_world_pos = to_local(event.position)
 			var mouse_screen_pos = event.position  # para posicionar menus na tela
+			
+			# Abrir menu do mercado com botão direito
+			var right_click_market_idx := _find_market_at(mouse_world_pos, 30.0)
+			if right_click_market_idx != -1:
+				_open_market_menu(right_click_market_idx, mouse_screen_pos)
+				return
 			# verificar torres primeiro
 			var tower_idx := _find_tower_at(mouse_world_pos, 20.0)  # raio maior para facilitar detecção
 			if tower_idx != -1:
@@ -2079,6 +2141,12 @@ func _input(event: InputEvent) -> void:
 			var boost_idx := _find_boost_tower_at(mouse_world_pos, 20.0)
 			if boost_idx != -1:
 				_open_boost_menu(boost_idx, mouse_screen_pos)
+				return
+			# verificar Markets (clique esquerdo para arrastar)
+			var market_idx := _find_market_at(mouse_world_pos, 30.0)
+			if market_idx != -1:
+				if not dragging_tower:
+					_start_drag_tower("market", market_idx, mouse_world_pos)
 				return
 			
 			# Se clicou fora de qualquer torre, fechar menus e esconder range indicator
@@ -2453,6 +2521,10 @@ func _draw() -> void:
 				preview_size = grid_size_px * GameConstants.BARRACKS_SIZE_GRID
 				preview_tex = tex_barracks
 				tower_size_grid = GameConstants.BARRACKS_SIZE_GRID
+			"market":
+				preview_size = grid_size_px * GameConstants.MARKET_SIZE_GRID
+				preview_tex = tex_market
+				tower_size_grid = GameConstants.MARKET_SIZE_GRID
 			"mine":
 				preview_size = 16.0
 				preview_tex = tex_mine
@@ -2518,6 +2590,12 @@ func _draw() -> void:
 						ignore_area = Rect2i(old_barracks.grid_x, old_barracks.grid_y, GameConstants.BARRACKS_SIZE_GRID, GameConstants.BARRACKS_SIZE_GRID)
 					item_type = 3
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.BARRACKS_SIZE_GRID, item_type, ignore_area)
+				"market":
+					if dragged_tower_index >= 0 and dragged_tower_index < markets.size():
+						var old_market = markets[dragged_tower_index]
+						ignore_area = Rect2i(old_market.grid_x, old_market.grid_y, GameConstants.MARKET_SIZE_GRID, GameConstants.MARKET_SIZE_GRID)
+					item_type = 11
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID, item_type, ignore_area)
 		
 		# Não renderizar preview para minas aqui (já tem renderização separada)
 		# Quartel agora usa o mesmo sistema de preview que as outras torres
@@ -2705,7 +2783,20 @@ func _draw() -> void:
 			draw_texture_rect(tex_healing_station, hs_rect, false)
 		else:
 			draw_rect(hs_rect, Color(0.2,0.8,0.4))
-			draw_rect(hs_rect, Color(0.1,0.6,0.3), false, 2.0)
+	
+	# markets
+	for i in range(markets.size()):
+		# Não desenhar o mercado que está sendo arrastado
+		if dragging_tower and dragged_tower_type == "market" and i == dragged_tower_index:
+			continue
+		var m = markets[i]
+		var m_size := grid_size_px * GameConstants.MARKET_SIZE_GRID
+		var m_rect := Rect2(m.pos.x - m_size/2, m.pos.y - m_size/2, m_size, m_size)
+		if tex_market != null:
+			draw_texture_rect(tex_market, m_rect, false)
+		else:
+			draw_rect(m_rect, Color(0.2,0.8,0.2))
+		draw_rect(m_rect, Color(0.1,0.6,0.3), false, 2.0)
 	# soldados
 	for s in soldiers:
 		if s.hp > 0:
@@ -2970,6 +3061,24 @@ func _draw() -> void:
 					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
 					if tex_healing_station != null:
 						draw_texture_rect(tex_healing_station, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
+					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
+			elif placing_market:
+				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11):
+					var preview_size := grid_size_px * GameConstants.MARKET_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_market != null:
+						draw_texture_rect(tex_market, preview_rect, false, Color(1, 1, 1, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.2,0.8,0.2,0.5))
+					draw_rect(preview_rect, Color(0.1,0.6,0.1), false, 2.0)
+				else:
+					var preview_size := grid_size_px * GameConstants.MARKET_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_market != null:
+						draw_texture_rect(tex_market, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
@@ -3989,6 +4098,13 @@ func _find_tower_at(p: Vector2, r: float) -> int:
 			return i
 	return -1
 
+func _find_market_at(p: Vector2, r: float) -> int:
+	for i in range(markets.size()):
+		var m = markets[i]
+		if p.distance_to(m.pos) <= r:
+			return i
+	return -1
+
 func _find_barracks_at(p: Vector2, r: float) -> int:
 	for i in range(barracks.size()):
 		if barracks[i].pos.distance_to(p) <= r:
@@ -4051,6 +4167,8 @@ func _start_drag_tower(tower_type: String, tower_idx: int, mouse_pos: Vector2) -
 			tower_pos = walls[tower_idx].pos
 		"barracks":
 			tower_pos = barracks[tower_idx].pos
+		"market":
+			tower_pos = markets[tower_idx].pos
 	
 	drag_start_pos = tower_pos
 	drag_offset = mouse_pos - tower_pos
@@ -4127,6 +4245,8 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			tower_size = GameConstants.SHOCK_TOWER_SIZE_GRID
 		"barracks":
 			tower_size = GameConstants.BARRACKS_SIZE_GRID
+		"market":
+			tower_size = GameConstants.MARKET_SIZE_GRID
 	
 	# Usar função auxiliar para calcular snap - EXATAMENTE a mesma função usada no preview
 	var snap_result = _calculate_tower_snap(tower_center_pos, tower_size)
@@ -4177,6 +4297,8 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			moved = _try_move_wall(dragged_tower_index, wall_world_pos)
 		"barracks":
 			moved = _try_move_barracks_to_grid(dragged_tower_index, grid_coord)
+		"market":
+			moved = _try_move_market_to_grid(dragged_tower_index, grid_coord)
 	
 	# Se não conseguiu mover, restaurar grid na posição original
 	if not moved:
@@ -6540,6 +6662,32 @@ func _try_move_barracks(barracks_idx: int, new_pos: Vector2) -> bool:
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
 	return _try_move_barracks_to_grid(barracks_idx, new_grid_coord)
 
+func _try_move_market_to_grid(market_idx: int, new_grid_coord: Vector2i) -> bool:
+	if market_idx < 0 or market_idx >= markets.size():
+		return false
+	
+	var m = markets[market_idx]
+	
+	if new_grid_coord.x == m.grid_x and new_grid_coord.y == m.grid_y:
+		return true
+	
+	var ignore_area = Rect2i(m.grid_x, m.grid_y, GameConstants.MARKET_SIZE_GRID, GameConstants.MARKET_SIZE_GRID)
+	
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11, ignore_area):
+		return false
+	
+	grid_manager.clear_grid_area(m.grid_x, m.grid_y, GameConstants.MARKET_SIZE_GRID)
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID)
+	m.pos = new_world_pos
+	m.grid_x = new_grid_coord.x
+	m.grid_y = new_grid_coord.y
+	
+	markets[market_idx] = m
+	return true
+
 func _on_buy_healing_station() -> void:
 	if placing_healing_station:
 		return
@@ -6556,6 +6704,7 @@ func _on_buy_healing_station() -> void:
 	placing_sniper_tower = false
 	placing_boost_tower = false
 	placing_wall = false
+	placing_market = false
 
 func _try_place_healing_station(pos: Vector2) -> void:
 	if hero["coins"] < GameConstants.HEALING_STATION_COST:
@@ -6583,6 +6732,151 @@ func _try_place_healing_station(pos: Vector2) -> void:
 	})
 	hero["coins"] -= GameConstants.HEALING_STATION_COST
 	placing_healing_station = false
+
+func _on_buy_market() -> void:
+	if placing_market:
+		return
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	if currency_info.emeralds < GameConstants.MARKET_COST_EMERALDS:
+		return
+	if markets.size() >= GameConstants.MAX_MARKETS:
+		return
+	placing_market = true
+	placing_tower = false
+	placing_barracks = false
+	placing_mine = false
+	placing_slow_tower = false
+	placing_aoe_tower = false
+	placing_sniper_tower = false
+	placing_boost_tower = false
+	placing_shock_tower = false
+	placing_wall = false
+	placing_healing_station = false
+
+func _try_place_market(pos: Vector2) -> void:
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	if currency_info.emeralds < GameConstants.MARKET_COST_EMERALDS:
+		placing_market = false
+		return
+	if markets.size() >= GameConstants.MAX_MARKETS:
+		placing_market = false
+		return
+	if not grid_manager.is_inside_base_point(pos):
+		placing_market = false
+		return
+	var grid_coord = grid_manager.world_to_base_grid(pos)
+	if not grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11):
+		placing_market = false
+		return
+	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11)
+	pathfinder.invalidate_cache()
+	var market_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y)
+	markets.append({
+		"pos": market_world_pos,
+		"grid_x": grid_coord.x,
+		"grid_y": grid_coord.y
+	})
+	if special_currency_manager:
+		special_currency_manager.spend_emeralds(GameConstants.MARKET_COST_EMERALDS)
+	placing_market = false
+
+func _open_market_menu(idx: int, screen_pos: Vector2) -> void:
+	if market_menu == null:
+		market_menu = PopupMenu.new()
+		market_menu.id_pressed.connect(_on_market_menu_selected)
+		add_child(market_menu)
+	
+	market_selected_index = idx
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	var has_emeralds = currency_info.emeralds > 0
+	
+	market_menu.clear()
+	market_menu.add_item("Cura Completa (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HEAL_FULL)
+	market_menu.set_item_disabled(0, currency_info.emeralds < GameConstants.MARKET_ITEM_HEAL_FULL)
+	
+	market_menu.add_item("100 Moedas (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_COINS_100)
+	market_menu.set_item_disabled(1, currency_info.emeralds < GameConstants.MARKET_ITEM_COINS_100)
+	
+	market_menu.add_item("500 Moedas (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_COINS_500)
+	market_menu.set_item_disabled(2, currency_info.emeralds < GameConstants.MARKET_ITEM_COINS_500)
+	
+	market_menu.add_separator()
+	
+	market_menu.add_item("+20%% Dano Torres (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
+	market_menu.set_item_disabled(4, currency_info.emeralds < GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
+	
+	market_menu.add_item("+30%% Dano Herói (5 waves) (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
+	market_menu.set_item_disabled(5, currency_info.emeralds < GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
+	
+	market_menu.add_separator()
+	
+	market_menu.add_item("Pular Wave (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_WAVE_SKIP)
+	market_menu.set_item_disabled(7, currency_info.emeralds < GameConstants.MARKET_ITEM_WAVE_SKIP)
+	
+	market_menu.add_item("+1 Vida Extra (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	market_menu.set_item_disabled(8, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	
+	market_menu.add_separator()
+	market_menu.add_item("Fechar")
+	
+	market_menu.position = screen_pos
+	market_menu.popup()
+
+func _on_market_menu_selected(id: int) -> void:
+	if market_selected_index < 0 or market_selected_index >= markets.size():
+		return
+	
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
+	match id:
+		0:  # Cura Completa
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HEAL_FULL:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HEAL_FULL)
+				base_hp = base_hp_max
+				if notification_manager:
+					notification_manager.show_notification("Herói curado completamente!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
+		1:  # 100 Moedas
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_COINS_100:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_COINS_100)
+				hero["coins"] += 100
+				if notification_manager:
+					notification_manager.show_notification("+100 Moedas!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(1.0, 0.9, 0.3))
+		2:  # 500 Moedas
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_COINS_500:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_COINS_500)
+				hero["coins"] += 500
+				if notification_manager:
+					notification_manager.show_notification("+500 Moedas!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(1.0, 0.9, 0.3))
+		4:  # Boost Dano Torres
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_TOWER_DAMAGE_BOOST)
+				global_tower_damage_boost = 1.2  # +20%
+				# Resetar após 5 waves (será implementado no wave manager)
+				if notification_manager:
+					notification_manager.show_notification("+20%% Dano Torres por 5 waves!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
+		5:  # Boost Dano Herói
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HERO_DAMAGE_BOOST)
+				# Aplicar boost no herói (será implementado)
+				if notification_manager:
+					notification_manager.show_notification("+30%% Dano Herói por 5 waves!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
+		7:  # Pular Wave
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_WAVE_SKIP:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_WAVE_SKIP)
+				if wave_manager:
+					wave_manager.skip_current_wave()
+				if notification_manager:
+					notification_manager.show_notification("Wave pulada!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.6, 0.8))
+		8:  # Vida Extra
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_EXTRA_LIFE:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_EXTRA_LIFE)
+				base_hp_max += 50
+				base_hp += 50
+				if notification_manager:
+					notification_manager.show_notification("+50 HP Máximo!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
+	
+	keep_market_menu_open = false
+	market_menu.hide()
 
 func _physics_process(delta: float) -> void:
 	# aplicar skill de boost de velocidade no herói
@@ -8103,13 +8397,13 @@ func _play_coin_sound() -> void:
 	# Tocar som de coleta de moeda usando pool de players para evitar sobreposição
 	# Carregar som uma vez (cache)
 	if not has_meta("coin_sound_cache"):
-		var coin_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
-		if coin_sound == null:
-			coin_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
-		if coin_sound == null:
-			coin_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
-		if coin_sound != null:
-			set_meta("coin_sound_cache", coin_sound)
+		var cached_sound = _try_load_music("res://assets/sounds/coin_collect.ogg")
+		if cached_sound == null:
+			cached_sound = _try_load_music("res://assets/sounds/coin_collect.mp3")
+		if cached_sound == null:
+			cached_sound = _try_load_music("res://assets/sounds/coin_collect.wav")
+		if cached_sound != null:
+			set_meta("coin_sound_cache", cached_sound)
 		else:
 			return  # Sem som disponível
 	
@@ -8272,6 +8566,7 @@ func _create_tower_shop_ui() -> void:
 		{"name": "Muralha", "cost": 100, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},  # Custo será atualizado dinamicamente por get_wall_cost()
 		{"name": "Estação de Cura", "cost": GameConstants.HEALING_STATION_COST, "icon": tex_healing_station, "func": "_on_buy_healing_station", "max": GameConstants.MAX_HEALING_STATIONS, "array_name": "healing_stations"},
 		{"name": "Mina", "cost": GameConstants.MINE_COST, "icon": tex_mine, "func": "_on_buy_mine", "max": GameConstants.MAX_MINES, "array_name": "mines"},
+		{"name": "Mercado de Esmeraldas", "cost": GameConstants.MARKET_COST_EMERALDS, "icon": tex_market, "func": "_on_buy_market", "max": GameConstants.MAX_MARKETS, "array_name": "markets", "cost_type": "emeralds"},
 	]
 	
 	# Criar botões para cada torre
@@ -8318,8 +8613,12 @@ func _create_tower_shop_ui() -> void:
 		# Custo e limite
 		var cost_label = Label.new()
 		cost_label.name = "CostLabel"
-		cost_label.text = "%d moedas" % tower_info.cost
-		cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+		if tower_info.has("cost_type") and tower_info.cost_type == "emeralds":
+			cost_label.text = "🟢 %d esmeraldas" % tower_info.cost
+			cost_label.add_theme_color_override("font_color", Color(0.2, 0.8, 0.3))  # Verde para esmeraldas
+		else:
+			cost_label.text = "%d moedas" % tower_info.cost
+			cost_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
 		cost_label.add_theme_font_size_override("font_size", 12)
 		text_container.add_child(cost_label)
 		
@@ -8371,8 +8670,8 @@ func _create_tower_shop_ui() -> void:
 		buy_btn.add_theme_font_size_override("font_size", 12)
 		
 		# Adicionar tooltip ao botão
-		var tooltip_text = _get_shop_tooltip_text(tower_info.name)
-		buy_btn.tooltip_text = tooltip_text
+		var shop_tooltip = _get_shop_tooltip_text(tower_info.name)
+		buy_btn.tooltip_text = shop_tooltip
 		
 		# Conectar eventos de mouse para tooltip customizado
 		buy_btn.mouse_entered.connect(func(): _on_shop_button_hover(tower_info.name))
@@ -9090,7 +9389,7 @@ func _create_talisman_inventory_ui() -> void:
 	hud.add_child(panel)
 	
 	var screen_width = get_viewport().get_visible_rect().size.x
-	var screen_height = get_viewport().get_visible_rect().size.y
+	var _screen_height = get_viewport().get_visible_rect().size.y
 	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	panel.position = Vector2(screen_width/2 - 300, 60)
 	panel.size = Vector2(600, 500)
@@ -9854,7 +10153,7 @@ func _create_special_wave_alert_ui() -> void:
 	canvas.add_child(alert_label)
 	special_wave_alert_label = alert_label
 
-func _show_special_wave_alert(wave_number: int, special_wave_type: WaveManager.SpecialWaveType) -> void:
+func _show_special_wave_alert(wave_number: int, _special_wave_type: WaveManager.SpecialWaveType) -> void:
 	if special_wave_alert_label == null:
 		return
 	
@@ -9931,7 +10230,7 @@ func _create_weather_ui() -> void:
 	canvas.add_child(overlay)
 	weather_overlay = overlay
 
-func _show_weather_alert(wave_number: int) -> void:
+func _show_weather_alert(_wave_number: int) -> void:
 	"""Mostra alerta de mudança de clima"""
 	if weather_alert_label == null or weather_manager == null:
 		return
@@ -10596,11 +10895,11 @@ func _recalculate_all_bonuses() -> void:
 	if tower_system_manager:
 		tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
 
-func _on_item_equipped(item: EquippableItem) -> void:
+func _on_item_equipped(_item: EquippableItem) -> void:
 	"""Chamado quando um item é equipado - recalcula todos os bônus"""
 	_recalculate_all_bonuses()
 
-func _on_item_unequipped(item: EquippableItem) -> void:
+func _on_item_unequipped(_item: EquippableItem) -> void:
 	"""Chamado quando um item é desequipado - recalcula todos os bônus"""
 	_recalculate_all_bonuses()
 	
@@ -10813,7 +11112,7 @@ func _get_barracks_tooltip(b: Dictionary) -> String:
 	var dmg = b.get("damage", 1)
 	return "Quartel\n\nSoldados: %d\nDano: %d" % [soldiers_count, dmg]
 
-func _show_wall_menu(wall_idx: int, world_pos: Vector2) -> void:
+func _show_wall_menu(wall_idx: int, _world_pos: Vector2) -> void:
 	"""Mostra menu de upgrade de muralha"""
 	if wall_idx < 0 or wall_idx >= walls.size():
 		return
@@ -11158,9 +11457,9 @@ func _get_shop_tooltip_text(tower_name: String) -> String:
 func _on_shop_button_hover(tower_name: String) -> void:
 	if tooltip_label == null:
 		return
-	var tooltip_text = _get_shop_tooltip_text(tower_name)
-	if tooltip_text != "":
-		tooltip_label.text = tooltip_text
+	var shop_tooltip_text = _get_shop_tooltip_text(tower_name)
+	if shop_tooltip_text != "":
+		tooltip_label.text = shop_tooltip_text
 		tooltip_label.visible = true
 
 func _on_shop_button_unhover() -> void:

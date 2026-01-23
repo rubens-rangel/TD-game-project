@@ -480,6 +480,10 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 var achievements_state: Dictionary = {}
 var total_points: int = 0
 
+# Throttle para salvamento (evitar salvar muito frequentemente)
+var last_save_time: float = 0.0
+const SAVE_COOLDOWN: float = 5.0  # Salvar no máximo a cada 5 segundos
+
 func _init():
 	load_achievements()
 
@@ -520,12 +524,20 @@ func _initialize_missing_achievements() -> void:
 				"unlocked_at": 0
 			}
 
-# Salvar achievements
-func save_achievements() -> void:
+# Salvar achievements (com throttle para evitar salvamento excessivo)
+func save_achievements(force: bool = false) -> void:
+	var current_time = Time.get_unix_time_from_system()
+	
+	# Se não for forçado e ainda estiver no cooldown, não salvar
+	if not force and (current_time - last_save_time) < SAVE_COOLDOWN:
+		return
+	
+	last_save_time = current_time
+	
 	var save_data = {
 		"achievements": achievements_state,
 		"total_points": total_points,
-		"last_saved": Time.get_unix_time_from_system()
+		"last_saved": current_time
 	}
 	
 	var file = FileAccess.open(ACHIEVEMENTS_FILE, FileAccess.WRITE)
@@ -560,11 +572,11 @@ func increment_progress(achievement_id: String, amount: int = 1) -> bool:
 		state.unlocked = true
 		state.unlocked_at = Time.get_unix_time_from_system()
 		total_points += achievement.reward_points
-		save_achievements()
+		save_achievements(true)  # Forçar salvamento quando desbloquear
 		print("Achievement desbloqueado: ", achievement.name, " (+", achievement.reward_points, " pontos)")
 		return true
 	
-	save_achievements()
+	save_achievements()  # Salvamento normal com throttle
 	return false
 
 # Definir progresso absoluto
@@ -590,11 +602,11 @@ func set_progress(achievement_id: String, value: int) -> bool:
 		state.unlocked = true
 		state.unlocked_at = Time.get_unix_time_from_system()
 		total_points += achievement.reward_points
-		save_achievements()
+		save_achievements(true)  # Forçar salvamento quando desbloquear
 		print("Achievement desbloqueado: ", achievement.name, " (+", achievement.reward_points, " pontos)")
 		return true
 	
-	save_achievements()
+	save_achievements()  # Salvamento normal com throttle
 	return false
 
 # Verificar se achievement está desbloqueado

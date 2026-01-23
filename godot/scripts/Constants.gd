@@ -21,6 +21,7 @@ const BOOST_TOWER_COST := 100
 const SHOCK_TOWER_COST := 48
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
+const MARKET_COST_EMERALDS := 5  # Custo em esmeraldas para comprar o mercado
 
 const MINE_DAMAGE := 15.0
 const MINE_TRIGGER_RADIUS := 18.0
@@ -47,6 +48,7 @@ const BOOST_TOWER_SIZE_GRID := 3
 const SHOCK_TOWER_SIZE_GRID := 3
 const WALL_SIZE_GRID := 1
 const HEALING_STATION_SIZE_GRID := 3
+const MARKET_SIZE_GRID := 3
 
 # Limits
 const MAX_TOWERS := 4
@@ -59,6 +61,7 @@ const MAX_BOOST_TOWERS := 1
 const MAX_SHOCK_TOWERS := 4
 const MAX_WALLS := 4
 const MAX_HEALING_STATIONS := 2
+const MAX_MARKETS := 1  # Apenas 1 mercado por jogo
 
 # Tower upgrades
 const TOWER_RANGE_COST := 15
@@ -100,15 +103,15 @@ const BOOST_DMG_COST := 50
 const BOOST_RATE_COST := 40
 
 # Waves
-const WAVE_SCALE := 1.045
+const WAVE_SCALE := 1.035
 const INTERMISSION := 12.0
 
 # Enemy stats
-const ENEMY_BASE_SPEED := 38.0  # Aumentado de 30.0 para 38.0 (~27% mais rápido)
-const ENEMY_MAX_SPEED := 210.0  # Velocidade máxima dos inimigos (limite para evitar bugs em waves muito altas)
+const ENEMY_BASE_SPEED := 38.0
+const ENEMY_MAX_SPEED := 210.0
 const BOSS_SPEED_MULTIPLIER := 0.5
-const ENEMY_BASE_HP := 3  # Aumentado de 2 para 3 para aumentar dificuldade inicial
-const BOSS_BASE_HP := 23  # Reduzido de 35 para 28 (~20% menos) para melhor balanceamento
+const ENEMY_BASE_HP := 4
+const BOSS_BASE_HP := 28
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
@@ -200,9 +203,9 @@ static func get_available_enemy_types(wave: int) -> Array:
 	return available_types
 
 # Balanceamento: Escala de recompensas e upgrades
-const REWARD_SCALE := 1.03  # Recompensas crescem 2% por wave (reduzido de 1.05 para balancear níveis altos)
-const REWARD_SCALE_SOFT_CAP := 50  # A partir da wave 30, a escala diminui ainda mais
-const REWARD_SCALE_AFTER_CAP := 1.02  # Após o soft cap, cresce apenas 2% por wave
+const REWARD_SCALE := 1.05
+const REWARD_SCALE_SOFT_CAP := 50
+const REWARD_SCALE_AFTER_CAP := 1.03
 const UPGRADE_COST_MULTIPLIER := 1.20  # Upgrades ficam 15% mais caros por nível (aumentado de 1.12)
 const WAVE_COMPLETION_BONUS_BASE := 10
 const WAVE_COMPLETION_BONUS_PER_WAVE := 1  # Reduzido de 2 para 1 (crescimento mais lento)
@@ -432,3 +435,12 @@ const WEATHER_HEAT_ENEMY_HP_BOOST := 1.15  # Inimigos 15% mais HP
 const WEATHER_FOG_VISIBILITY_REDUCTION := 0.20  # Reduz 20% do alcance (visibilidade)
 const WEATHER_NIGHT_VISIBILITY_REDUCTION := 0.30  # Reduz 30% do alcance (noite escura)
 const WEATHER_NIGHT_ENEMY_SPEED_BOOST := 1.10  # Inimigos 10% mais rápidos na noite
+
+# Market Items (Itens do Mercado - custos em esmeraldas)
+const MARKET_ITEM_HEAL_FULL := 3  # Cura completa do herói
+const MARKET_ITEM_COINS_100 := 2  # 100 moedas
+const MARKET_ITEM_COINS_500 := 8  # 500 moedas
+const MARKET_ITEM_TOWER_DAMAGE_BOOST := 5  # +20% dano de todas as torres por 5 waves
+const MARKET_ITEM_HERO_DAMAGE_BOOST := 4  # +30% dano do herói por 5 waves
+const MARKET_ITEM_WAVE_SKIP := 10  # Pula a próxima wave
+const MARKET_ITEM_EXTRA_LIFE := 15  # +1 vida extra para a base
