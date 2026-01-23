@@ -1551,10 +1551,12 @@ func _process(delta: float) -> void:
 	if not wave_manager.spawning and enemies.is_empty() and not choosing_upgrade:
 		if wave_manager.wave > 0:
 			# Aplicar cura das healing stations no final da wave
+			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+			var base_center_cached = base_center  # Cache para evitar recálculo
 			for hs in healing_stations:
-				var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
-				var dist_to_base = hs.pos.distance_to(base_center)
-				if dist_to_base <= hs.range:
+				var dist_sq = hs.pos.distance_squared_to(base_center_cached)
+				var range_sq = hs.range * hs.range
+				if dist_sq <= range_sq:
 					# Garantir que base_hp_max está atualizado (pode ter mudado durante a wave)
 					# Recalcular se necessário
 					if base_hp_max < base_hp:
@@ -2670,13 +2672,14 @@ func _draw() -> void:
 			draw_rect(r, Color(0.7,0.7,0.8))
 			draw_rect(r, Color(0.5,0.5,0.6), false, 2.0)  # borda
 	# barracks (3x3 no grid)
-	for i in range(barracks.size()):
+	var barracks_size = barracks.size()  # Cache tamanho
+	for i in range(barracks_size):
 		# Não desenhar o quartel que está sendo arrastado
 		if dragging_tower and dragged_tower_type == "barracks" and i == dragged_tower_index:
 			continue
 		var br = barracks[i]
-		var barracks_size := grid_size_px * GameConstants.BARRACKS_SIZE_GRID
-		var br_rect := Rect2(br.pos.x - barracks_size/2, br.pos.y - barracks_size/2, barracks_size, barracks_size)
+		var br_size := grid_size_px * GameConstants.BARRACKS_SIZE_GRID
+		var br_rect := Rect2(br.pos.x - br_size/2, br.pos.y - br_size/2, br_size, br_size)
 		if tex_barracks != null:
 			draw_texture_rect(tex_barracks, br_rect, false)
 		else:
@@ -2824,7 +2827,8 @@ func _draw() -> void:
 			draw_rect(hs_rect, Color(0.2,0.8,0.4))
 	
 	# markets
-	for i in range(markets.size()):
+	var markets_size = markets.size()  # Cache tamanho
+	for i in range(markets_size):
 		# Não desenhar o mercado que está sendo arrastado
 		if dragging_tower and dragged_tower_type == "market" and i == dragged_tower_index:
 			continue
@@ -3763,6 +3767,9 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 	if e["reached"] or e["hp"] <= 0:
 		return
 	
+	# Declarar variáveis que serão usadas em diferentes partes da função
+	var dist_to_center: float = 0.0
+	
 	var enemy_idx = e.get("idx", -1)
 	if enemy_idx >= 0:
 		# Garantir que o Dictionary de efeitos existe e tem todas as propriedades necessárias
@@ -3891,8 +3898,8 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 	# Verificar se está próximo do centro ANTES de seguir o caminho
 	# Isso garante que inimigos causem dano mesmo se o último ponto do caminho não for exatamente o centro
 	var basep = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
-	var dist_to_center = e["pos"].distance_to(basep)
-	if dist_to_center < 8.0:  # Aumentado de 4.0 para 8.0 para garantir detecção
+	var dist_sq_to_center = e["pos"].distance_squared_to(basep)
+	if dist_sq_to_center < 64.0:  # 8.0^2 = 64.0 (evita sqrt)
 		e["reached"] = true
 		var is_boss = e.get("is_boss", false)
 		# chefe causa mais dano na base
@@ -3912,23 +3919,27 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 	var closest_wall_dist = 9999.0
 	
 	# Encontrar a muralha mais próxima no caminho do inimigo
-	for i in range(walls.size()):
+	var walls_size = walls.size()  # Cache tamanho
+	var wall_detection_radius_sq = wall_detection_radius * wall_detection_radius
+	var wall_damage_radius_sq = GameConstants.WALL_DAMAGE_RADIUS * GameConstants.WALL_DAMAGE_RADIUS
+	for i in range(walls_size):
 		var w = walls[i]
 		if w.hp > 0 and not grid_manager.is_inside_base_point(w.pos):
-			var dist_to_wall = e["pos"].distance_to(w.pos)
+			var dist_sq_to_wall = e["pos"].distance_squared_to(w.pos)
 			# Verificar se a muralha está à frente do inimigo (no caminho)
-			if dist_to_wall < wall_detection_radius and dist_to_wall < closest_wall_dist:
+			if dist_sq_to_wall < wall_detection_radius_sq and dist_sq_to_wall < closest_wall_dist * closest_wall_dist:
 				# Verificar se a muralha está no caminho do inimigo
 				var to_wall = w.pos - e["pos"]
 				var to_target = targ - e["pos"]
 				# Se a muralha está na direção geral do movimento, considerar como bloqueio
-				if to_target.length() > 0.01:
+				var to_target_len_sq = to_target.length_squared()
+				if to_target_len_sq > 0.0001:  # 0.01^2
 					var dot = to_wall.normalized().dot(to_target.normalized())
 					# Se está na mesma direção geral (ângulo < 90 graus) ou muito próxima
-					if dot > -0.3 or dist_to_wall < GameConstants.WALL_DAMAGE_RADIUS:
+					if dot > -0.3 or dist_sq_to_wall < wall_damage_radius_sq:
 						hit_wall = w
 						hit_wall_idx = i
-						closest_wall_dist = dist_to_wall
+						closest_wall_dist = sqrt(dist_sq_to_wall)  # Só calcular sqrt quando necessário
 	
 	if hit_wall != null:
 		# Inimigo encontrou muralha - mover em direção à muralha e ATACAR
