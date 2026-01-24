@@ -122,7 +122,8 @@ enum EnemyType {
 	ZOMBIE_CORREDOR, # Zombie corredor (waves iniciais, menos HP, mais velocidade)
 	HUMANOID,       # Humanoid (wave 6+)
 	ROBOT,          # Robot (wave 11+)
-	ALIEN           # Alien (wave 50+)
+	ALIEN,          # Alien (wave 50+)
+	ALIEN_VOADOR    # Alien voador (wave 51+, ignora labirinto, 30% HP)
 }
 
 # Configuração de tipos de inimigos
@@ -182,6 +183,16 @@ static func get_enemy_type_config(type: EnemyType) -> Dictionary:
 				"texture_name": "enemy_alien",
 				"min_wave": 50,
 				"max_wave": 9999
+			}
+		EnemyType.ALIEN_VOADOR:
+			return {
+				"hp_multiplier": 0.3,  # 30% da vida do alien normal
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "alien_voador",
+				"min_wave": 51,
+				"max_wave": 9999,
+				"ignores_path": true  # Flag para ignorar labirinto
 			}
 		_:
 			return {
@@ -441,3 +452,6 @@ const MARKET_ITEM_HEAL_FULL := 40  # Cura completa do herói (2 usos)
 const MARKET_ITEM_TOWER_DAMAGE_BOOST := 5  # +20% dano de todas as torres por 5 waves
 const MARKET_ITEM_HERO_DAMAGE_BOOST := 4  # +30% dano do herói por 5 waves
 const MARKET_ITEM_EXTRA_LIFE := 15  # +1 vida extra para a base
+
+# Alien Voador Spawn Chance
+const ALIEN_VOADOR_SPAWN_CHANCE := 0.10  # 10% de chance de spawnar alien voador ao invés de alien normal

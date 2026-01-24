@@ -113,7 +113,15 @@ func update_enemy(enemy: Dictionary, dt: float) -> void:
 		enemy_reached_base.emit(damage, is_boss)
 		return
 	
+	# Verificar se o inimigo ignora o labirinto (ex: alien voador)
+	var ignores_path: bool = enemy.get("ignores_path", false)
+	
 	# Mover inimigo
+	if ignores_path:
+		# Sempre usar movimento direto ao centro
+		_move_direct_to_center(enemy, basep, dt)
+		return
+	
 	if not enemy.has("path") or enemy["path"].is_empty():
 		_move_direct_to_center(enemy, basep, dt)
 		return

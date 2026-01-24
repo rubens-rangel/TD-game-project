@@ -185,6 +185,7 @@ var tex_enemy_zombie_corredor: Texture2D
 var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
+var tex_alien_voador: Texture2D
 var tex_enemy_boss: Texture2D
 var tex_tent: Texture2D
 var tex_house: Texture2D
@@ -775,6 +776,7 @@ func _ready() -> void:
 	tex_enemy_humanoid = resource_manager.get_texture("enemy_humanoid")
 	tex_enemy_robot = resource_manager.get_texture("enemy_robot")
 	tex_enemy_alien = resource_manager.get_texture("enemy_alien")
+	tex_alien_voador = resource_manager.get_texture("alien_voador")
 	tex_enemy_boss = resource_manager.get_texture("enemy_boss")
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
@@ -2334,6 +2336,8 @@ func _draw() -> void:
 					enemy_tex = tex_enemy_robot if tex_enemy_robot != null else enemy_tex
 				GameConstants.EnemyType.ALIEN:
 					enemy_tex = tex_enemy_alien if tex_enemy_alien != null else enemy_tex
+				GameConstants.EnemyType.ALIEN_VOADOR:
+					enemy_tex = tex_alien_voador if tex_alien_voador != null else tex_enemy_alien
 				_:
 					# Fallback: usar seleção baseada em wave (compatibilidade com saves antigos)
 					if wave_manager.wave >= 50 and tex_enemy_alien != null:
@@ -3636,6 +3640,14 @@ func _get_random_enemy_type_for_wave() -> GameConstants.EnemyType:
 	if available_types.is_empty():
 		return GameConstants.EnemyType.ZOMBIE  # Fallback
 	
+	# Verificar se alien está disponível e aplicar chance de alien voador
+	if GameConstants.EnemyType.ALIEN in available_types:
+		var chance = randf()
+		if chance < GameConstants.ALIEN_VOADOR_SPAWN_CHANCE:
+			# Verificar se alien voador está disponível (wave 51+)
+			if GameConstants.EnemyType.ALIEN_VOADOR in available_types:
+				return GameConstants.EnemyType.ALIEN_VOADOR
+	
 	# Escolher aleatoriamente entre os tipos disponíveis
 	return available_types[randi() % available_types.size()]
 
@@ -3658,23 +3670,31 @@ func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameCo
 		hp = max(1, hp)  # Garantir pelo menos 1 HP
 	
 	var enemy_idx = enemies.size()
-	# Calcular caminho único para cada inimigo (criar cópia para evitar compartilhamento)
-	var path = _bfs_path(col, row)
-	# Verificar se o caminho é válido
-	if path.is_empty() or path.size() == 0:
-		# Se não há caminho válido, usar movimento direto
-		# Criar um caminho simples direto para o centro (fallback)
-		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
-		path = [pos, base_center]  # Incluir posição inicial para garantir movimento
-	# Criar uma cópia do path para este inimigo específico e validar pontos
+	# Verificar se o inimigo ignora o labirinto (ex: alien voador)
+	var ignores_path: bool = config.get("ignores_path", false)
 	var path_copy = []
-	for p in path:
-		if p is Vector2:
-			path_copy.append(p)
-	# Garantir que sempre há pelo menos um ponto no caminho
-	if path_copy.is_empty():
+	
+	if ignores_path:
+		# Criar caminho direto ao centro (ignora labirinto)
 		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 		path_copy = [pos, base_center]
+	else:
+		# Calcular caminho único para cada inimigo (criar cópia para evitar compartilhamento)
+		var path = _bfs_path(col, row)
+		# Verificar se o caminho é válido
+		if path.is_empty() or path.size() == 0:
+			# Se não há caminho válido, usar movimento direto
+			# Criar um caminho simples direto para o centro (fallback)
+			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+			path = [pos, base_center]  # Incluir posição inicial para garantir movimento
+		# Criar uma cópia do path para este inimigo específico e validar pontos
+		for p in path:
+			if p is Vector2:
+				path_copy.append(p)
+		# Garantir que sempre há pelo menos um ponto no caminho
+		if path_copy.is_empty():
+			var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
+			path_copy = [pos, base_center]
 	
 	# Calcular velocidade base com multiplicador do tipo
 	var speed_multiplier: float = config.get("speed_multiplier", 1.0)
@@ -3709,7 +3729,8 @@ func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameCo
 		"reached": false,
 		"idx": enemy_idx,
 		"is_boss": false,
-		"enemy_type": enemy_type  # Armazenar tipo para renderização
+		"enemy_type": enemy_type,  # Armazenar tipo para renderização
+		"ignores_path": ignores_path  # Flag para ignorar labirinto
 	}
 	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e

@@ -48,6 +48,9 @@ func load_all_textures() -> void:
 	textures["enemy_alien"] = load_texture("res://assets/images/enemies/enemy_alien.png", true)
 	_update_progress(0.35)
 	
+	textures["alien_voador"] = load_texture("res://assets/images/alien_voador.png", true)
+	_update_progress(0.38)
+	
 	textures["tent"] = load_texture("res://assets/images/tent.png", true)
 	_update_progress(0.45)
 	

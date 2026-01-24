@@ -14,6 +14,7 @@ var tex_enemy_zombie_corredor: Texture2D
 var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
+var tex_alien_voador: Texture2D
 var tex_enemy_boss: Texture2D
 var wave_manager: WaveManager
 var weather_manager: WeatherManager
@@ -51,6 +52,7 @@ func setup_textures(
 	humanoid: Texture2D,
 	robot: Texture2D,
 	alien: Texture2D,
+	alien_voador: Texture2D,
 	boss: Texture2D
 ) -> void:
 	"""Configura as texturas dos inimigos"""
@@ -60,6 +62,7 @@ func setup_textures(
 	tex_enemy_humanoid = humanoid
 	tex_enemy_robot = robot
 	tex_enemy_alien = alien
+	tex_alien_voador = alien_voador
 	tex_enemy_boss = boss
 
 func setup_managers(
@@ -394,6 +397,8 @@ func _get_enemy_texture(enemy: Dictionary) -> Texture2D:
 				return tex_enemy_robot if tex_enemy_robot != null else null
 			5:  # ALIEN
 				return tex_enemy_alien if tex_enemy_alien != null else null
+			6:  # ALIEN_VOADOR
+				return tex_alien_voador if tex_alien_voador != null else tex_enemy_alien
 	
 	# Fallback: usar wave para determinar (compatibilidade com saves antigos)
 	if wave_manager:
