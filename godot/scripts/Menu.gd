@@ -90,6 +90,18 @@ func _ready() -> void:
 	btn_load.pressed.connect(_on_load)
 	btn_exit.pressed.connect(_on_exit)
 	
+	# Separador visual
+	var separator1 = HSeparator.new()
+	vbox.add_child(separator1)
+	
+	# Seção: Progressão (Conquistas e Melhorias juntas)
+	var progression_label = Label.new()
+	progression_label.text = "Progressão"
+	progression_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progression_label.add_theme_font_size_override("font_size", 14)
+	progression_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	vbox.add_child(progression_label)
+	
 	# Adicionar botão de Achievements
 	var btn_achievements = Button.new()
 	btn_achievements.text = "Conquistas"
@@ -108,14 +120,28 @@ func _ready() -> void:
 	btn_perks.pressed.connect(_on_perks)
 	vbox.add_child(btn_perks)
 	
-	# Adicionar botão de Quests
-	var btn_quests = Button.new()
-	btn_quests.text = "Quests"
-	btn_quests.custom_minimum_size = Vector2(200, 40)
-	btn_quests.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_quests.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	btn_quests.pressed.connect(_on_quests)
-	vbox.add_child(btn_quests)
+	# Separador visual
+	var separator2 = HSeparator.new()
+	vbox.add_child(separator2)
+	
+	# Seção: Prestígio (com diamantes)
+	var prestige_label = Label.new()
+	prestige_label.text = "Prestígio"
+	prestige_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prestige_label.add_theme_font_size_override("font_size", 14)
+	prestige_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	vbox.add_child(prestige_label)
+	
+	# Mostrar diamantes disponíveis
+	const SpecialCurrencyManager = preload("res://scripts/managers/SpecialCurrencyManager.gd")
+	var currency_manager = SpecialCurrencyManager.new()
+	var currency_info = currency_manager.get_currency_info()
+	var diamonds_label = Label.new()
+	diamonds_label.text = "💎 Diamantes: %d" % currency_info.diamonds
+	diamonds_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	diamonds_label.add_theme_font_size_override("font_size", 16)
+	diamonds_label.add_theme_color_override("font_color", Color(0.4, 0.6, 1.0))
+	vbox.add_child(diamonds_label)
 	
 	# Adicionar botão de Prestígio
 	var btn_prestige = Button.new()
@@ -125,6 +151,27 @@ func _ready() -> void:
 	btn_prestige.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	btn_prestige.pressed.connect(_on_prestige)
 	vbox.add_child(btn_prestige)
+	
+	# Separador visual
+	var separator3 = HSeparator.new()
+	vbox.add_child(separator3)
+	
+	# Seção: Missões
+	var quests_label = Label.new()
+	quests_label.text = "Missões"
+	quests_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	quests_label.add_theme_font_size_override("font_size", 14)
+	quests_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	vbox.add_child(quests_label)
+	
+	# Adicionar botão de Quests
+	var btn_quests = Button.new()
+	btn_quests.text = "Quests"
+	btn_quests.custom_minimum_size = Vector2(200, 40)
+	btn_quests.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_quests.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn_quests.pressed.connect(_on_quests)
+	vbox.add_child(btn_quests)
 	
 	# Aplicar estilo aos novos botões
 	btn_achievements.add_theme_stylebox_override("normal", btn_style)

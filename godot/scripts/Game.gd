@@ -5,6 +5,7 @@ const Pathfinder = preload("res://scripts/Pathfinder.gd")
 const WaveManager = preload("res://scripts/WaveManager.gd")
 const ProjectileManager = preload("res://scripts/ProjectileManager.gd")
 const GameConstants = preload("res://scripts/Constants.gd")
+const EnemyConstants = preload("res://scripts/EnemyConstants.gd")
 const SaveManager = preload("res://scripts/managers/SaveManager.gd")
 const AchievementManager = preload("res://scripts/managers/AchievementManager.gd")
 const PerkManager = preload("res://scripts/managers/PerkManager.gd")
@@ -31,6 +32,7 @@ const ThreadManager = preload("res://scripts/managers/ThreadManager.gd")
 const ComboManager = preload("res://scripts/managers/ComboManager.gd")
 const NotificationManager = preload("res://scripts/managers/NotificationManager.gd")
 const Market = preload("res://scripts/structures/Market.gd")
+const SpatialHashManager = preload("res://scripts/managers/SpatialHashManager.gd")
 
 const HERO_ARROW_SPEED := GameConstants.HERO_ARROW_SPEED
 
@@ -60,6 +62,7 @@ var culling_manager: CullingManager
 var thread_manager: ThreadManager
 var combo_manager: ComboManager
 var notification_manager: NotificationManager
+var spatial_hash_manager: SpatialHashManager
 
 var total_kills: int = 0
 var total_boss_kills: int = 0
@@ -78,6 +81,8 @@ var global_tower_range_boost: float = 1.0
 var tower_damage_boost_waves_remaining: int = 0  # Waves restantes do buff de dano de torres
 var hero_damage_boost_waves_remaining: int = 0  # Waves restantes do buff de dano do herói
 var heal_full_uses_remaining: int = 2  # Usos restantes da cura completa
+var hero_firerate_upgrade: bool = false  # Upgrade de velocidade de tiro do herói (+100%, permanente, único)
+var hero_dual_cannon: bool = false  # Se o herói tem dois canhões (permanente)
 
 var perk_effects: Dictionary = {}
 var coin_drop_chance: float = GameConstants.COIN_DROP_CHANCE
@@ -186,7 +191,8 @@ var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
 var tex_alien_voador: Texture2D
-var tex_enemy_boss: Texture2D
+var tex_enemy_boss_zombie: Texture2D
+var tex_enemy_boss_alien: Texture2D
 var tex_tent: Texture2D
 var tex_house: Texture2D
 var tex_castle: Texture2D
@@ -777,7 +783,8 @@ func _ready() -> void:
 	tex_enemy_robot = resource_manager.get_texture("enemy_robot")
 	tex_enemy_alien = resource_manager.get_texture("enemy_alien")
 	tex_alien_voador = resource_manager.get_texture("alien_voador")
-	tex_enemy_boss = resource_manager.get_texture("enemy_boss")
+	tex_enemy_boss_zombie = resource_manager.get_texture("enemy_boss_zombie")
+	tex_enemy_boss_alien = resource_manager.get_texture("enemy_boss_alien")
 	tex_tent = resource_manager.get_texture("tent")
 	tex_house = resource_manager.get_texture("house")
 	tex_castle = resource_manager.get_texture("castle")
@@ -791,8 +798,12 @@ func _ready() -> void:
 	hero_manager.hero_home_level = hero_home_level
 	hero_manager.global_tower_damage_boost = global_tower_damage_boost
 	
+	# Inicializar SpatialHashManager para otimização de queries espaciais
+	spatial_hash_manager = SpatialHashManager.new(enemies, 100.0)
+	
 	# Inicializar TowerSystemManager (após effects_manager criado)
 	tower_system_manager = TowerSystemManager.new(self, enemies, effects_manager, grid_manager)
+	tower_system_manager.set_spatial_hash_manager(spatial_hash_manager)
 	tower_system_manager.set_tower_arrays(
 		towers, slow_towers, aoe_towers, sniper_towers,
 		boost_towers, shock_towers, barracks
@@ -1426,6 +1437,11 @@ func _process(delta: float) -> void:
 			culling_manager.update_viewport_size(viewport.get_visible_rect().size)
 		culling_update_timer = 0.0
 	set_meta("culling_update_timer", culling_update_timer)
+	
+	# Atualizar spatial hash (otimização - reduz verificações de torres)
+	# Atualizar a cada frame para manter precisão (é rápido)
+	if spatial_hash_manager:
+		spatial_hash_manager.update_grid()
 	
 	for e in enemies:
 		if not culling_manager or culling_manager.should_update_logic(e["pos"], camera_pos):
@@ -2317,26 +2333,31 @@ func _draw() -> void:
 		var enemy_idx = e.get("idx", -1)
 		var enemy_tex: Texture2D = tex_enemy_zombie
 		
-		# Se for boss, usar textura do boss
-		if is_boss and tex_enemy_boss != null:
-			enemy_tex = tex_enemy_boss
+		# Se for boss, usar textura do boss baseado na wave
+		if is_boss:
+			# Boss alienígena em waves 50+ (onde aparecem aliens)
+			if wave_manager.wave >= 50 and tex_enemy_boss_alien != null:
+				enemy_tex = tex_enemy_boss_alien
+			# Boss zumbi em waves < 50 (onde aparecem zumbis)
+			elif tex_enemy_boss_zombie != null:
+				enemy_tex = tex_enemy_boss_zombie
 		else:
 			# Selecionar sprite baseado no tipo do inimigo (sistema padronizado)
-			var enemy_type = e.get("enemy_type", GameConstants.EnemyType.ZOMBIE)
+			var enemy_type = e.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
 			match enemy_type:
-				GameConstants.EnemyType.ZOMBIE:
+				EnemyConstants.EnemyType.ZOMBIE:
 					enemy_tex = tex_enemy_zombie if tex_enemy_zombie != null else enemy_tex
-				GameConstants.EnemyType.ZOMBIE_GORDO:
+				EnemyConstants.EnemyType.ZOMBIE_GORDO:
 					enemy_tex = tex_enemy_zombie_gordo if tex_enemy_zombie_gordo != null else tex_enemy_zombie
-				GameConstants.EnemyType.ZOMBIE_CORREDOR:
+				EnemyConstants.EnemyType.ZOMBIE_CORREDOR:
 					enemy_tex = tex_enemy_zombie_corredor if tex_enemy_zombie_corredor != null else tex_enemy_zombie
-				GameConstants.EnemyType.HUMANOID:
+				EnemyConstants.EnemyType.HUMANOID:
 					enemy_tex = tex_enemy_humanoid if tex_enemy_humanoid != null else enemy_tex
-				GameConstants.EnemyType.ROBOT:
+				EnemyConstants.EnemyType.ROBOT:
 					enemy_tex = tex_enemy_robot if tex_enemy_robot != null else enemy_tex
-				GameConstants.EnemyType.ALIEN:
+				EnemyConstants.EnemyType.ALIEN:
 					enemy_tex = tex_enemy_alien if tex_enemy_alien != null else enemy_tex
-				GameConstants.EnemyType.ALIEN_VOADOR:
+				EnemyConstants.EnemyType.ALIEN_VOADOR:
 					enemy_tex = tex_alien_voador if tex_alien_voador != null else tex_enemy_alien
 				_:
 					# Fallback: usar seleção baseada em wave (compatibilidade com saves antigos)
@@ -3632,35 +3653,35 @@ func _random_spawn():
 	
 	return selected
 
-func _get_random_enemy_type_for_wave() -> GameConstants.EnemyType:
+func _get_random_enemy_type_for_wave() -> EnemyConstants.EnemyType:
 	"""Retorna um tipo de inimigo aleatório baseado na wave atual (sistema padronizado)"""
 	var current_wave = wave_manager.wave if wave_manager else 1
-	var available_types = GameConstants.get_available_enemy_types(current_wave)
+	var available_types = EnemyConstants.get_available_enemy_types(current_wave)
 	
 	if available_types.is_empty():
-		return GameConstants.EnemyType.ZOMBIE  # Fallback
+		return EnemyConstants.EnemyType.ZOMBIE  # Fallback
 	
 	# Verificar se alien está disponível e aplicar chance de alien voador
-	if GameConstants.EnemyType.ALIEN in available_types:
+	if EnemyConstants.EnemyType.ALIEN in available_types:
 		var chance = randf()
-		if chance < GameConstants.ALIEN_VOADOR_SPAWN_CHANCE:
+		if chance < EnemyConstants.ALIEN_VOADOR_SPAWN_CHANCE:
 			# Verificar se alien voador está disponível (wave 51+)
-			if GameConstants.EnemyType.ALIEN_VOADOR in available_types:
-				return GameConstants.EnemyType.ALIEN_VOADOR
+			if EnemyConstants.EnemyType.ALIEN_VOADOR in available_types:
+				return EnemyConstants.EnemyType.ALIEN_VOADOR
 	
 	# Escolher aleatoriamente entre os tipos disponíveis
 	return available_types[randi() % available_types.size()]
 
-func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameConstants.EnemyType.ZOMBIE) -> Dictionary:
+func _enemy_new(col: int, row: int, enemy_type: EnemyConstants.EnemyType = EnemyConstants.EnemyType.ZOMBIE) -> Dictionary:
 	"""Cria um novo inimigo do tipo especificado (sistema padronizado)"""
 	var pos = grid_manager.tile_center(col, row)
 	
 	# Obter configuração do tipo de inimigo
-	var config = GameConstants.get_enemy_type_config(enemy_type)
+	var config = EnemyConstants.get_enemy_type_config(enemy_type)
 	
 	# Calcular HP base com multiplicador do tipo
 	var hp_multiplier: float = config.get("hp_multiplier", 1.0)
-	var initial_hp: float = GameConstants.ENEMY_BASE_HP * hp_multiplier
+	var initial_hp: float = EnemyConstants.ENEMY_BASE_HP * hp_multiplier
 	var f := _wave_factor()
 	var hp := int(max(1, round(initial_hp * f)))
 	
@@ -3698,7 +3719,7 @@ func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameCo
 	
 	# Calcular velocidade base com multiplicador do tipo
 	var speed_multiplier: float = config.get("speed_multiplier", 1.0)
-	var base_speed: float = GameConstants.ENEMY_BASE_SPEED * f * speed_multiplier
+	var base_speed: float = EnemyConstants.ENEMY_BASE_SPEED * f * speed_multiplier
 	
 	# Aplicar modificadores de velocidade de wave especial
 	if current_special_wave_type == WaveManager.SpecialWaveType.MAX_SPEED:
@@ -3712,7 +3733,7 @@ func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameCo
 		hp = int(hp * weather_manager.get_enemy_hp_multiplier())
 	
 	# Aplicar cap de velocidade específico do tipo (padrão é 1.0, corredor tem 1.15)
-	var max_speed_for_type = GameConstants.ENEMY_MAX_SPEED * config.get("max_speed_multiplier", 1.0)
+	var max_speed_for_type = EnemyConstants.ENEMY_MAX_SPEED * config.get("max_speed_multiplier", 1.0)
 	if base_speed > max_speed_for_type:
 		base_speed = max_speed_for_type
 	
@@ -3737,7 +3758,7 @@ func _enemy_new(col: int, row: int, enemy_type: GameConstants.EnemyType = GameCo
 
 func _enemy_new_boss(col: int, row: int) -> Dictionary:
 	var pos = grid_manager.tile_center(col, row)
-	var initial_hp := GameConstants.BOSS_BASE_HP  # chefe tem muito mais HP (equivalente a 25 hits iniciais)
+	var initial_hp := EnemyConstants.BOSS_BASE_HP  # chefe tem muito mais HP (equivalente a 25 hits iniciais)
 	var f := _wave_factor()
 	var hp := int(max(1, round(initial_hp * f)))
 	
@@ -3765,7 +3786,7 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 		var base_center = grid_manager.tile_center(grid_manager.center.x, grid_manager.center.y)
 		path_copy = [pos, base_center]
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
-	var base_speed = GameConstants.ENEMY_BASE_SPEED * f * GameConstants.BOSS_SPEED_MULTIPLIER
+	var base_speed = EnemyConstants.ENEMY_BASE_SPEED * f * EnemyConstants.BOSS_SPEED_MULTIPLIER
 	
 	# Aplicar modificadores de velocidade de wave especial
 	if current_special_wave_type == WaveManager.SpecialWaveType.MAX_SPEED:
@@ -3778,8 +3799,8 @@ func _enemy_new_boss(col: int, row: int) -> Dictionary:
 		base_speed *= weather_manager.get_enemy_speed_multiplier()
 		hp = int(hp * weather_manager.get_enemy_hp_multiplier())
 	
-	if base_speed > GameConstants.ENEMY_MAX_SPEED:
-		base_speed = GameConstants.ENEMY_MAX_SPEED
+	if base_speed > EnemyConstants.ENEMY_MAX_SPEED:
+		base_speed = EnemyConstants.ENEMY_MAX_SPEED
 	var e = { pos = pos, speed = base_speed, base_speed = base_speed, hp = hp, max_hp = hp, radius = 12, path = path_copy, path_index = 0, reached = false, idx = enemy_idx, is_boss = true }
 	enemy_effects[enemy_idx] = {"slow_time": 0.0, "slow_amount": 0.0, "freeze_time": 0.0, "fire_time": 0.0, "fire_damage": 0.0}
 	return e
@@ -3840,9 +3861,9 @@ func _enemy_update(e: Dictionary, dt: float) -> void:
 				return
 	
 	# Limitar velocidade máxima para evitar bugs em waves muito altas
-	if e["speed"] > GameConstants.ENEMY_MAX_SPEED:
-		e["speed"] = GameConstants.ENEMY_MAX_SPEED
-		e["base_speed"] = min(e["base_speed"], GameConstants.ENEMY_MAX_SPEED)
+	if e["speed"] > EnemyConstants.ENEMY_MAX_SPEED:
+		e["speed"] = EnemyConstants.ENEMY_MAX_SPEED
+		e["base_speed"] = min(e["base_speed"], EnemyConstants.ENEMY_MAX_SPEED)
 	
 	# Verificar se o path está vazio ou inválido
 	if not e.has("path") or e["path"].is_empty():
@@ -4628,7 +4649,7 @@ func _calculate_leading_target(enemy: Dictionary, hero_pos: Vector2) -> Vector2:
 	return predicted
 
 func _get_enemy_velocity(enemy: Dictionary) -> Vector2:
-	var speed = enemy.get("speed", GameConstants.ENEMY_BASE_SPEED)
+	var speed = enemy.get("speed", EnemyConstants.ENEMY_BASE_SPEED)
 	if speed <= 0.0:
 		return Vector2.ZERO
 	if enemy.has("path") and enemy.has("path_index"):
@@ -5310,7 +5331,8 @@ func _open_aoe_menu(idx: int, screen_pos: Vector2) -> void:
 	var area_level = a.levels.get("AREA", 0)
 	var dmg_cost = get_upgrade_cost(GameConstants.AOE_DMG_COST, dmg_level)
 	var rate_cost = get_upgrade_cost(GameConstants.AOE_RATE_COST, rate_level)
-	var area_cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
+	# Usar multiplicador específico para área
+	var area_cost = int(GameConstants.AOE_AREA_COST * pow(GameConstants.AOE_AREA_COST_MULTIPLIER, area_level))
 	
 	# Custos em esmeraldas (escalados)
 	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
@@ -5383,7 +5405,8 @@ func _on_aoe_menu_pressed(id: int) -> void:
 				a.levels["RATE"] += 1
 				_update_special_currency_labels()
 		3:  # Área com moedas
-			var cost = get_upgrade_cost(GameConstants.AOE_AREA_COST, area_level)
+			# Usar multiplicador específico para área
+			var cost = int(GameConstants.AOE_AREA_COST * pow(GameConstants.AOE_AREA_COST_MULTIPLIER, area_level))
 			if hero["coins"] >= cost and a.aoe_radius < GameConstants.AOE_MAX_RADIUS:
 				a.aoe_radius = min(GameConstants.AOE_MAX_RADIUS, a.aoe_radius + 20.0)
 				a.levels["AREA"] += 1
@@ -6896,7 +6919,23 @@ func _open_market_menu(idx: int, screen_pos: Vector2) -> void:
 	market_menu.add_separator()
 	
 	market_menu.add_item("+1 Vida Extra (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_EXTRA_LIFE)
-	market_menu.set_item_disabled(4, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	market_menu.set_item_disabled(3, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	
+	market_menu.add_separator()
+	
+	# Upgrades permanentes do herói
+	# IDs: 0=Cura, 1=Separador, 2=Torres, 3=Herói, 4=Separador, 5=Vida, 6=Separador, 7=Velocidade, 8=Canhão
+	var firerate_text = "+100%% Velocidade de Tiro do Herói (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE
+	if hero_firerate_upgrade:
+		firerate_text += " [Comprado]"
+	market_menu.add_item(firerate_text)
+	market_menu.set_item_disabled(7, currency_info.emeralds < GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE or hero_firerate_upgrade)
+	
+	var dual_cannon_text = "Canhão Duplo do Herói (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_HERO_DUAL_CANNON
+	if hero_dual_cannon:
+		dual_cannon_text += " [Comprado]"
+	market_menu.add_item(dual_cannon_text)
+	market_menu.set_item_disabled(8, currency_info.emeralds < GameConstants.MARKET_ITEM_HERO_DUAL_CANNON or hero_dual_cannon)
 	
 	market_menu.add_separator()
 	market_menu.add_item("Fechar")
@@ -6909,6 +6948,8 @@ func _on_market_menu_selected(id: int) -> void:
 		return
 	
 	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
+	print("Market menu item selected: ID = ", id, ", Esmeraldas = ", currency_info.emeralds)
 	
 	match id:
 		0:  # Cura Completa
@@ -6932,16 +6973,60 @@ func _on_market_menu_selected(id: int) -> void:
 				hero_damage_boost_waves_remaining = 5
 				if notification_manager:
 					notification_manager.show_notification("+30%% Dano Herói por 5 waves!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
-		4:  # Vida Extra
+		3:  # Vida Extra
 			if currency_info.emeralds >= GameConstants.MARKET_ITEM_EXTRA_LIFE:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_EXTRA_LIFE)
 				base_hp_max += 50
 				base_hp += 50
 				if notification_manager:
 					notification_manager.show_notification("+50 HP Máximo!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
+		7:  # Upgrade Velocidade de Tiro do Herói (ID real considerando separadores)
+			print("Tentando comprar upgrade de velocidade de tiro. Esmeraldas: ", currency_info.emeralds, ", Custo: ", GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE, ", Já comprado: ", hero_firerate_upgrade)
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE and not hero_firerate_upgrade:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE)
+				hero_firerate_upgrade = true
+				# Reduzir fire_rate em 50% (aumentar velocidade em 100%)
+				hero["fire_rate"] = hero["fire_rate"] * 0.5
+				hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, hero["fire_rate"])
+				print("Upgrade de velocidade de tiro comprado! Fire rate reduzido em 50% (velocidade +100%)")
+				if notification_manager:
+					notification_manager.show_notification("Velocidade de Tiro do Herói +100%! (Fire rate reduzido pela metade)", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.8, 0.2))
+				# Atualizar UI do menu para refletir que foi comprado
+				keep_market_menu_open = true
+				call_deferred("_reopen_market_menu")
+				return  # Não fechar o menu ainda
+			else:
+				print("Não foi possível comprar upgrade de velocidade. Esmeraldas suficientes: ", currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE, ", Já comprado: ", hero_firerate_upgrade)
+		8:  # Canhão Duplo do Herói (ID real considerando separadores)
+			print("Tentando comprar canhão duplo. Esmeraldas: ", currency_info.emeralds, ", Custo: ", GameConstants.MARKET_ITEM_HERO_DUAL_CANNON, ", Já comprado: ", hero_dual_cannon)
+			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_DUAL_CANNON and not hero_dual_cannon:
+				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HERO_DUAL_CANNON)
+				hero_dual_cannon = true
+				print("Canhão duplo comprado!")
+				if notification_manager:
+					notification_manager.show_notification("Canhão Duplo Desbloqueado! O herói agora atira dois projéteis!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.8, 0.2, 0.8))
+				# Atualizar UI do menu para refletir que foi comprado
+				keep_market_menu_open = true
+				call_deferred("_reopen_market_menu")
+				return  # Não fechar o menu ainda
+			else:
+				print("Não foi possível comprar canhão duplo. Esmeraldas suficientes: ", currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_DUAL_CANNON, ", Já comprado: ", hero_dual_cannon)
+		_:  # Qualquer outro ID (incluindo Fechar)
+			# Apenas fechar o menu
+			pass
 	
-	keep_market_menu_open = false
-	market_menu.hide()
+	# Fechar o menu apenas se não foi um dos upgrades permanentes (que reabrem o menu)
+	if id != 7 and id != 8:
+		keep_market_menu_open = false
+		if market_menu:
+			market_menu.hide()
+
+func _reopen_market_menu() -> void:
+	"""Reabre o menu do Market após uma compra para atualizar a UI"""
+	if market_selected_index >= 0 and market_selected_index < markets.size() and market_menu:
+		var menu_pos_vec2i = market_menu.position
+		var menu_pos = Vector2(menu_pos_vec2i) if menu_pos_vec2i != Vector2i.ZERO else Vector2(100, 100)
+		_open_market_menu(market_selected_index, menu_pos)
 
 func _physics_process(delta: float) -> void:
 	# aplicar skill de boost de velocidade no herói
@@ -6953,21 +7038,37 @@ func _physics_process(delta: float) -> void:
 	
 	# tiro automático do herói - procura inimigo mais próximo e atira quando cooldown estiver pronto
 	if hero["cooldown"] <= 0.0 and not paused and not game_over:
+		var hero_pos = Vector2(hero["x"], hero["y"])
 		var closest_enemy = null
+		var second_closest_enemy = null
 		var closest_dist = hero["range"]  # usar o alcance do herói como limite
+		var second_closest_dist = hero["range"]
 		
 		for e in enemies:
 			if e["hp"] <= 0 or e["reached"]:
 				continue
-			var dist = Vector2(hero["x"], hero["y"]).distance_to(e["pos"])
+			var dist = hero_pos.distance_to(e["pos"])
 			if dist < closest_dist:
+				# Atualizar segundo mais próximo antes de atualizar o primeiro
+				second_closest_enemy = closest_enemy
+				second_closest_dist = closest_dist
+				# Atualizar primeiro mais próximo
 				closest_dist = dist
 				closest_enemy = e
+			elif dist < second_closest_dist and hero_dual_cannon:
+				# Atualizar segundo mais próximo apenas se tiver canhão duplo
+				second_closest_dist = dist
+				second_closest_enemy = e
 		
 		if closest_enemy != null:
-			var hero_pos = Vector2(hero["x"], hero["y"])
 			var predicted_target = _calculate_leading_target(closest_enemy, hero_pos)
 			_try_shoot(predicted_target)
+			
+			# Se tiver canhão duplo e houver um segundo inimigo, atirar nele também
+			if hero_dual_cannon and second_closest_enemy != null:
+				var predicted_target2 = _calculate_leading_target(second_closest_enemy, hero_pos)
+				# Criar segundo projétil sem resetar cooldown (já foi resetado no primeiro tiro)
+				arrows.append(_arrow_new(hero["x"], hero["y"], predicted_target2))
 	
 	# torres: 1 tiro por direção no intervalo configurado (fire_rate)
 	for t in towers:
@@ -9715,17 +9816,39 @@ func _sell_talisman(talisman: Talisman) -> void:
 	if not item_manager or not special_currency_manager:
 		return
 	
-	# Verificar se o talismã está no inventário (não pode vender equipados)
-	if talisman in item_manager.equipped_items:
+	# Verificar se o talismã está equipado (não pode vender equipados)
+	var is_equipped = false
+	for equipped_item in item_manager.equipped_items:
+		if equipped_item is Talisman and equipped_item.id == talisman.id:
+			is_equipped = true
+			break
+	
+	if is_equipped:
 		print("Não é possível vender talismãs equipados")
 		return
 	
-	if not talisman in item_manager.inventory:
+	# Verificar se o talismã está no inventário (por referência ou por ID)
+	var found_in_inventory = false
+	var talisman_to_remove = null
+	
+	# Primeiro, tentar encontrar por referência direta
+	if talisman in item_manager.inventory:
+		found_in_inventory = true
+		talisman_to_remove = talisman
+	else:
+		# Se não encontrou por referência, procurar por ID (para talismãs carregados)
+		for inv_item in item_manager.inventory:
+			if inv_item is Talisman and inv_item.id == talisman.id:
+				found_in_inventory = true
+				talisman_to_remove = inv_item
+				break
+	
+	if not found_in_inventory:
 		print("Talismã não encontrado no inventário")
 		return
 	
 	# Remover do inventário
-	item_manager.inventory.erase(talisman)
+	item_manager.inventory.erase(talisman_to_remove)
 	
 	# Adicionar esmeraldas
 	var sell_price = get_talisman_sell_price(talisman)

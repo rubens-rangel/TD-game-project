@@ -45,6 +45,10 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 		"level": game_instance.hero_home_level
 	}
 	
+	# Upgrades permanentes do Market
+	save_data["hero_firerate_upgrade"] = game_instance.hero_firerate_upgrade
+	save_data["hero_dual_cannon"] = game_instance.hero_dual_cannon
+	
 	# Torres
 	save_data["towers"] = _serialize_towers(game_instance.towers)
 	save_data["slow_towers"] = _serialize_slow_towers(game_instance.slow_towers)
@@ -213,6 +217,14 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.hero["levels"] = hero_data.get("levels", {"DMG": 0, "FIRERATE": 0, "PIERCE": 0})
 	var hero_home_data = save_data.get("hero_home", {})
 	game_instance.hero_home_level = hero_home_data.get("level", 1)
+	
+	# Carregar upgrades permanentes do Market
+	game_instance.hero_firerate_upgrade = save_data.get("hero_firerate_upgrade", false)
+	game_instance.hero_dual_cannon = save_data.get("hero_dual_cannon", false)
+	# Aplicar upgrade de velocidade de tiro se já foi comprado
+	if game_instance.hero_firerate_upgrade:
+		game_instance.hero["fire_rate"] = game_instance.hero["fire_rate"] * 0.5
+		game_instance.hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, game_instance.hero["fire_rate"])
 	
 	# Limpar estruturas existentes
 	game_instance.towers.clear()

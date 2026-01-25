@@ -55,13 +55,13 @@ const MAX_TOWERS := 4
 const MAX_BARRACKS := 2
 const MAX_MINES := 8
 const MAX_SLOW_TOWERS := 1
-const MAX_AOE_TOWERS := 5
+const MAX_AOE_TOWERS := 2
 const MAX_SNIPER_TOWERS := 2
 const MAX_BOOST_TOWERS := 1
 const MAX_SHOCK_TOWERS := 4
 const MAX_WALLS := 4
 const MAX_HEALING_STATIONS := 2
-const MAX_MARKETS := 1  # Apenas 1 mercado por jogo
+const MAX_MARKETS := 1
 
 # Tower upgrades
 const TOWER_RANGE_COST := 15
@@ -85,12 +85,13 @@ const SNIPER_RATE_COST := 12
 const AOE_DMG_COST := 15
 const AOE_RATE_COST := 20
 const AOE_AREA_COST := 20
+const AOE_AREA_COST_MULTIPLIER := 1.30  # Multiplicador de custo para upgrades de área (30% mais caro por nível)
 
 # Shock tower upgrades
 const SHOCK_DMG_COST := 15
 const SHOCK_RATE_COST := 25
-const SHOCK_CHAIN_COST := 20
-const SHOCK_CHAIN_COST_MULTIPLIER := 1.35
+const SHOCK_CHAIN_COST := 30
+const SHOCK_CHAIN_COST_MULTIPLIER := 2.5
 
 # Slow tower upgrades
 const SLOW_RANGE_COST := 30
@@ -106,112 +107,8 @@ const BOOST_RATE_COST := 40
 const WAVE_SCALE := 1.035
 const INTERMISSION := 12.0
 
-# Enemy stats
-const ENEMY_BASE_SPEED := 38.0
-const ENEMY_MAX_SPEED := 210.0
-const BOSS_SPEED_MULTIPLIER := 0.5
-const ENEMY_BASE_HP := 4
-const BOSS_BASE_HP := 28
-const BOSS_REWARD_MULTIPLIER := 20
-const NORMAL_REWARD := 2
-
-# Tipos de inimigos (padronizado para facilitar adição de novos)
-enum EnemyType {
-	ZOMBIE,         # Zombie normal (waves iniciais)
-	ZOMBIE_GORDO,   # Zombie gordo (waves iniciais, mais HP, menos velocidade)
-	ZOMBIE_CORREDOR, # Zombie corredor (waves iniciais, menos HP, mais velocidade)
-	HUMANOID,       # Humanoid (wave 6+)
-	ROBOT,          # Robot (wave 11+)
-	ALIEN,          # Alien (wave 50+)
-	ALIEN_VOADOR    # Alien voador (wave 51+, ignora labirinto, 30% HP)
-}
-
-# Configuração de tipos de inimigos
-# Formato: {hp_multiplier: float, speed_multiplier: float, max_speed_multiplier: float, texture_name: String, min_wave: int, max_wave: int}
-static func get_enemy_type_config(type: EnemyType) -> Dictionary:
-	match type:
-		EnemyType.ZOMBIE:
-			return {
-				"hp_multiplier": 1.0,
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
-				"texture_name": "enemy_zombie",
-				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
-			}
-		EnemyType.ZOMBIE_GORDO:
-			return {
-				"hp_multiplier": 1.5,  # 50% mais HP
-				"speed_multiplier": 0.75,  # 25% menos velocidade
-				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
-				"texture_name": "enemy_zombie_gordo",
-				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
-			}
-		EnemyType.ZOMBIE_CORREDOR:
-			return {
-				"hp_multiplier": 0.5,  # 50% menos HP (bem menos vida)
-				"speed_multiplier": 1.4,  # 40% mais rápido
-				"max_speed_multiplier": 1.15,  # Cap de velocidade 15% maior
-				"texture_name": "enemy_zombie_corredor",
-				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
-			}
-		EnemyType.HUMANOID:
-			return {
-				"hp_multiplier": 1.0,
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,
-				"texture_name": "enemy_humanoid",
-				"min_wave": 6,
-				"max_wave": 10
-			}
-		EnemyType.ROBOT:
-			return {
-				"hp_multiplier": 1.0,
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,
-				"texture_name": "enemy_robot",
-				"min_wave": 11,
-				"max_wave": 49
-			}
-		EnemyType.ALIEN:
-			return {
-				"hp_multiplier": 1.0,
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,
-				"texture_name": "enemy_alien",
-				"min_wave": 50,
-				"max_wave": 9999
-			}
-		EnemyType.ALIEN_VOADOR:
-			return {
-				"hp_multiplier": 0.3,  # 30% da vida do alien normal
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,
-				"texture_name": "alien_voador",
-				"min_wave": 51,
-				"max_wave": 9999,
-				"ignores_path": true  # Flag para ignorar labirinto
-			}
-		_:
-			return {
-				"hp_multiplier": 1.0,
-				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,
-				"texture_name": "enemy_zombie",
-				"min_wave": 1,
-				"max_wave": 9999
-			}
-
-# Obter tipos de inimigos disponíveis para uma wave específica
-static func get_available_enemy_types(wave: int) -> Array:
-	var available_types = []
-	for type in EnemyType.values():
-		var config = get_enemy_type_config(type)
-		if wave >= config.min_wave and wave <= config.max_wave:
-			available_types.append(type)
-	return available_types
+# Enemy constants movidas para EnemyConstants.gd
+# Use EnemyConstants para acessar constantes de inimigos
 
 # Balanceamento: Escala de recompensas e upgrades
 const REWARD_SCALE := 1.05
@@ -452,6 +349,7 @@ const MARKET_ITEM_HEAL_FULL := 40  # Cura completa do herói (2 usos)
 const MARKET_ITEM_TOWER_DAMAGE_BOOST := 5  # +20% dano de todas as torres por 5 waves
 const MARKET_ITEM_HERO_DAMAGE_BOOST := 4  # +30% dano do herói por 5 waves
 const MARKET_ITEM_EXTRA_LIFE := 15  # +1 vida extra para a base
+const MARKET_ITEM_HERO_FIRERATE_UPGRADE := 100  # Aumenta velocidade de tiro do herói (permanente)
+const MARKET_ITEM_HERO_DUAL_CANNON := 100  # Adiciona mais um canhão para o herói (permanente)
 
-# Alien Voador Spawn Chance
-const ALIEN_VOADOR_SPAWN_CHANCE := 0.10  # 10% de chance de spawnar alien voador ao invés de alien normal
+# Alien Voador Spawn Chance movida para EnemyConstants.gd

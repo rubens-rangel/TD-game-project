@@ -36,7 +36,8 @@ func load_all_textures() -> void:
 	textures["enemy_zombie_corredor"] = load_texture("res://assets/images/enemies/enemy_zombie_corredor.png", true)
 	_update_progress(0.15)
 	
-	textures["enemy_boss"] = load_texture("res://assets/images/enemies/enemy_boss.png", true)
+	textures["enemy_boss_zombie"] = load_texture("res://assets/images/enemies/enemy_boss_zombie.png", true)
+	textures["enemy_boss_alien"] = load_texture("res://assets/images/enemies/enemy_boss_alien.png", true)
 	_update_progress(0.18)
 	
 	textures["enemy_humanoid"] = load_texture("res://assets/images/enemies/enemy_humanoid.png", true)

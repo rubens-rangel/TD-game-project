@@ -4,6 +4,9 @@ class_name RewardCalculator
 # Calcula recompensas baseadas na wave atual
 # Centraliza toda lógica de cálculo de recompensas
 
+const GameConstants = preload("res://scripts/Constants.gd")
+const EnemyConstants = preload("res://scripts/EnemyConstants.gd")
+
 var wave_manager: WaveManager
 
 func _init(wave_mgr: WaveManager):
@@ -26,12 +29,12 @@ func get_enemy_reward() -> int:
 		var extra_waves = wave - GameConstants.REWARD_SCALE_SOFT_CAP
 		scale = base_scale * pow(GameConstants.REWARD_SCALE_AFTER_CAP, extra_waves)
 	
-	return int(GameConstants.NORMAL_REWARD * scale)
+	return int(EnemyConstants.NORMAL_REWARD * scale)
 
 # Calcula recompensa de boss baseada na wave
 func get_boss_reward() -> int:
 	"""Calcula recompensa de boss baseada na wave atual"""
-	return get_enemy_reward() * GameConstants.BOSS_REWARD_MULTIPLIER
+	return get_enemy_reward() * EnemyConstants.BOSS_REWARD_MULTIPLIER
 
 # Calcula bonus de completion de wave
 func get_wave_completion_bonus() -> int:

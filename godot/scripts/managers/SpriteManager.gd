@@ -15,7 +15,8 @@ var tex_enemy_humanoid: Texture2D
 var tex_enemy_robot: Texture2D
 var tex_enemy_alien: Texture2D
 var tex_alien_voador: Texture2D
-var tex_enemy_boss: Texture2D
+var tex_enemy_boss_zombie: Texture2D
+var tex_enemy_boss_alien: Texture2D
 var wave_manager: WaveManager
 var weather_manager: WeatherManager
 var culling_manager: CullingManager
@@ -53,7 +54,8 @@ func setup_textures(
 	robot: Texture2D,
 	alien: Texture2D,
 	alien_voador: Texture2D,
-	boss: Texture2D
+	boss_zombie: Texture2D,
+	boss_alien: Texture2D
 ) -> void:
 	"""Configura as texturas dos inimigos"""
 	tex_enemy_zombie = zombie
@@ -63,7 +65,8 @@ func setup_textures(
 	tex_enemy_robot = robot
 	tex_enemy_alien = alien
 	tex_alien_voador = alien_voador
-	tex_enemy_boss = boss
+	tex_enemy_boss_zombie = boss_zombie
+	tex_enemy_boss_alien = boss_alien
 
 func setup_managers(
 	wave_mgr: WaveManager,
@@ -377,12 +380,17 @@ func _update_single_enemy(enemy_idx: int, enemy_data: Dictionary, camera_pos: Ve
 func _get_enemy_texture(enemy: Dictionary) -> Texture2D:
 	"""Retorna a textura do inimigo (lógica completa aqui)"""
 	var is_boss = enemy.get("is_boss", false)
-	if is_boss and tex_enemy_boss != null:
-		return tex_enemy_boss
+	if is_boss:
+		# Boss alienígena em waves 50+ (onde aparecem aliens)
+		if wave_manager and wave_manager.wave >= 50 and tex_enemy_boss_alien != null:
+			return tex_enemy_boss_alien
+		# Boss zumbi em waves < 50 (onde aparecem zumbis)
+		elif tex_enemy_boss_zombie != null:
+			return tex_enemy_boss_zombie
 	
 	var enemy_type = enemy.get("enemy_type", -1)
 	
-	# Usar GameConstants.EnemyType se disponível
+	# Usar EnemyConstants.EnemyType se disponível
 	if enemy_type >= 0:
 		match enemy_type:
 			0:  # ZOMBIE

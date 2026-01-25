@@ -2,6 +2,7 @@ extends RefCounted
 class_name EnemyManager
 
 const GameConstants = preload("res://scripts/Constants.gd")
+const EnemyConstants = preload("res://scripts/EnemyConstants.gd")
 
 var grid_manager: GridManager
 var pathfinder: Pathfinder
@@ -26,7 +27,7 @@ func _init(p_grid_manager: GridManager, p_pathfinder: Pathfinder, p_wave_manager
 
 func create_enemy(col: int, row: int, is_boss: bool = false) -> Dictionary:
 	var pos = grid_manager.tile_center(col, row)
-	var initial_hp = GameConstants.BOSS_BASE_HP if is_boss else GameConstants.ENEMY_BASE_HP
+	var initial_hp = EnemyConstants.BOSS_BASE_HP if is_boss else EnemyConstants.ENEMY_BASE_HP
 	var f = wave_manager.wave_factor()
 	var hp = int(max(1, round(initial_hp * f)))
 	var enemy_idx = enemies.size()
@@ -35,9 +36,9 @@ func create_enemy(col: int, row: int, is_boss: bool = false) -> Dictionary:
 	var path = _calculate_path(col, row)
 	
 	# Limitar velocidade máxima
-	var base_speed = GameConstants.ENEMY_BASE_SPEED * f
+	var base_speed = EnemyConstants.ENEMY_BASE_SPEED * f
 	if is_boss:
-		base_speed *= GameConstants.BOSS_SPEED_MULTIPLIER
+		base_speed *= EnemyConstants.BOSS_SPEED_MULTIPLIER
 	var max_speed = 200.0
 	if base_speed > max_speed:
 		base_speed = max_speed

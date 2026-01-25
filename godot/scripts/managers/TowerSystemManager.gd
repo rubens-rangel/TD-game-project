@@ -1,6 +1,8 @@
 extends RefCounted
 class_name TowerSystemManager
 
+const SpatialHashManager = preload("res://scripts/managers/SpatialHashManager.gd")
+
 # Gerencia a lógica de todas as torres do jogo
 # Centraliza updates, targeting, e disparos de todas as torres
 
@@ -8,6 +10,7 @@ var game: Node2D  # Referência ao Game principal
 var enemies: Array  # Referência ao array de inimigos
 var effects_manager: EffectsManager  # Para efeitos visuais
 var grid_manager: GridManager  # Para cálculos de posição
+var spatial_hash_manager: SpatialHashManager = null  # Otimização de queries espaciais
 
 # Arrays de torres (referências do Game.gd)
 var towers: Array = []
@@ -31,6 +34,11 @@ func _init(game_node: Node2D, enemies_arr: Array, effects_mgr: EffectsManager, g
 	enemies = enemies_arr
 	effects_manager = effects_mgr
 	grid_manager = grid_mgr
+
+# Define o SpatialHashManager (opcional - se não definido, usa busca linear)
+func set_spatial_hash_manager(spatial_hash) -> void:
+	if spatial_hash is SpatialHashManager:
+		spatial_hash_manager = spatial_hash
 
 # Define os arrays de torres
 func set_tower_arrays(
@@ -67,7 +75,18 @@ func find_closest_enemy_in_range(tower_pos: Vector2, range: float) -> int:
 	var closest_idx = -1
 	var closest_dist = range
 	
-	for i in range(enemies.size()):
+	# Usar spatial hash se disponível (otimização)
+	var candidates: Array = []
+	if spatial_hash_manager != null:
+		candidates = spatial_hash_manager.get_enemy_candidates_in_range(tower_pos, range)
+	else:
+		# Fallback: verificar todos os inimigos
+		candidates = range(enemies.size())
+	
+	# Verificar candidatos (mesma lógica, apenas menos verificações)
+	for i in candidates:
+		if i < 0 or i >= enemies.size():
+			continue
 		var enemy = enemies[i]
 		if enemy["hp"] <= 0 or enemy.get("reached", false):
 			continue
@@ -85,7 +104,18 @@ func find_boss_in_range(tower_pos: Vector2, range: float) -> int:
 	var closest_idx = -1
 	var closest_dist = range
 	
-	for i in range(enemies.size()):
+	# Usar spatial hash se disponível (otimização)
+	var candidates: Array = []
+	if spatial_hash_manager != null:
+		candidates = spatial_hash_manager.get_enemy_candidates_in_range(tower_pos, range)
+	else:
+		# Fallback: verificar todos os inimigos
+		candidates = range(enemies.size())
+	
+	# Verificar candidatos (mesma lógica, apenas menos verificações)
+	for i in candidates:
+		if i < 0 or i >= enemies.size():
+			continue
 		var enemy = enemies[i]
 		if enemy["hp"] <= 0 or enemy.get("reached", false):
 			continue
@@ -105,7 +135,18 @@ func find_enemy_closest_to_center(tower_pos: Vector2, range: float, base_center:
 	var closest_idx = -1
 	var closest_dist_to_center = 9999.0
 	
-	for i in range(enemies.size()):
+	# Usar spatial hash se disponível (otimização)
+	var candidates: Array = []
+	if spatial_hash_manager != null:
+		candidates = spatial_hash_manager.get_enemy_candidates_in_range(tower_pos, range)
+	else:
+		# Fallback: verificar todos os inimigos
+		candidates = range(enemies.size())
+	
+	# Verificar candidatos (mesma lógica, apenas menos verificações)
+	for i in candidates:
+		if i < 0 or i >= enemies.size():
+			continue
 		var enemy = enemies[i]
 		if enemy["hp"] <= 0 or enemy.get("reached", false):
 			continue
