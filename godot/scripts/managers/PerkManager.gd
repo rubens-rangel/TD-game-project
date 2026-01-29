@@ -11,7 +11,8 @@ enum Category {
 	STARTING,    # Melhorias no início do jogo
 	ECONOMY,     # Melhorias econômicas
 	COMBAT,      # Melhorias de combate
-	DEFENSE      # Melhorias de defesa
+	DEFENSE,     # Melhorias de defesa
+	PROGRESSION  # Melhorias de progressão
 }
 
 # Definir todos os perks disponíveis
@@ -143,6 +144,88 @@ static var ALL_PERKS: Dictionary = {
 		"icon": "📡",
 		"effect": "tower_range",
 		"effect_value": 0.10
+	},
+	
+	# === PROGRESSION ===
+	"wave_reward_boost": {
+		"name": "Recompensas Generosas",
+		"description": "+15% de moedas ao completar waves",
+		"category": Category.PROGRESSION,
+		"cost": 120,
+		"max_level": 4,
+		"icon": "💸",
+		"effect": "wave_reward",
+		"effect_value": 0.15
+	},
+	"boss_reward_boost": {
+		"name": "Caçador de Bosses",
+		"description": "+20% de moedas ao derrotar bosses",
+		"category": Category.PROGRESSION,
+		"cost": 150,
+		"max_level": 3,
+		"icon": "👑",
+		"effect": "boss_reward",
+		"effect_value": 0.20
+	},
+	"enemy_reward_boost": {
+		"name": "Saqueador",
+		"description": "+10% de moedas ao derrotar inimigos",
+		"category": Category.PROGRESSION,
+		"cost": 100,
+		"max_level": 5,
+		"icon": "💰",
+		"effect": "enemy_reward",
+		"effect_value": 0.10
+	},
+	"wave_scale_reduction": {
+		"name": "Dificuldade Reduzida",
+		"description": "-2% na escala de dificuldade das waves",
+		"category": Category.PROGRESSION,
+		"cost": 200,
+		"max_level": 3,
+		"icon": "📉",
+		"effect": "wave_scale_reduction",
+		"effect_value": 0.02
+	},
+	"perfect_wave_bonus": {
+		"name": "Perfeição Recompensada",
+		"description": "+50% de bônus ao completar waves perfeitas",
+		"category": Category.PROGRESSION,
+		"cost": 180,
+		"max_level": 2,
+		"icon": "⭐",
+		"effect": "perfect_wave_bonus",
+		"effect_value": 0.50
+	},
+	"special_wave_bonus": {
+		"name": "Ondas Especiais",
+		"description": "+25% de recompensas em waves especiais",
+		"category": Category.PROGRESSION,
+		"cost": 160,
+		"max_level": 2,
+		"icon": "✨",
+		"effect": "special_wave_bonus",
+		"effect_value": 0.25
+	},
+	"early_wave_boost": {
+		"name": "Começo Forte",
+		"description": "+30% de recompensas nas primeiras 20 waves",
+		"category": Category.PROGRESSION,
+		"cost": 140,
+		"max_level": 1,
+		"icon": "🚀",
+		"effect": "early_wave_boost",
+		"effect_value": 0.30
+	},
+	"talisman_drop_boost": {
+		"name": "Sorte de Talismãs",
+		"description": "+50% de chance de inimigos droparem talismãs",
+		"category": Category.PROGRESSION,
+		"cost": 250,
+		"max_level": 2,
+		"icon": "🔮",
+		"effect": "talisman_drop",
+		"effect_value": 0.50
 	}
 }
 

@@ -76,6 +76,7 @@ func load_all_textures() -> void:
 	_update_progress(0.85)
 	
 	textures["shock_tower"] = load_texture("res://assets/images/shock_tower.jpg", true)
+	textures["anti_air_tower"] = load_texture("res://assets/images/antiaereo.png", true)
 	_update_progress(0.9)
 	
 	textures["barracks"] = load_texture("res://assets/images/barracks.png", true)

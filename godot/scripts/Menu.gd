@@ -1397,7 +1397,8 @@ func _show_perks_dialog() -> void:
 		{"name": "Início", "category": PerkManager.Category.STARTING, "icon": "🚀"},
 		{"name": "Economia", "category": PerkManager.Category.ECONOMY, "icon": "💰"},
 		{"name": "Combate", "category": PerkManager.Category.COMBAT, "icon": "⚔️"},
-		{"name": "Defesa", "category": PerkManager.Category.DEFENSE, "icon": "🛡️"}
+		{"name": "Defesa", "category": PerkManager.Category.DEFENSE, "icon": "🛡️"},
+		{"name": "Progressão", "category": PerkManager.Category.PROGRESSION, "icon": "📈"}
 	]
 	
 	for cat_info in categories:

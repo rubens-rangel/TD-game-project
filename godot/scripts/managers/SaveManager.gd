@@ -12,6 +12,7 @@ const DEFAULT_AOE_LEVELS = {"DMG": 0, "RATE": 0, "AREA": 0}
 const DEFAULT_SNIPER_LEVELS = {"DMG": 0, "RATE": 0}
 const DEFAULT_BOOST_LEVELS = {"RANGE": 0, "DMG": 0, "RATE": 0}
 const DEFAULT_SHOCK_LEVELS = {"DMG": 0, "RATE": 0, "CHAIN": 0}
+const DEFAULT_ANTI_AIR_LEVELS = {"DMG": 0, "RATE": 0, "RANGE": 0, "MISSILE_COUNT": 0, "EXPLOSION": 0, "CHAIN": 0}
 const DEFAULT_BARRACKS_LEVELS = {"HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0}
 
 # Obter caminho do arquivo de save para um slot
@@ -56,12 +57,14 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["sniper_towers"] = _serialize_sniper_towers(game_instance.sniper_towers)
 	save_data["boost_towers"] = _serialize_boost_towers(game_instance.boost_towers)
 	save_data["shock_towers"] = _serialize_shock_towers(game_instance.shock_towers)
+	save_data["anti_air_towers"] = _serialize_anti_air_towers(game_instance.anti_air_towers)
 	
 	# Outras estruturas
 	save_data["barracks"] = _serialize_barracks(game_instance.barracks)
 	save_data["mines"] = _serialize_mines(game_instance.mines)
 	save_data["walls"] = _serialize_walls(game_instance.walls)
 	save_data["healing_stations"] = _serialize_healing_stations(game_instance.healing_stations)
+	save_data["markets"] = _serialize_markets(game_instance.markets)
 	
 	# Upgrades globais de minas
 	save_data["mine_damage_level"] = game_instance.mine_damage_level
@@ -231,24 +234,29 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.slow_towers.clear()
 	game_instance.aoe_towers.clear()
 	game_instance.sniper_towers.clear()
+	game_instance.anti_air_towers.clear()
 	game_instance.boost_towers.clear()
 	game_instance.shock_towers.clear()
+	game_instance.anti_air_towers.clear()
 	game_instance.barracks.clear()
 	game_instance.mines.clear()
 	game_instance.walls.clear()
 	game_instance.healing_stations.clear()
+	game_instance.markets.clear()
 	
 	# Carregar estruturas
 	game_instance.towers = _deserialize_towers(save_data.get("towers", []))
 	game_instance.slow_towers = _deserialize_slow_towers(save_data.get("slow_towers", []))
 	game_instance.aoe_towers = _deserialize_aoe_towers(save_data.get("aoe_towers", []))
 	game_instance.sniper_towers = _deserialize_sniper_towers(save_data.get("sniper_towers", []))
+	game_instance.anti_air_towers = _deserialize_anti_air_towers(save_data.get("anti_air_towers", []))
 	game_instance.boost_towers = _deserialize_boost_towers(save_data.get("boost_towers", []))
 	game_instance.shock_towers = _deserialize_shock_towers(save_data.get("shock_towers", []))
 	game_instance.barracks = _deserialize_barracks(save_data.get("barracks", []))
 	game_instance.mines = _deserialize_mines(save_data.get("mines", []))
 	game_instance.walls = _deserialize_walls(save_data.get("walls", []))
 	game_instance.healing_stations = _deserialize_healing_stations(save_data.get("healing_stations", []))
+	game_instance.markets = _deserialize_markets(save_data.get("markets", []))
 	
 	# Carregar upgrades globais de minas
 	game_instance.mine_damage_level = save_data.get("mine_damage_level", 0)
@@ -456,6 +464,45 @@ static func _serialize_shock_towers(towers: Array) -> Array:
 		})
 	return result
 
+static func _serialize_anti_air_towers(towers: Array) -> Array:
+	var result = []
+	for t in towers:
+		result.append({
+			"grid_x": t.grid_x,
+			"grid_y": t.grid_y,
+			"pos_x": t.pos.x,
+			"pos_y": t.pos.y,
+			"range": t.range,
+			"base_range": t.get("base_range", 250.0),
+			"damage": t.damage,
+			"cooldown": t.get("cooldown", 0.0),
+			"fire_rate": t.fire_rate,
+			"missile_count": t.get("missile_count", 1),
+			"explosion_radius": t.get("explosion_radius", 0.0),
+			"chain_targets": t.get("chain_targets", 1),
+			"levels": _merge_levels(t.get("levels", {}), DEFAULT_ANTI_AIR_LEVELS)
+		})
+	return result
+
+static func _deserialize_anti_air_towers(data: Array) -> Array:
+	var result = []
+	for t in data:
+		result.append({
+			"grid_x": t.grid_x,
+			"grid_y": t.grid_y,
+			"pos": Vector2(t.pos_x, t.pos_y),
+			"range": t.range,
+			"base_range": t.get("base_range", 250.0),
+			"damage": t.damage,
+			"cooldown": t.get("cooldown", 0.0),
+			"fire_rate": t.fire_rate,
+			"missile_count": t.get("missile_count", 1),
+			"explosion_radius": t.get("explosion_radius", 0.0),
+			"chain_targets": t.get("chain_targets", 1),
+			"levels": _merge_levels(t.get("levels", {}), DEFAULT_ANTI_AIR_LEVELS)
+		})
+	return result
+
 static func _deserialize_shock_towers(data: Array) -> Array:
 	var result = []
 	for t in data:
@@ -598,6 +645,25 @@ static func _deserialize_healing_stations(data: Array) -> Array:
 			"heal_amount": s.get("heal_amount", 5.0),
 			"range": s.get("range", 100.0)
 		})
+	return result
+
+static func _serialize_markets(markets: Array) -> Array:
+	var result = []
+	for m in markets:
+		result.append({
+			"grid_x": m.grid_x,
+			"grid_y": m.grid_y,
+			"pos_x": m.pos.x,
+			"pos_y": m.pos.y
+		})
+	return result
+
+static func _deserialize_markets(data: Array) -> Array:
+	var result = []
+	var Market = load("res://scripts/structures/Market.gd")
+	for m in data:
+		var market = Market.new(Vector2i(m.grid_x, m.grid_y), Vector2(m.pos_x, m.pos_y))
+		result.append(market)
 	return result
 
 static func _serialize_vector2_array(vectors: Array) -> Array:

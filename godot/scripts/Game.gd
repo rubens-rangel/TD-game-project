@@ -120,6 +120,7 @@ var placing_aoe_tower := false
 var placing_sniper_tower := false
 var placing_boost_tower := false
 var placing_shock_tower := false
+var placing_anti_air_tower := false
 var placing_wall := false
 var placing_healing_station := false
 var placing_market := false
@@ -134,6 +135,7 @@ var aoe_towers: Array = []
 var sniper_towers: Array = []
 var boost_towers: Array = []
 var shock_towers: Array = []
+var anti_air_towers: Array = []
 var walls: Array = []
 var wall_hp_multiplier: float = 1.0
 var healing_stations: Array = []
@@ -162,6 +164,9 @@ var keep_aoe_menu_open := false
 var shock_menu: PopupMenu
 var shock_selected_index := -1
 var keep_shock_menu_open := false
+var anti_air_menu: PopupMenu
+var anti_air_selected_index := -1
+var keep_anti_air_menu_open := false
 var slow_menu: PopupMenu
 var slow_selected_index := -1
 var keep_slow_menu_open := false
@@ -206,6 +211,7 @@ var tex_aoe_tower: Texture2D
 var tex_sniper_tower: Texture2D
 var tex_boost_tower: Texture2D
 var tex_shock_tower: Texture2D
+var tex_anti_air_tower: Texture2D
 var tex_barracks: Texture2D
 var tex_mine: Texture2D
 var tex_wall_structure: Texture2D
@@ -257,6 +263,7 @@ var weather_overlay: ColorRect
 var weather_clouds: Array = []
 var weather_rain_particles: Array = []
 var weather_snow_particles: Array = []
+var weather_wind_particles: Array = []
 var weather_alert_label: Label
 var weather_alert_timer: float = 0.0
 var weather_effects_active: bool = false
@@ -287,7 +294,17 @@ var dps_menu_panel: Panel = null
 var dps_menu_visible: bool = false
 
 func _wave_factor() -> float:
-	return wave_manager.wave_factor()
+	var factor = wave_manager.wave_factor()
+	# Aplicar redução de escala de dificuldade das waves (perk)
+	if perk_effects.has("wave_scale_reduction"):
+		# Reduzir o fator multiplicativamente
+		# Se wave_scale_reduction = 0.02, reduz 2% do crescimento
+		var reduction = perk_effects["wave_scale_reduction"]
+		# Aplicar redução: factor = factor * (1 - reduction)
+		# Mas como factor já é o resultado final, precisamos reduzir proporcionalmente
+		# Aplicar redução de forma que cada wave seja menos difícil
+		factor *= (1.0 - reduction)
+	return factor
 
 func get_effective_tower_range(base_range: float) -> float:
 	if weather_manager:
@@ -301,15 +318,35 @@ func get_effective_tower_damage(base_damage: float) -> float:
 
 func get_enemy_reward() -> int:
 	var base_reward = reward_calculator.get_enemy_reward()
+	var multiplier = special_wave_coin_multiplier
+	
+	# Aplicar bônus de perk de recompensa de inimigos
+	if perk_effects.has("enemy_reward"):
+		multiplier *= (1.0 + perk_effects["enemy_reward"])
+	
+	# Aplicar bônus de perk de ondas iniciais (primeiras 20 waves)
+	if perk_effects.has("early_wave_boost") and wave_manager and wave_manager.wave <= 20:
+		multiplier *= (1.0 + perk_effects["early_wave_boost"])
+	
 	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
-		return int(base_reward * 2.0)
-	return int(base_reward * special_wave_coin_multiplier)
+		return int(base_reward * 2.0 * multiplier)
+	return int(base_reward * multiplier)
 
 func get_boss_reward() -> int:
 	var base_reward = reward_calculator.get_boss_reward()
+	var multiplier = special_wave_coin_multiplier
+	
+	# Aplicar bônus de perk de recompensa de bosses
+	if perk_effects.has("boss_reward"):
+		multiplier *= (1.0 + perk_effects["boss_reward"])
+	
+	# Aplicar bônus de perk de ondas iniciais (primeiras 20 waves)
+	if perk_effects.has("early_wave_boost") and wave_manager and wave_manager.wave <= 20:
+		multiplier *= (1.0 + perk_effects["early_wave_boost"])
+	
 	if current_special_wave_type == WaveManager.SpecialWaveType.DOUBLE_COINS:
-		return int(base_reward * 2.0)
-	return int(base_reward * special_wave_coin_multiplier)
+		return int(base_reward * 2.0 * multiplier)
+	return int(base_reward * multiplier)
 
 # Calcula custo progressivo de upgrade
 func get_upgrade_cost(base_cost: int, current_level: int) -> int:
@@ -320,10 +357,29 @@ func get_upgrade_cost(base_cost: int, current_level: int) -> int:
 func get_wave_completion_bonus() -> int:
 	"""Calcula bonus de moedas por completar uma wave (com cap máximo)"""
 	var base_bonus = reward_calculator.get_wave_completion_bonus()
+	var multiplier = 1.0
+	
+	# Aplicar bônus de perk de recompensa de waves
+	if perk_effects.has("wave_reward"):
+		multiplier *= (1.0 + perk_effects["wave_reward"])
+	
+	# Aplicar bônus de perk de waves perfeitas
+	if perk_effects.has("perfect_wave_bonus") and perfect_wave_bonus_given:
+		multiplier *= (1.0 + perk_effects["perfect_wave_bonus"])
+	
+	# Aplicar bônus de perk de waves especiais
+	if perk_effects.has("special_wave_bonus") and current_special_wave_type != WaveManager.SpecialWaveType.NONE:
+		multiplier *= (1.0 + perk_effects["special_wave_bonus"])
+	
+	# Aplicar bônus de perk de ondas iniciais (primeiras 20 waves)
+	if perk_effects.has("early_wave_boost") and wave_manager and wave_manager.wave <= 20:
+		multiplier *= (1.0 + perk_effects["early_wave_boost"])
+	
 	# Aplicar multiplicador de wave especial (exceto PERFECT_WAVE que tem bônus próprio)
 	if current_special_wave_type != WaveManager.SpecialWaveType.NONE and current_special_wave_type != WaveManager.SpecialWaveType.PERFECT_WAVE:
-		return int(base_bonus * special_wave_coin_multiplier)
-	return base_bonus
+		multiplier *= special_wave_coin_multiplier
+	
+	return int(base_bonus * multiplier)
 
 # Calcula custo de torre escalado com wave
 func get_tower_cost(base_cost: int) -> int:
@@ -638,7 +694,7 @@ func _ready() -> void:
 	placement_manager = PlacementManager.new(self, grid_manager)
 	placement_manager.set_structure_arrays(
 		towers, barracks, mines, slow_towers, aoe_towers,
-		sniper_towers, boost_towers, shock_towers, walls, healing_stations
+		sniper_towers, boost_towers, shock_towers, anti_air_towers, walls, healing_stations
 	)
 	
 	# Inicializar TowerSystemManager (será configurado depois que effects_manager for criado)
@@ -806,7 +862,7 @@ func _ready() -> void:
 	tower_system_manager.set_spatial_hash_manager(spatial_hash_manager)
 	tower_system_manager.set_tower_arrays(
 		towers, slow_towers, aoe_towers, sniper_towers,
-		boost_towers, shock_towers, barracks
+		boost_towers, shock_towers, anti_air_towers, barracks
 	)
 	tower_system_manager.set_global_damage_boost(global_tower_damage_boost)
 	
@@ -821,6 +877,7 @@ func _ready() -> void:
 	tex_sniper_tower = resource_manager.get_texture("sniper_tower")
 	tex_boost_tower = resource_manager.get_texture("boost_tower")
 	tex_shock_tower = resource_manager.get_texture("shock_tower")
+	tex_anti_air_tower = resource_manager.get_texture("anti_air_tower")
 	tex_barracks = resource_manager.get_texture("barracks")
 	tex_mine = resource_manager.get_texture("mine")
 	tex_wall_structure = resource_manager.get_texture("wall_structure")
@@ -1093,6 +1150,36 @@ func _ready() -> void:
 	shock_menu_container.add_child(shock_menu)
 	$CanvasLayer.add_child(shock_menu_container)
 	
+	# criar PopupMenu para Anti-Air towers
+	var anti_air_menu_container = Control.new()
+	anti_air_menu_container.name = "AntiAirMenuContainer"
+	anti_air_menu_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	anti_air_menu_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	anti_air_menu = PopupMenu.new()
+	anti_air_menu.name = "AntiAirMenu"
+	anti_air_menu.hide_on_checkable_item_selection = false  # Não fechar automaticamente
+	anti_air_menu.add_item("Dano +3 (💰 Moedas)", 1)
+	anti_air_menu.add_item("Dano +3 (🟢 Esmeraldas)", 10)
+	anti_air_menu.add_separator()
+	anti_air_menu.add_item("Taxa de Tiro + (💰 Moedas)", 2)
+	anti_air_menu.add_item("Taxa de Tiro + (🟢 Esmeraldas)", 11)
+	anti_air_menu.add_separator()
+	anti_air_menu.add_item("Alcance +10% (💰 Moedas)", 3)
+	anti_air_menu.add_item("Alcance +10% (🟢 Esmeraldas)", 12)
+	anti_air_menu.add_separator()
+	anti_air_menu.add_item("Mísseis +1 (💰 Moedas)", 4)
+	anti_air_menu.add_item("Mísseis +1 (🟢 Esmeraldas)", 13)
+	anti_air_menu.add_separator()
+	anti_air_menu.add_item("Explosão em Área (💰 Moedas)", 5)
+	anti_air_menu.add_item("Explosão em Área (🟢 Esmeraldas)", 14)
+	anti_air_menu.add_separator()
+	anti_air_menu.add_item("Corrente de Alvos +1 (💰 Moedas)", 6)
+	anti_air_menu.add_item("Corrente de Alvos +1 (🟢 Esmeraldas)", 15)
+	anti_air_menu.id_pressed.connect(Callable(self, "_on_anti_air_menu_pressed"))
+	anti_air_menu.popup_hide.connect(Callable(self, "_on_upgrade_menu_closed"))
+	anti_air_menu_container.add_child(anti_air_menu)
+	$CanvasLayer.add_child(anti_air_menu_container)
+	
 	# criar PopupMenu para Slow towers
 	var slow_menu_container = Control.new()
 	slow_menu_container.name = "SlowMenuContainer"
@@ -1306,6 +1393,7 @@ func _process(delta: float) -> void:
 			shock_selected_index = -1
 			slow_selected_index = -1
 			boost_selected_index = -1
+			anti_air_selected_index = -1
 			barracks_selected_index = -1
 
 	if boss_alert_timer > 0.0:
@@ -1882,6 +1970,8 @@ func _get_structure_array(array_name: String) -> Array:
 			return aoe_towers
 		"sniper_towers":
 			return sniper_towers
+		"anti_air_towers":
+			return anti_air_towers
 		"boost_towers":
 			return boost_towers
 		"shock_towers":
@@ -1952,7 +2042,7 @@ func _input(event: InputEvent) -> void:
 	# Detectar início de drag (botão esquerdo pressionado)
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		# Não iniciar drag se estiver colocando algo ou escolhendo upgrade
-		if choosing_upgrade or placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
+		if choosing_upgrade or placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_anti_air_tower or placing_wall or placing_healing_station or placing_market:
 			pass  # Continuar com lógica normal de colocação
 		else:
 			# Verificar se clicou em uma torre para arrastar
@@ -1987,6 +2077,11 @@ func _input(event: InputEvent) -> void:
 				_start_drag_tower("shock_tower", shock_idx, world_pos)
 				return
 			
+			var anti_air_idx := _find_anti_air_tower_at(world_pos, 20.0)
+			if anti_air_idx != -1:
+				_start_drag_tower("anti_air_tower", anti_air_idx, world_pos)
+				return
+			
 			var mine_idx := _find_mine_at(world_pos, 12.0)
 			if mine_idx != -1:
 				_start_drag_tower("mine", mine_idx, world_pos)
@@ -1994,8 +2089,8 @@ func _input(event: InputEvent) -> void:
 			
 			var wall_idx := _find_wall_at(world_pos, 15.0)
 			if wall_idx != -1:
-				# Mostrar menu de upgrade de muralha ao invés de arrastar
-				_show_wall_menu(wall_idx, world_pos)
+				# Permitir arrastar muralha com botão esquerdo
+				_start_drag_tower("wall", wall_idx, world_pos)
 				return
 			
 			var barracks_idx := _find_barracks_at(world_pos, 20.0)
@@ -2043,6 +2138,8 @@ func _input(event: InputEvent) -> void:
 				_try_place_boost_tower(world_pos)
 			elif placing_shock_tower:
 				_try_place_shock_tower(world_pos)
+			elif placing_anti_air_tower:
+				_try_place_anti_air_tower(world_pos)
 			elif placing_wall:
 				_try_place_wall(world_pos)
 			elif placing_healing_station:
@@ -2102,6 +2199,11 @@ func _input(event: InputEvent) -> void:
 				shock_menu.hide()
 				_hide_range_indicator()
 				shock_selected_index = -1
+			if anti_air_menu and anti_air_menu.visible:
+				anti_air_menu.hide()
+				_hide_range_indicator()
+				anti_air_selected_index = -1
+				keep_anti_air_menu_open = false
 			if barracks_menu and barracks_menu.visible:
 				barracks_menu.hide()
 				_hide_range_indicator()
@@ -2109,6 +2211,9 @@ func _input(event: InputEvent) -> void:
 			if market_menu and market_menu.visible:
 				market_menu.hide()
 				market_selected_index = -1
+			if wall_menu and wall_menu.visible:
+				wall_menu.hide()
+				wall_selected_index = -1
 			
 			# Cancelar drag se estiver arrastando
 			if dragging_tower:
@@ -2122,13 +2227,14 @@ func _input(event: InputEvent) -> void:
 				queue_redraw()
 				return
 			# cancelar colocação com botão direito
-			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
+			if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_anti_air_tower or placing_wall or placing_healing_station or placing_market:
 				placing_tower = false
 				placing_barracks = false
 				placing_mine = false
 				placing_slow_tower = false
 				placing_aoe_tower = false
 				placing_sniper_tower = false
+				placing_anti_air_tower = false
 				placing_boost_tower = false
 				placing_shock_tower = false
 				placing_wall = false
@@ -2144,6 +2250,11 @@ func _input(event: InputEvent) -> void:
 			var right_click_market_idx := _find_market_at(mouse_world_pos, 30.0)
 			if right_click_market_idx != -1:
 				_open_market_menu(right_click_market_idx, mouse_screen_pos)
+				return
+			# Abrir menu da muralha com botão direito
+			var right_click_wall_idx := _find_wall_at(mouse_world_pos, 15.0)
+			if right_click_wall_idx != -1:
+				_show_wall_menu(right_click_wall_idx, mouse_world_pos)
 				return
 			# verificar torres primeiro
 			var tower_idx := _find_tower_at(mouse_world_pos, 20.0)  # raio maior para facilitar detecção
@@ -2164,6 +2275,11 @@ func _input(event: InputEvent) -> void:
 			var aoe_idx := _find_aoe_tower_at(mouse_world_pos, 20.0)
 			if aoe_idx != -1:
 				_open_aoe_menu(aoe_idx, mouse_screen_pos)
+				return
+			# verificar Anti-Air towers
+			var anti_air_idx := _find_anti_air_tower_at(mouse_world_pos, 20.0)
+			if anti_air_idx != -1:
+				_open_anti_air_menu(anti_air_idx, mouse_screen_pos)
 				return
 			# verificar Shock towers
 			var shock_idx := _find_shock_tower_at(mouse_world_pos, 20.0)
@@ -2490,7 +2606,12 @@ func _draw() -> void:
 			draw_circle(a["pos"], 2, Color(0.83,0.90,1.0))
 	for b in tower_bullets:
 		if not culling_manager or culling_manager.should_render(b["pos"], camera_pos):
-			draw_circle(b["pos"], 2, Color(0.95,0.85,0.45))
+			# Projéteis anti-air são vermelhos
+			if b.get("is_missile", false):
+				draw_circle(b["pos"], 4, Color(1.0, 0.0, 0.0))  # Vermelho sólido
+				draw_circle(b["pos"], 4, Color(1.0, 0.3, 0.3), false, 1.0)  # Borda vermelha mais clara
+			else:
+				draw_circle(b["pos"], 2, Color(0.95,0.85,0.45))
 	# projéteis de canhão AOE (bolas pretas) (com culling)
 	for proj in aoe_cannon_projectiles:
 		if not culling_manager or culling_manager.should_render(proj.pos, camera_pos):
@@ -2569,6 +2690,10 @@ func _draw() -> void:
 				preview_size = grid_size_px * GameConstants.SHOCK_TOWER_SIZE_GRID
 				preview_tex = tex_shock_tower
 				tower_size_grid = GameConstants.SHOCK_TOWER_SIZE_GRID
+			"anti_air_tower":
+				preview_size = grid_size_px * GameConstants.ANTI_AIR_TOWER_SIZE_GRID
+				preview_tex = tex_anti_air_tower
+				tower_size_grid = GameConstants.ANTI_AIR_TOWER_SIZE_GRID
 			"barracks":
 				preview_size = grid_size_px * GameConstants.BARRACKS_SIZE_GRID
 				preview_tex = tex_barracks
@@ -2636,6 +2761,12 @@ func _draw() -> void:
 						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.SHOCK_TOWER_SIZE_GRID, GameConstants.SHOCK_TOWER_SIZE_GRID)
 					item_type = 9
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.SHOCK_TOWER_SIZE_GRID, item_type, ignore_area)
+				"anti_air_tower":
+					if dragged_tower_index >= 0 and dragged_tower_index < anti_air_towers.size():
+						var old_tower = anti_air_towers[dragged_tower_index]
+						ignore_area = Rect2i(old_tower.grid_x, old_tower.grid_y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, GameConstants.ANTI_AIR_TOWER_SIZE_GRID)
+					item_type = 12
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, item_type, ignore_area)
 				"barracks":
 					if dragged_tower_index >= 0 and dragged_tower_index < barracks.size():
 						var old_barracks = barracks[dragged_tower_index]
@@ -2648,6 +2779,12 @@ func _draw() -> void:
 						ignore_area = Rect2i(old_market.grid_x, old_market.grid_y, GameConstants.MARKET_SIZE_GRID, GameConstants.MARKET_SIZE_GRID)
 					item_type = 11
 					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.MARKET_SIZE_GRID, item_type, ignore_area)
+				"healing_station":
+					if dragged_tower_index >= 0 and dragged_tower_index < healing_stations.size():
+						var old_station = healing_stations[dragged_tower_index]
+						ignore_area = Rect2i(old_station.grid_x, old_station.grid_y, GameConstants.HEALING_STATION_SIZE_GRID, GameConstants.HEALING_STATION_SIZE_GRID)
+					item_type = 10
+					can_place = grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID, item_type, ignore_area)
 		
 		# Não renderizar preview para minas aqui (já tem renderização separada)
 		# Quartel agora usa o mesmo sistema de preview que as outras torres
@@ -2757,9 +2894,19 @@ func _draw() -> void:
 		var sniper_rect := Rect2(sniper.pos.x - sniper_size/2, sniper.pos.y - sniper_size/2, sniper_size, sniper_size)
 		if tex_sniper_tower != null:
 			draw_texture_rect(tex_sniper_tower, sniper_rect, false)
+	
+	# Desenhar anti-air towers
+	for i in range(anti_air_towers.size()):
+		if dragging_tower and dragged_tower_type == "anti_air_tower" and i == dragged_tower_index:
+			continue
+		var anti_air = anti_air_towers[i]
+		var anti_air_size = grid_size_px * GameConstants.ANTI_AIR_TOWER_SIZE_GRID
+		var anti_air_rect = Rect2(anti_air.pos.x - anti_air_size/2, anti_air.pos.y - anti_air_size/2, anti_air_size, anti_air_size)
+		if tex_anti_air_tower != null:
+			draw_texture_rect(tex_anti_air_tower, anti_air_rect, false)
 		else:
-			draw_rect(sniper_rect, Color(0.3,0.3,0.3))
-			draw_rect(sniper_rect, Color(0.1,0.1,0.1), false, 2.0)
+			draw_rect(anti_air_rect, Color(0.2,0.6,0.9))
+			draw_rect(anti_air_rect, Color(0.1,0.4,0.7), false, 2.0)
 	# boost towers
 	for i in range(boost_towers.size()):
 		if dragging_tower and dragged_tower_type == "boost_tower" and i == dragged_tower_index:
@@ -2843,7 +2990,11 @@ func _draw() -> void:
 	# Removido código duplicado de preview do quartel
 	
 	# healing stations
-	for hs in healing_stations:
+	for i in range(healing_stations.size()):
+		# Não desenhar a healing station que está sendo arrastada
+		if dragging_tower and dragged_tower_type == "healing_station" and i == dragged_tower_index:
+			continue
+		var hs = healing_stations[i]
 		var hs_size := grid_size_px * GameConstants.HEALING_STATION_SIZE_GRID
 		var hs_rect := Rect2(hs.pos.x - hs_size/2, hs.pos.y - hs_size/2, hs_size, hs_size)
 		if tex_healing_station != null:
@@ -2983,7 +3134,7 @@ func _draw() -> void:
 			draw_circle(particle_pos, 3.0 * scale, Color(1.0, 0.7, 0.0, alpha))
 	
 	# preview de colocação
-	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_wall or placing_healing_station or placing_market:
+	if placing_tower or placing_barracks or placing_mine or placing_slow_tower or placing_aoe_tower or placing_sniper_tower or placing_boost_tower or placing_shock_tower or placing_anti_air_tower or placing_wall or placing_healing_station or placing_market:
 		if grid_manager.is_inside_base_point(preview_mouse_pos):
 			var preview_grid_coord = grid_manager.world_to_base_grid(preview_mouse_pos)
 			# Usar tamanho padrão de 3 para preview (maioria das torres)
@@ -3111,6 +3262,24 @@ func _draw() -> void:
 					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
 					if tex_shock_tower != null:
 						draw_texture_rect(tex_shock_tower, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
+					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
+			
+			elif placing_anti_air_tower:
+				if grid_manager.can_place_in_grid(preview_grid_coord.x, preview_grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12):
+					var preview_size := grid_size_px * GameConstants.ANTI_AIR_TOWER_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_anti_air_tower != null:
+						draw_texture_rect(tex_anti_air_tower, preview_rect, false, Color(1, 1, 1, 0.5))
+					else:
+						draw_rect(preview_rect, Color(0.2,0.6,0.9,0.5))  # azul para torre antiaérea
+					draw_rect(preview_rect, Color(0.1,0.4,0.7), false, 2.0)
+				else:
+					var preview_size := grid_size_px * GameConstants.ANTI_AIR_TOWER_SIZE_GRID
+					var preview_rect := Rect2(preview_world_pos.x - preview_size/2, preview_world_pos.y - preview_size/2, preview_size, preview_size)
+					if tex_anti_air_tower != null:
+						draw_texture_rect(tex_anti_air_tower, preview_rect, false, Color(1, 0.3, 0.3, 0.5))
 					else:
 						draw_rect(preview_rect, Color(0.9,0.3,0.3,0.5))
 					draw_rect(preview_rect, Color(0.8,0.2,0.2), false, 2.0)
@@ -4100,8 +4269,103 @@ func _arrow_new(x: float, y: float, target: Vector2) -> Dictionary:
 	return a
 
 func _arrow_update(a: Dictionary, dt: float) -> void:
-	a["pos"] += a["vel"] * dt
-	a["life"] -= dt
+	# Se é um míssil teleguiado, perseguir o alvo
+	if a.get("is_missile", false):
+		var target = a.get("target", null)
+		if target != null and target.has("pos") and target.get("hp", 0) > 0 and not target.get("reached", false):
+			# Atualizar posição do alvo
+			a["target_pos"] = target["pos"]
+			# Calcular direção para o alvo
+			var dir = (target["pos"] - a["pos"]).normalized()
+			# Mover em direção ao alvo
+			a["pos"] += dir * a["speed"] * dt
+			# Verificar se chegou perto o suficiente do alvo
+			if a["pos"].distance_to(target["pos"]) < 10.0:
+				# Míssil acertou - causar dano
+				var damage = a["damage"]
+				var explosion_radius = a.get("explosion_radius", 0.0)
+				var chain_targets = a.get("chain_targets", 1)
+				var chain_count = a.get("chain_count", 0)
+				
+				# Causar dano no alvo principal
+				target["hp"] -= damage
+				
+				# Rastrear dano para DPS
+				if a.has("tower_id"):
+					var tower_id = a["tower_id"]
+					if tower_dps_data.has(tower_id):
+						tower_dps_data[tower_id]["damage_dealt"] += damage
+				
+				_create_damage_number(target["pos"], damage, false)
+				
+				# Se tem explosão, causar dano em área
+				if explosion_radius > 0.0:
+					for e in enemies:
+						if e == target or e["hp"] <= 0 or e["reached"]:
+							continue
+						var dist = target["pos"].distance_to(e["pos"])
+						if dist <= explosion_radius:
+							var area_damage = damage * 0.5  # 50% do dano em área
+							e["hp"] -= area_damage
+							if a.has("tower_id"):
+								var tower_id = a["tower_id"]
+								if tower_dps_data.has(tower_id):
+									tower_dps_data[tower_id]["damage_dealt"] += area_damage
+							_create_damage_number(e["pos"], area_damage, false)
+							if e["hp"] <= 0:
+								e["hp"] = 0
+								e["dying"] = true
+								e["dying_time"] = 0.0
+								_create_death_animation(e["pos"])
+								var is_boss = e.get("is_boss", false)
+								hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
+								_try_drop_coin(e["pos"])
+								_try_drop_talisman(e["pos"])
+								_track_enemy_kill(is_boss)
+				
+				# Se o alvo morreu e tem chain, procurar próximo alvo
+				if target["hp"] <= 0:
+					target["hp"] = 0
+					target["dying"] = true
+					target["dying_time"] = 0.0
+					_create_death_animation(target["pos"])
+					var is_boss = target.get("is_boss", false)
+					hero["coins"] += get_boss_reward() if is_boss else get_enemy_reward()
+					_try_drop_coin(target["pos"])
+					_try_drop_talisman(target["pos"])
+					_track_enemy_kill(is_boss)
+					
+					# Chain para próximo alvo aéreo
+					if chain_count < chain_targets - 1:
+						var next_target = null
+						var closest_dist = 150.0  # Alcance máximo do chain
+						for e in enemies:
+							if e == target or e["hp"] <= 0 or e["reached"]:
+								continue
+							var enemy_type = e.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
+							if enemy_type != EnemyConstants.EnemyType.ALIEN_VOADOR:
+								continue
+							var dist = target["pos"].distance_to(e["pos"])
+							if dist < closest_dist:
+								closest_dist = dist
+								next_target = e
+						
+						if next_target != null:
+							# Criar novo míssil para o próximo alvo
+							a["target"] = next_target
+							a["target_pos"] = next_target["pos"]
+							a["chain_count"] = chain_count + 1
+							return  # Continuar perseguindo
+				
+				# Míssil explodiu
+				a["life"] = 0.0
+		else:
+			# Alvo não existe mais ou morreu - explodir no ar
+			a["life"] = 0.0
+	else:
+		# Projétil normal
+		a["pos"] += a["vel"] * dt
+		a["life"] -= dt
 
 func _handle_collisions() -> void:
 	for a in arrows:
@@ -4138,6 +4402,9 @@ func _handle_collisions() -> void:
 
 	for b in tower_bullets:
 		if b["life"] <= 0.0:
+			continue
+		# Pular mísseis - eles são processados diretamente em _arrow_update
+		if b.get("is_missile", false):
 			continue
 		for e in enemies:
 			if e["hp"] <= 0 or e["reached"]:
@@ -4202,6 +4469,12 @@ func _find_barracks_at(p: Vector2, r: float) -> int:
 			return i
 	return -1
 
+func _find_healing_station_at(p: Vector2, r: float) -> int:
+	for i in range(healing_stations.size()):
+		if healing_stations[i].pos.distance_to(p) <= r:
+			return i
+	return -1
+
 func _find_sniper_tower_at(p: Vector2, r: float) -> int:
 	for i in range(sniper_towers.size()):
 		if sniper_towers[i].pos.distance_to(p) <= r:
@@ -4217,6 +4490,12 @@ func _find_aoe_tower_at(p: Vector2, r: float) -> int:
 func _find_shock_tower_at(p: Vector2, r: float) -> int:
 	for i in range(shock_towers.size()):
 		if shock_towers[i].pos.distance_to(p) <= r:
+			return i
+	return -1
+
+func _find_anti_air_tower_at(p: Vector2, r: float) -> int:
+	for i in range(anti_air_towers.size()):
+		if anti_air_towers[i].pos.distance_to(p) <= r:
 			return i
 	return -1
 
@@ -4252,6 +4531,8 @@ func _start_drag_tower(tower_type: String, tower_idx: int, mouse_pos: Vector2) -
 			tower_pos = boost_towers[tower_idx].pos
 		"shock_tower":
 			tower_pos = shock_towers[tower_idx].pos
+		"anti_air_tower":
+			tower_pos = anti_air_towers[tower_idx].pos
 		"mine":
 			tower_pos = mines[tower_idx].pos
 		"wall":
@@ -4334,6 +4615,8 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			tower_size = GameConstants.BOOST_TOWER_SIZE_GRID
 		"shock_tower":
 			tower_size = GameConstants.SHOCK_TOWER_SIZE_GRID
+		"anti_air_tower":
+			tower_size = GameConstants.ANTI_AIR_TOWER_SIZE_GRID
 		"barracks":
 			tower_size = GameConstants.BARRACKS_SIZE_GRID
 		"market":
@@ -4377,6 +4660,8 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			moved = _try_move_boost_tower_to_grid(dragged_tower_index, grid_coord)
 		"shock_tower":
 			moved = _try_move_shock_tower_to_grid(dragged_tower_index, grid_coord)
+		"anti_air_tower":
+			moved = _try_move_anti_air_tower_to_grid(dragged_tower_index, grid_coord)
 		"mine":
 			# Para minas, não fazer snap (elas ficam em posições livres)
 			# Usar a posição do mouse diretamente (sem snap)
@@ -4390,6 +4675,8 @@ func _end_drag_tower(mouse_pos: Vector2) -> void:
 			moved = _try_move_barracks_to_grid(dragged_tower_index, grid_coord)
 		"market":
 			moved = _try_move_market_to_grid(dragged_tower_index, grid_coord)
+		"healing_station":
+			moved = _try_move_healing_station_to_grid(dragged_tower_index, grid_coord)
 	
 	# Se não conseguiu mover, restaurar grid na posição original
 	if not moved:
@@ -4986,6 +5273,11 @@ func _on_wave_started(wave_number: int, _is_boss_wave: bool, special_wave_type: 
 	achievement_manager.set_progress("wave_100", wave_number)
 	achievement_manager.set_progress("wave_200", wave_number)
 	achievement_manager.set_progress("wave_500", wave_number)
+	
+	# Notificação especial na wave 50 sobre monstros voadores na próxima wave
+	if wave_number == 50:
+		if notification_manager:
+			notification_manager.show_notification("Na próxima wave terá monstros voadores!", 5.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(1.0, 0.8, 0.2))
 
 func _on_buy_tower() -> void:
 	if placing_tower:
@@ -5060,11 +5352,11 @@ func _open_barracks_menu(idx: int, screen_pos: Vector2) -> void:
 	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
 	
 	var can_dmg: bool = hero["coins"] >= dmg_cost
-	var can_hold: bool = hero["coins"] >= hold_cost
+	var can_hold: bool = hero["coins"] >= hold_cost and b.hold_time < GameConstants.BARRACKS_MAX_HOLD_TIME
 	var can_spawn_rate: bool = hero["coins"] >= spawn_rate_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE
 	var can_projectile_speed: bool = hero["coins"] >= projectile_speed_cost
 	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
-	var can_hold_emerald: bool = currency_info.emeralds >= hold_emerald_cost
+	var can_hold_emerald: bool = currency_info.emeralds >= hold_emerald_cost and b.hold_time < GameConstants.BARRACKS_MAX_HOLD_TIME
 	var can_spawn_rate_emerald: bool = currency_info.emeralds >= spawn_rate_emerald_cost and b.soldier_spawn_rate > GameConstants.BARRACKS_MIN_SPAWN_RATE
 	var can_projectile_speed_emerald: bool = currency_info.emeralds >= projectile_speed_emerald_cost
 	
@@ -5120,16 +5412,18 @@ func _on_barracks_menu_pressed(id: int) -> void:
 					quest_manager.update_quest_progress(GameConstants.QuestType.UPGRADE_TOWERS, 1)
 		2:  # Tempo Hold com moedas
 			var cost = get_upgrade_cost(GameConstants.BARRACKS_HOLD_COST, hold_level)
-			if hero["coins"] >= cost:
-				b.hold_time += GameConstants.BARRACKS_HOLD_TIME_INCREASE
+			if hero["coins"] >= cost and b.hold_time < GameConstants.BARRACKS_MAX_HOLD_TIME:
+				var new_hold_time = b.hold_time + GameConstants.BARRACKS_HOLD_TIME_INCREASE
+				b.hold_time = min(new_hold_time, GameConstants.BARRACKS_MAX_HOLD_TIME)
 				b.levels["HOLD"] += 1
 				hero["coins"] -= cost
 				_track_coin_spent(cost)
 		11:  # Tempo Hold com esmeraldas
 			var emerald_cost = get_tower_upgrade_emerald_cost("HOLD", hold_level)
-			if currency_info.emeralds >= emerald_cost:
+			if currency_info.emeralds >= emerald_cost and b.hold_time < GameConstants.BARRACKS_MAX_HOLD_TIME:
 				special_currency_manager.spend_emeralds(emerald_cost)
-				b.hold_time += GameConstants.BARRACKS_HOLD_TIME_INCREASE
+				var new_hold_time = b.hold_time + GameConstants.BARRACKS_HOLD_TIME_INCREASE
+				b.hold_time = min(new_hold_time, GameConstants.BARRACKS_MAX_HOLD_TIME)
 				b.levels["HOLD"] += 1
 				_update_special_currency_labels()
 		3:  # Spawn Rate com moedas
@@ -5456,6 +5750,224 @@ func _actually_reopen_aoe_menu(menu_pos: Vector2) -> void:
 	# Reabrir o menu na mesma posição
 	_open_aoe_menu(aoe_selected_index, menu_pos)
 	keep_aoe_menu_open = false
+
+func _open_anti_air_menu(idx: int, screen_pos: Vector2) -> void:
+	if anti_air_menu == null:
+		return
+	anti_air_selected_index = idx
+	var aa = anti_air_towers[idx]
+	_show_range_indicator(aa.pos, aa.range, Color(0.2, 0.6, 0.9, 0.65))
+	
+	# Calcular custos progressivos
+	var dmg_level = aa.levels.get("DMG", 0)
+	var rate_level = aa.levels.get("RATE", 0)
+	var range_level = aa.levels.get("RANGE", 0)
+	var missile_count_level = aa.levels.get("MISSILE_COUNT", 0)
+	var explosion_level = aa.levels.get("EXPLOSION", 0)
+	var chain_level = aa.levels.get("CHAIN", 0)
+	
+	var dmg_cost = get_upgrade_cost(GameConstants.ANTI_AIR_DMG_COST, dmg_level)
+	var rate_cost = get_upgrade_cost(GameConstants.ANTI_AIR_RATE_COST, rate_level)
+	var range_cost = get_upgrade_cost(GameConstants.ANTI_AIR_RANGE_COST, range_level)
+	var missile_cost = get_upgrade_cost(GameConstants.ANTI_AIR_MISSILE_COUNT_COST, missile_count_level)
+	var explosion_cost = get_upgrade_cost(GameConstants.ANTI_AIR_EXPLOSION_COST, explosion_level)
+	var chain_cost = get_upgrade_cost(GameConstants.ANTI_AIR_CHAIN_COST, chain_level)
+	
+	# Custos em esmeraldas (escalados)
+	var dmg_emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+	var rate_emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+	var range_emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+	var missile_emerald_cost = get_tower_upgrade_emerald_cost("MISSILE_COUNT", missile_count_level)
+	var explosion_emerald_cost = get_tower_upgrade_emerald_cost("EXPLOSION", explosion_level)
+	var chain_emerald_cost = get_tower_upgrade_emerald_cost("CHAIN", chain_level)
+	
+	# Verificar se tem esmeraldas suficientes
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
+	var can_dmg: bool = hero["coins"] >= dmg_cost
+	var anti_air_max_range = GameConstants.ANTI_AIR_MAX_RANGE
+	var can_rate: bool = hero["coins"] >= rate_cost and aa.fire_rate > GameConstants.ANTI_AIR_MIN_FIRE_RATE
+	var can_range: bool = hero["coins"] >= range_cost and aa.range < anti_air_max_range
+	var can_missile: bool = hero["coins"] >= missile_cost and aa.get("missile_count", 3) < 4
+	var can_explosion: bool = hero["coins"] >= explosion_cost and explosion_level == 0
+	var can_chain: bool = hero["coins"] >= chain_cost and aa.get("chain_targets", 1) < 3
+	
+	var can_dmg_emerald: bool = currency_info.emeralds >= dmg_emerald_cost
+	var can_rate_emerald: bool = currency_info.emeralds >= rate_emerald_cost and aa.fire_rate > GameConstants.ANTI_AIR_MIN_FIRE_RATE
+	var can_range_emerald: bool = currency_info.emeralds >= range_emerald_cost and aa.range < anti_air_max_range
+	var can_missile_emerald: bool = currency_info.emeralds >= missile_emerald_cost and aa.get("missile_count", 3) < 4
+	var can_explosion_emerald: bool = currency_info.emeralds >= explosion_emerald_cost and explosion_level == 0
+	var can_chain_emerald: bool = currency_info.emeralds >= chain_emerald_cost and aa.get("chain_targets", 1) < 3
+	
+	anti_air_menu.set_item_text(0, "Dano +1.5 (💰 %d moedas) [%.1f]" % [dmg_cost, aa.damage])
+	anti_air_menu.set_item_text(1, "Dano +1.5 (🟢 %d esmeraldas) [%.1f]" % [dmg_emerald_cost, aa.damage])
+	anti_air_menu.set_item_text(3, "Taxa de Tiro + (💰 %d moedas) [%.1fs]" % [rate_cost, aa.fire_rate])
+	anti_air_menu.set_item_text(4, "Taxa de Tiro + (🟢 %d esmeraldas) [%.1fs]" % [rate_emerald_cost, aa.fire_rate])
+	anti_air_menu.set_item_text(6, "Alcance +10%% (💰 %d moedas) [%.0f]" % [range_cost, aa.range])
+	anti_air_menu.set_item_text(7, "Alcance +10%% (🟢 %d esmeraldas) [%.0f]" % [range_emerald_cost, aa.range])
+	anti_air_menu.set_item_text(9, "Mísseis +1 (💰 %d moedas) [%d]" % [missile_cost, aa.get("missile_count", 3)])
+	anti_air_menu.set_item_text(10, "Mísseis +1 (🟢 %d esmeraldas) [%d]" % [missile_emerald_cost, aa.get("missile_count", 3)])
+	anti_air_menu.set_item_text(12, "Explosão em Área (💰 %d moedas)" % explosion_cost + (" ✓" if explosion_level > 0 else ""))
+	anti_air_menu.set_item_text(13, "Explosão em Área (🟢 %d esmeraldas)" % explosion_emerald_cost + (" ✓" if explosion_level > 0 else ""))
+	anti_air_menu.set_item_text(15, "Corrente de Alvos +1 (💰 %d moedas) [%d]" % [chain_cost, aa.get("chain_targets", 1)])
+	anti_air_menu.set_item_text(16, "Corrente de Alvos +1 (🟢 %d esmeraldas) [%d]" % [chain_emerald_cost, aa.get("chain_targets", 1)])
+	
+	anti_air_menu.set_item_disabled(0, not can_dmg)
+	anti_air_menu.set_item_disabled(1, not can_dmg_emerald)
+	anti_air_menu.set_item_disabled(3, not can_rate)
+	anti_air_menu.set_item_disabled(4, not can_rate_emerald)
+	anti_air_menu.set_item_disabled(6, not can_range)
+	anti_air_menu.set_item_disabled(7, not can_range_emerald)
+	anti_air_menu.set_item_disabled(9, not can_missile)
+	anti_air_menu.set_item_disabled(10, not can_missile_emerald)
+	anti_air_menu.set_item_disabled(12, not can_explosion)
+	anti_air_menu.set_item_disabled(13, not can_explosion_emerald)
+	anti_air_menu.set_item_disabled(15, not can_chain)
+	anti_air_menu.set_item_disabled(16, not can_chain_emerald)
+	
+	anti_air_menu.position = screen_pos
+	anti_air_menu.popup()
+
+func _on_anti_air_menu_pressed(id: int) -> void:
+	if anti_air_selected_index < 0 or anti_air_selected_index >= anti_air_towers.size():
+		return
+	var aa = anti_air_towers[anti_air_selected_index]
+	var dmg_level = aa.levels.get("DMG", 0)
+	var rate_level = aa.levels.get("RATE", 0)
+	var range_level = aa.levels.get("RANGE", 0)
+	var missile_count_level = aa.levels.get("MISSILE_COUNT", 0)
+	var explosion_level = aa.levels.get("EXPLOSION", 0)
+	var chain_level = aa.levels.get("CHAIN", 0)
+	
+	# Verificar esmeraldas disponíveis
+	var currency_info = special_currency_manager.get_currency_info() if special_currency_manager else {"emeralds": 0}
+	
+	match id:
+		1:  # Dano com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_DMG_COST, dmg_level)
+			if hero["coins"] >= cost:
+				aa.damage += 1.5
+				aa.levels["DMG"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		10:  # Dano com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("DMG", dmg_level)
+			if currency_info.emeralds >= emerald_cost:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa.damage += 1.5
+				aa.levels["DMG"] += 1
+				_update_special_currency_labels()
+		2:  # Taxa de Tiro com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_RATE_COST, rate_level)
+			if hero["coins"] >= cost and aa.fire_rate > GameConstants.ANTI_AIR_MIN_FIRE_RATE:
+				aa.fire_rate = max(GameConstants.ANTI_AIR_MIN_FIRE_RATE, aa.fire_rate - GameConstants.ANTI_AIR_FIRE_RATE_REDUCTION)
+				aa.levels["RATE"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		11:  # Taxa de Tiro com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RATE", rate_level)
+			if currency_info.emeralds >= emerald_cost and aa.fire_rate > GameConstants.ANTI_AIR_MIN_FIRE_RATE:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa.fire_rate = max(GameConstants.ANTI_AIR_MIN_FIRE_RATE, aa.fire_rate - GameConstants.ANTI_AIR_FIRE_RATE_REDUCTION)
+				aa.levels["RATE"] += 1
+				_update_special_currency_labels()
+		3:  # Alcance com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_RANGE_COST, range_level)
+			var anti_air_max_range = GameConstants.ANTI_AIR_MAX_RANGE
+			if hero["coins"] >= cost and aa.range < anti_air_max_range:
+				aa.base_range *= 1.1
+				aa.range = min(aa.base_range * global_tower_range_boost, anti_air_max_range)
+				aa.levels["RANGE"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		12:  # Alcance com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("RANGE", range_level)
+			var anti_air_max_range = GameConstants.ANTI_AIR_MAX_RANGE
+			if currency_info.emeralds >= emerald_cost and aa.range < anti_air_max_range:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa.base_range *= 1.1
+				aa.range = min(aa.base_range * global_tower_range_boost, anti_air_max_range)
+				aa.levels["RANGE"] += 1
+				_update_special_currency_labels()
+		4:  # Mísseis +1 com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_MISSILE_COUNT_COST, missile_count_level)
+			if hero["coins"] >= cost and aa.get("missile_count", 3) < 4:
+				aa["missile_count"] = aa.get("missile_count", 3) + 1
+				aa.levels["MISSILE_COUNT"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		13:  # Mísseis +1 com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("MISSILE_COUNT", missile_count_level)
+			if currency_info.emeralds >= emerald_cost and aa.get("missile_count", 3) < 4:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa["missile_count"] = aa.get("missile_count", 3) + 1
+				aa.levels["MISSILE_COUNT"] += 1
+				_update_special_currency_labels()
+		5:  # Explosão em Área com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_EXPLOSION_COST, explosion_level)
+			if hero["coins"] >= cost and explosion_level == 0:
+				aa["explosion_radius"] = 30.0
+				aa.levels["EXPLOSION"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		14:  # Explosão em Área com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("EXPLOSION", explosion_level)
+			if currency_info.emeralds >= emerald_cost and explosion_level == 0:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa["explosion_radius"] = 30.0
+				aa.levels["EXPLOSION"] += 1
+				_update_special_currency_labels()
+		6:  # Corrente de Alvos +1 com moedas
+			var cost = get_upgrade_cost(GameConstants.ANTI_AIR_CHAIN_COST, chain_level)
+			if hero["coins"] >= cost and aa.get("chain_targets", 1) < 3:
+				aa["chain_targets"] = aa.get("chain_targets", 1) + 1
+				aa.levels["CHAIN"] += 1
+				hero["coins"] -= cost
+				_track_coin_spent(cost)
+		15:  # Corrente de Alvos +1 com esmeraldas
+			var emerald_cost = get_tower_upgrade_emerald_cost("CHAIN", chain_level)
+			if currency_info.emeralds >= emerald_cost and aa.get("chain_targets", 1) < 3:
+				special_currency_manager.spend_emeralds(emerald_cost)
+				aa["chain_targets"] = aa.get("chain_targets", 1) + 1
+				aa.levels["CHAIN"] += 1
+				_update_special_currency_labels()
+	anti_air_towers[anti_air_selected_index] = aa
+	
+	# Guardar a posição do menu antes que ele feche para reabri-lo
+	var saved_menu_pos = anti_air_menu.position if anti_air_menu else Vector2.ZERO
+	
+	# Reabrir o menu imediatamente após o upgrade com valores atualizados
+	keep_anti_air_menu_open = true
+	_reopen_anti_air_menu_immediately(saved_menu_pos)
+
+func _reopen_anti_air_menu_immediately(menu_pos: Vector2) -> void:
+	"""Reabre o menu de anti-air na mesma posição após um upgrade"""
+	if not keep_anti_air_menu_open:
+		return
+	if anti_air_selected_index < 0 or anti_air_selected_index >= anti_air_towers.size():
+		keep_anti_air_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_anti_air_menu_open = false
+		return
+	
+	# Usar call_deferred para garantir que o menu tenha fechado primeiro
+	call_deferred("_actually_reopen_anti_air_menu", menu_pos)
+
+func _actually_reopen_anti_air_menu(menu_pos: Vector2) -> void:
+	"""Reabre efetivamente o menu anti-air após o fechamento"""
+	if not keep_anti_air_menu_open:
+		return
+	if anti_air_selected_index < 0 or anti_air_selected_index >= anti_air_towers.size():
+		keep_anti_air_menu_open = false
+		return
+	if choosing_upgrade or game_over:
+		keep_anti_air_menu_open = false
+		return
+	
+	# Reabrir o menu na mesma posição
+	_open_anti_air_menu(anti_air_selected_index, menu_pos)
+	keep_anti_air_menu_open = false
 
 func _open_shock_menu(idx: int, screen_pos: Vector2) -> void:
 	if shock_menu == null:
@@ -6226,7 +6738,7 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 		"grid_y": grid_coord.y,
 		"range": sniper_base_range * global_tower_range_boost,
 		"base_range": sniper_base_range,
-		"damage": 8.0,  # Aumentado de 5.0 para 8.0
+		"damage": 3.0,  # Dano base balanceado (3 mísseis = 9.0 total por tiro)
 		"cooldown": 0.0,
 		"fire_rate": 8.0,  # Reduzido de 15.0 para 8.0 para melhor correlação com dano e outras torres
 		"pierce": 1,
@@ -6237,6 +6749,65 @@ func _try_place_sniper_tower(pos: Vector2) -> void:
 	_track_coin_spent(sniper_cost)
 	_track_tower_built("sniper_tower")
 	placing_sniper_tower = false
+
+func _on_buy_anti_air_tower() -> void:
+	if placing_anti_air_tower:
+		return
+	var anti_air_cost_check = get_tower_cost(GameConstants.ANTI_AIR_TOWER_COST)
+	if hero["coins"] < anti_air_cost_check:
+		return
+	if anti_air_towers.size() >= GameConstants.MAX_ANTI_AIR_TOWERS:
+		return
+	placing_anti_air_tower = true
+	placing_tower = false
+	placing_barracks = false
+	placing_mine = false
+	placing_slow_tower = false
+	placing_aoe_tower = false
+	placing_sniper_tower = false
+	placing_boost_tower = false
+	placing_shock_tower = false
+	placing_wall = false
+	placing_healing_station = false
+
+func _try_place_anti_air_tower(pos: Vector2) -> void:
+	var anti_air_cost = get_tower_cost(GameConstants.ANTI_AIR_TOWER_COST)
+	if hero["coins"] < anti_air_cost:
+		placing_anti_air_tower = false
+		return
+	if anti_air_towers.size() >= GameConstants.MAX_ANTI_AIR_TOWERS:
+		placing_anti_air_tower = false
+		return
+	if not grid_manager.is_inside_base_point(pos):
+		placing_anti_air_tower = false
+		return
+	var grid_coord = grid_manager.world_to_base_grid(pos)
+	if not grid_manager.can_place_in_grid(grid_coord.x, grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12):
+		placing_anti_air_tower = false
+		return
+	grid_manager.set_grid_area(grid_coord.x, grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12)
+	pathfinder.invalidate_cache()
+	var tower_world_pos = grid_manager.base_grid_to_world(grid_coord.x, grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID)
+	var anti_air_base_range = 250.0
+	var anti_air_max_range = GameConstants.ANTI_AIR_MAX_RANGE
+	anti_air_towers.append({
+		"pos": tower_world_pos,
+		"grid_x": grid_coord.x,
+		"grid_y": grid_coord.y,
+		"range": anti_air_base_range * global_tower_range_boost,
+		"base_range": anti_air_base_range,
+		"damage": 3.0,
+		"cooldown": 0.0,
+		"fire_rate": 2.5,
+		"missile_count": 3,
+		"explosion_radius": 0.0,
+		"chain_targets": 1,
+		"levels": { "DMG": 0, "RATE": 0, "RANGE": 0, "MISSILE_COUNT": 0, "EXPLOSION": 0, "CHAIN": 0 }
+	})
+	hero["coins"] -= anti_air_cost
+	_track_coin_spent(anti_air_cost)
+	_track_tower_built("anti_air_tower")
+	placing_anti_air_tower = false
 
 func _on_buy_boost_tower() -> void:
 	if placing_boost_tower:
@@ -6500,7 +7071,7 @@ func _try_move_mine(mine_idx: int, new_pos: Vector2) -> bool:
 		_register_mine_tile(old_tile)
 		return false
 	
-	# Atualizar posição da mina
+	# Atualizar posição da mina - usar tile_center para garantir snap correto
 	var new_world_pos = grid_manager.tile_center(new_tile.x, new_tile.y)
 	mine.pos = new_world_pos
 	mine.grid_x = new_tile.x
@@ -6732,6 +7303,38 @@ func _try_move_shock_tower(tower_idx: int, new_pos: Vector2) -> bool:
 	var new_grid_coord = grid_manager.world_to_base_grid(new_pos)
 	return _try_move_shock_tower_to_grid(tower_idx, new_grid_coord)
 
+func _try_move_anti_air_tower_to_grid(tower_idx: int, new_grid_coord: Vector2i) -> bool:
+	if tower_idx < 0 or tower_idx >= anti_air_towers.size():
+		return false
+	
+	var tower = anti_air_towers[tower_idx]
+	
+	if new_grid_coord.x == tower.grid_x and new_grid_coord.y == tower.grid_y:
+		return true
+	
+	var ignore_area = Rect2i(tower.grid_x, tower.grid_y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, GameConstants.ANTI_AIR_TOWER_SIZE_GRID)
+	
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12, ignore_area):
+		return false
+	
+	grid_manager.clear_grid_area(tower.grid_x, tower.grid_y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID)
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.ANTI_AIR_TOWER_SIZE_GRID)
+	tower.pos = new_world_pos
+	tower.grid_x = new_grid_coord.x
+	tower.grid_y = new_grid_coord.y
+	
+	anti_air_towers[tower_idx] = tower
+	return true
+
+func _try_move_anti_air_tower(anti_air_idx: int, new_pos: Vector2) -> bool:
+	if anti_air_idx < 0 or anti_air_idx >= anti_air_towers.size():
+		return false
+	var grid_coord = grid_manager.world_to_base_grid(new_pos)
+	return _try_move_anti_air_tower_to_grid(anti_air_idx, grid_coord)
+
 func _try_move_barracks_to_grid(barracks_idx: int, new_grid_coord: Vector2i) -> bool:
 	if barracks_idx < 0 or barracks_idx >= barracks.size():
 		return false
@@ -6776,12 +7379,13 @@ func _try_move_market_to_grid(market_idx: int, new_grid_coord: Vector2i) -> bool
 		return true
 	
 	var ignore_area = Rect2i(m.grid_x, m.grid_y, GameConstants.MARKET_SIZE_GRID, GameConstants.MARKET_SIZE_GRID)
+	var market_item_type: int = 11
 	
-	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11, ignore_area):
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, market_item_type, ignore_area):
 		return false
 	
 	grid_manager.clear_grid_area(m.grid_x, m.grid_y, GameConstants.MARKET_SIZE_GRID)
-	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, 11)
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID, market_item_type)
 	pathfinder.invalidate_cache()
 	
 	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.MARKET_SIZE_GRID)
@@ -6790,6 +7394,33 @@ func _try_move_market_to_grid(market_idx: int, new_grid_coord: Vector2i) -> bool
 	m.grid_y = new_grid_coord.y
 	
 	markets[market_idx] = m
+	return true
+
+func _try_move_healing_station_to_grid(station_idx: int, new_grid_coord: Vector2i) -> bool:
+	if station_idx < 0 or station_idx >= healing_stations.size():
+		return false
+	
+	var hs = healing_stations[station_idx]
+	
+	if new_grid_coord.x == hs.grid_x and new_grid_coord.y == hs.grid_y:
+		return true
+	
+	var ignore_area = Rect2i(hs.grid_x, hs.grid_y, GameConstants.HEALING_STATION_SIZE_GRID, GameConstants.HEALING_STATION_SIZE_GRID)
+	var station_item_type: int = 10
+	
+	if not grid_manager.can_place_in_grid(new_grid_coord.x, new_grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID, station_item_type, ignore_area):
+		return false
+	
+	grid_manager.clear_grid_area(hs.grid_x, hs.grid_y, GameConstants.HEALING_STATION_SIZE_GRID)
+	grid_manager.set_grid_area(new_grid_coord.x, new_grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID, station_item_type)
+	pathfinder.invalidate_cache()
+	
+	var new_world_pos = grid_manager.base_grid_to_world(new_grid_coord.x, new_grid_coord.y, GameConstants.HEALING_STATION_SIZE_GRID)
+	hs.pos = new_world_pos
+	hs.grid_x = new_grid_coord.x
+	hs.grid_y = new_grid_coord.y
+	
+	healing_stations[station_idx] = hs
 	return true
 
 func _on_buy_healing_station() -> void:
@@ -6918,7 +7549,7 @@ func _open_market_menu(idx: int, screen_pos: Vector2) -> void:
 	
 	market_menu.add_separator()
 	
-	market_menu.add_item("+1 Vida Extra (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_EXTRA_LIFE)
+	market_menu.add_item("+5 HP Máximo (🟢 %d esmeraldas)" % GameConstants.MARKET_ITEM_EXTRA_LIFE)
 	market_menu.set_item_disabled(3, currency_info.emeralds < GameConstants.MARKET_ITEM_EXTRA_LIFE)
 	
 	market_menu.add_separator()
@@ -6955,6 +7586,19 @@ func _on_market_menu_selected(id: int) -> void:
 		0:  # Cura Completa
 			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HEAL_FULL and heal_full_uses_remaining > 0:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_HEAL_FULL)
+				# Garantir que base_hp_max está correto antes de curar
+				# Se base_hp atual é maior que base_hp_max, atualizar base_hp_max
+				# Isso garante que não perdemos HP máximo ganho de outras fontes
+				if base_hp > base_hp_max:
+					base_hp_max = base_hp
+				# Também verificar se hero_manager tem um valor maior
+				if hero_manager and hero_manager.base_hp > base_hp_max:
+					# Calcular a diferença (bônus de mercado) e preservá-la
+					var market_bonus = base_hp_max - base_hp_base
+					if market_bonus < 0:
+						market_bonus = 0
+					base_hp_max = hero_manager.base_hp + market_bonus
+				# Agora curar para o máximo
 				base_hp = base_hp_max
 				heal_full_uses_remaining -= 1
 				if notification_manager:
@@ -6976,10 +7620,10 @@ func _on_market_menu_selected(id: int) -> void:
 		3:  # Vida Extra
 			if currency_info.emeralds >= GameConstants.MARKET_ITEM_EXTRA_LIFE:
 				special_currency_manager.spend_emeralds(GameConstants.MARKET_ITEM_EXTRA_LIFE)
-				base_hp_max += 50
-				base_hp += 50
+				base_hp_max += 5
+				base_hp += 5
 				if notification_manager:
-					notification_manager.show_notification("+50 HP Máximo!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
+					notification_manager.show_notification("+5 HP Máximo!", 3.0, NotificationManager.NotificationPosition.TOP_CENTER, Color(0.2, 0.8, 0.3))
 		7:  # Upgrade Velocidade de Tiro do Herói (ID real considerando separadores)
 			print("Tentando comprar upgrade de velocidade de tiro. Esmeraldas: ", currency_info.emeralds, ", Custo: ", GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE, ", Já comprado: ", hero_firerate_upgrade)
 			if currency_info.emeralds >= GameConstants.MARKET_ITEM_HERO_FIRERATE_UPGRADE and not hero_firerate_upgrade:
@@ -7099,6 +7743,7 @@ func _physics_process(delta: float) -> void:
 		_update_slow_towers(delta)
 		_update_aoe_towers(delta)
 		_update_sniper_towers(delta)
+		_update_anti_air_towers(delta)
 		_update_shock_towers(delta)
 		_update_boost_towers(delta)
 		_update_walls(delta)
@@ -7554,6 +8199,188 @@ func _update_sniper_towers(delta: float) -> void:
 				# se não encontrou alvo, manter cooldown em 0 para tentar novamente no próximo frame
 				sniper.cooldown = 0.0
 
+func _update_anti_air_towers(delta: float) -> void:
+	if paused or game_over:
+		return
+	for anti_air in anti_air_towers:
+		# aplicar boost de rate de boost towers próximos
+		var anti_air_rate_multiplier = 1.0
+		for boost in boost_towers:
+			var dist = anti_air.pos.distance_to(boost.pos)
+			if dist <= boost.range:
+				anti_air_rate_multiplier += boost.rate_boost
+		
+		# aplicar skill de boost de velocidade
+		if skills_manager:
+			anti_air_rate_multiplier *= skills_manager.get_speed_multiplier()
+		
+		# Calcular effective_fire_rate respeitando o mínimo
+		var effective_fire_rate = anti_air.fire_rate / anti_air_rate_multiplier
+		effective_fire_rate = max(GameConstants.ANTI_AIR_MIN_FIRE_RATE, effective_fire_rate)
+		
+		anti_air.cooldown = max(0.0, anti_air.cooldown - delta * anti_air_rate_multiplier)
+		if anti_air.cooldown <= 0.0:
+			# Encontrar inimigo (SEMPRE prioriza aéreos, mesmo que mais distantes)
+			var closest_enemy = null
+			var effective_range = get_effective_tower_range(anti_air.range)
+			var closest_dist = effective_range + 1.0
+			var closest_ground_dist = effective_range + 1.0
+			var closest_ground_enemy = null
+			
+			# Procurar TODOS os inimigos, separando aéreos de terrestres
+			for e in enemies:
+				if e["hp"] <= 0 or e["reached"] or e.get("dying", false):
+					continue
+				
+				var enemy_type = e.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
+				var is_aerial = (enemy_type == EnemyConstants.EnemyType.ALIEN_VOADOR)
+				var dist = anti_air.pos.distance_to(e["pos"])
+				
+				if dist > effective_range:
+					continue
+				
+				# Priorizar aéreos: sempre escolher o aéreo mais próximo
+				if is_aerial:
+					if dist < closest_dist:
+						closest_dist = dist
+						closest_enemy = e
+				else:
+					# Guardar o terrestre mais próximo apenas se não houver aéreos
+					if dist < closest_ground_dist:
+						closest_ground_dist = dist
+						closest_ground_enemy = e
+			
+			# Se não encontrou aéreo, usar o terrestre mais próximo
+			if closest_enemy == null:
+				closest_enemy = closest_ground_enemy
+				closest_dist = closest_ground_dist
+			
+			if closest_enemy != null:
+				# Disparar míssil(s)
+				var missiles_to_fire = anti_air.get("missile_count", 3)
+				
+				# Verificar se é inimigo aéreo para aplicar dano reduzido em não-voadores
+				var enemy_type = closest_enemy.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
+				var is_aerial = (enemy_type == EnemyConstants.EnemyType.ALIEN_VOADOR)
+				
+				# aplicar bônus globais de dano
+				var anti_air_damage = anti_air.damage * global_tower_damage_boost
+				
+				# Aplicar redução de 40% para inimigos não-voadores
+				if not is_aerial:
+					anti_air_damage *= 0.6  # 40% menos dano = 60% do dano original
+				
+				# aplicar boost de dano de boost towers próximos
+				var damage_multiplier = 1.0
+				for boost in boost_towers:
+					var dist = anti_air.pos.distance_to(boost.pos)
+					if dist <= boost.range:
+						damage_multiplier += boost.damage_boost
+				anti_air_damage *= damage_multiplier
+				
+				# aplicar skill de boost de dano
+				if skills_manager:
+					anti_air_damage *= skills_manager.get_damage_multiplier()
+				
+				# Aplicar multiplicador de clima
+				anti_air_damage = get_effective_tower_damage(anti_air_damage)
+				
+				# Rastrear DPS da anti-air tower
+				var anti_air_id = _get_tower_id(anti_air, "anti_air")
+				if not tower_dps_data.has(anti_air_id):
+					tower_dps_data[anti_air_id] = {
+						"dps": 0.0,
+						"damage_dealt": 0.0,
+						"shots": 0,
+						"wave_damage": {},
+						"tower_type": "anti_air",
+						"pos": anti_air.pos
+					}
+				tower_dps_data[anti_air_id]["shots"] += missiles_to_fire
+				
+				# Disparar múltiplos mísseis se necessário
+				for i in range(missiles_to_fire):
+					var target = closest_enemy
+					# Se há múltiplos mísseis, encontrar alvos diferentes (prioriza voadores)
+					if missiles_to_fire > 1 and i > 0:
+						# Procurar outro inimigo próximo (SEMPRE prioriza aéreos)
+						var next_target = null
+						var next_dist = effective_range + 1.0
+						var next_ground_dist = effective_range + 1.0
+						var next_ground_target = null
+						
+						# Procurar TODOS os inimigos, separando aéreos de terrestres
+						for e in enemies:
+							# Ignorar alvos já selecionados
+							var already_targeted = false
+							for j in range(i):
+								# Verificar se este inimigo já foi alvo de um míssil anterior
+								# (simplificado: apenas verificar se é o closest_enemy)
+								if e == closest_enemy:
+									already_targeted = true
+									break
+							if already_targeted or e["hp"] <= 0 or e["reached"] or e.get("dying", false):
+								continue
+							
+							var e_type = e.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
+							var e_is_aerial = (e_type == EnemyConstants.EnemyType.ALIEN_VOADOR)
+							var dist = anti_air.pos.distance_to(e["pos"])
+							
+							if dist > effective_range:
+								continue
+							
+							# Priorizar aéreos: sempre escolher o aéreo mais próximo
+							if e_is_aerial:
+								if dist < next_dist:
+									next_dist = dist
+									next_target = e
+							else:
+								# Guardar o terrestre mais próximo apenas se não houver aéreos
+								if dist < next_ground_dist:
+									next_ground_dist = dist
+									next_ground_target = e
+						
+						# Se não encontrou aéreo, usar o terrestre mais próximo
+						if next_target == null:
+							next_target = next_ground_target
+							next_dist = next_ground_dist
+						
+						if next_target != null:
+							target = next_target
+					
+					# Calcular dano específico para este alvo (não modificar anti_air_damage base)
+					var target_enemy_type = target.get("enemy_type", EnemyConstants.EnemyType.ZOMBIE)
+					var target_is_aerial = (target_enemy_type == EnemyConstants.EnemyType.ALIEN_VOADOR)
+					var final_damage = anti_air_damage
+					if not target_is_aerial:
+						# Reduzir dano em 40% para não-voadores (60% do dano original)
+						final_damage = anti_air_damage * 0.6
+					
+					# Criar projétil de míssil
+					var missile_speed = 300.0
+					var max_life = 10.0  # Tempo máximo de vida do míssil (segundos)
+					tower_bullets.append({
+						"pos": anti_air.pos,
+						"target": target,
+						"target_pos": target["pos"],
+						"speed": missile_speed,
+						"damage": final_damage,
+						"explosion_radius": anti_air.get("explosion_radius", 0.0),
+						"chain_targets": anti_air.get("chain_targets", 1),
+						"chain_count": 0,
+						"is_missile": true,
+						"anti_air_tower": anti_air,
+						"tower_id": anti_air_id,
+						"life": max_life,
+						"radius": 5.0  # Raio de colisão do míssil
+					})
+				
+				# resetar cooldown apenas se encontrou alvo (usar effective_fire_rate)
+				anti_air.cooldown = effective_fire_rate
+			else:
+				# se não encontrou alvo, manter cooldown em 0 para tentar novamente no próximo frame
+				anti_air.cooldown = 0.0
+
 func _update_boost_towers(_delta: float) -> void:
 	# boost towers não precisam de atualização - o efeito é aplicado quando torres atiram
 	pass
@@ -7570,6 +8397,7 @@ func _check_tower_combos() -> void:
 		sniper_towers,
 		shock_towers,
 		boost_towers,
+		anti_air_towers,
 		barracks,
 		healing_stations,
 		walls
@@ -8225,17 +9053,28 @@ func _rebuild_base_grid_from_structures() -> void:
 	_occupy_structures_in_grid(slow_towers, GameConstants.SLOW_TOWER_SIZE_GRID, 5)
 	_occupy_structures_in_grid(aoe_towers, GameConstants.AOE_TOWER_SIZE_GRID, 6)
 	_occupy_structures_in_grid(sniper_towers, GameConstants.SNIPER_TOWER_SIZE_GRID, 7)
+	_occupy_structures_in_grid(anti_air_towers, GameConstants.ANTI_AIR_TOWER_SIZE_GRID, 12)
 	_occupy_structures_in_grid(boost_towers, GameConstants.BOOST_TOWER_SIZE_GRID, 8)
 	_occupy_structures_in_grid(shock_towers, GameConstants.SHOCK_TOWER_SIZE_GRID, 9)
 	_occupy_structures_in_grid(walls, GameConstants.WALL_SIZE_GRID, 9)
 	_occupy_structures_in_grid(healing_stations, GameConstants.HEALING_STATION_SIZE_GRID, 10)
+	_occupy_structures_in_grid(markets, GameConstants.MARKET_SIZE_GRID, 11)
 
 func _occupy_structures_in_grid(structures: Array, size: int, item_type: int) -> void:
 	for data in structures:
+		var gx: int
+		var gy: int
+		# Suportar tanto Dictionary quanto objetos Market
 		if data is Dictionary and data.has("grid_x") and data.has("grid_y"):
-			var gx = int(data["grid_x"])
-			var gy = int(data["grid_y"])
-			grid_manager.set_grid_area(gx, gy, size, item_type)
+			gx = int(data["grid_x"])
+			gy = int(data["grid_y"])
+		elif data.has_method("get") or (data.has("grid_x") and data.has("grid_y")):
+			# Objeto Market ou similar
+			gx = int(data.grid_x)
+			gy = int(data.grid_y)
+		else:
+			continue
+		grid_manager.set_grid_area(gx, gy, size, item_type)
 
 func _reset_build_and_selection_state() -> void:
 	placing_tower = false
@@ -8402,6 +9241,9 @@ func _try_drop_talisman(pos: Vector2) -> void:
 	
 	# Verificar chance de drop
 	var drop_chance = GameConstants.TALISMAN_DROP_CHANCE
+	# Aplicar bônus de perk de chance de drop de talismãs
+	if perk_effects.has("talisman_drop"):
+		drop_chance *= (1.0 + perk_effects["talisman_drop"])
 	if randf() < drop_chance:
 		# Determinar raridade (raridade aumenta conforme o valor do roll)
 		# Distribuição: Common (50%) > Uncommon (30%) > Rare (15%) > Epic (4%) > Legendary (1%)
@@ -8723,6 +9565,7 @@ func _create_tower_shop_ui() -> void:
 		{"name": "Torre de Congelamento", "cost": GameConstants.SLOW_TOWER_COST, "icon": tex_slow_tower, "func": "_on_buy_slow_tower", "max": GameConstants.MAX_SLOW_TOWERS, "array_name": "slow_towers"},
 		{"name": "Canhão", "cost": GameConstants.AOE_TOWER_COST, "icon": tex_aoe_tower, "func": "_on_buy_aoe_tower", "max": GameConstants.MAX_AOE_TOWERS, "array_name": "aoe_towers"},
 		{"name": "Torre Sniper", "cost": GameConstants.SNIPER_TOWER_COST, "icon": tex_sniper_tower, "func": "_on_buy_sniper_tower", "max": GameConstants.MAX_SNIPER_TOWERS, "array_name": "sniper_towers"},
+		{"name": "Torre Antiaérea", "cost": GameConstants.ANTI_AIR_TOWER_COST, "icon": tex_anti_air_tower, "func": "_on_buy_anti_air_tower", "max": GameConstants.MAX_ANTI_AIR_TOWERS, "array_name": "anti_air_towers"},
 		{"name": "Altar de Melhoria", "cost": GameConstants.BOOST_TOWER_COST, "icon": tex_boost_tower, "func": "_on_buy_boost_tower", "max": GameConstants.MAX_BOOST_TOWERS, "array_name": "boost_towers"},
 		{"name": "Torre de Choque", "cost": GameConstants.SHOCK_TOWER_COST, "icon": tex_shock_tower, "func": "_on_buy_shock_tower", "max": GameConstants.MAX_SHOCK_TOWERS, "array_name": "shock_towers"},
 		{"name": "Muralha", "cost": 100, "icon": tex_wall_structure, "func": "_on_buy_wall", "max": GameConstants.MAX_WALLS, "array_name": "walls"},  # Custo será atualizado dinamicamente por get_wall_cost()
@@ -9886,6 +10729,7 @@ func _is_any_upgrade_menu_visible() -> bool:
 		   (shock_menu and shock_menu.is_visible()) or \
 		   (slow_menu and slow_menu.is_visible()) or \
 		   (boost_menu and boost_menu.is_visible()) or \
+		   (anti_air_menu and anti_air_menu.is_visible()) or \
 		   (barracks_menu and barracks_menu.is_visible())
 
 func _show_range_indicator(world_pos: Vector2, radius: float, color: Color = Color(0.3, 0.7, 1.0, 0.65)) -> void:
@@ -10497,8 +11341,9 @@ func _apply_weather_effects() -> void:
 			var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
 			var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 			for i in range(150):  # Flocos de neve
+				# Iniciar partículas desde o topo (bar_height) até um pouco acima para garantir visibilidade
 				weather_snow_particles.append({
-					"pos": Vector2(randf() * map_width, bar_height + randf() * map_height),
+					"pos": Vector2(randf() * map_width, bar_height - 20.0 + randf() * (map_height + 40.0)),
 					"speed_y": 30.0 + randf() * 50.0,  # Velocidade vertical (lenta)
 					"speed_x": -10.0 + randf() * 20.0,  # Movimento horizontal (deriva)
 					"size": 2.0 + randf() * 4.0,  # Tamanho do floco
@@ -10507,6 +11352,23 @@ func _apply_weather_effects() -> void:
 				})
 	else:
 		weather_snow_particles.clear()
+	
+	# Inicializar partículas de vento
+	if weather_manager.is_windy():
+		if weather_wind_particles.is_empty():
+			# Criar partículas de vento apenas sobre o labirinto
+			var bar_height: float = 44.0
+			var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+			var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+			for i in range(80):  # Partículas de vento (linhas horizontais)
+				weather_wind_particles.append({
+					"pos": Vector2(randf() * map_width, bar_height + randf() * map_height),
+					"speed": 80.0 + randf() * 120.0,  # Velocidade horizontal
+					"length": 8.0 + randf() * 12.0,  # Comprimento da linha
+					"alpha": 0.3 + randf() * 0.4  # Opacidade variável
+				})
+	else:
+		weather_wind_particles.clear()
 
 func _update_weather_visuals(delta: float) -> void:
 	"""Atualiza efeitos visuais do clima"""
@@ -10537,9 +11399,14 @@ func _update_weather_visuals(delta: float) -> void:
 		for i in range(weather_clouds.size()):
 			var c = weather_clouds[i]
 			c.pos.x += c.speed * delta
-			# Reposicionar quando sair do labirinto
-			if c.pos.x > map_width:
+			# Garantir que nuvens ficam dentro do labirinto horizontalmente
+			if c.pos.x > map_width + c.size:
 				c.pos.x = -c.size
+				c.pos.y = bar_height + randf() * map_height
+			# Garantir que nuvens ficam dentro do labirinto verticalmente
+			if c.pos.y < bar_height - c.size:
+				c.pos.y = bar_height + randf() * map_height
+			elif c.pos.y > bar_height + map_height + c.size:
 				c.pos.y = bar_height + randf() * map_height
 	
 	# Atualizar partículas de neve (apenas sobre o labirinto)
@@ -10565,6 +11432,23 @@ func _update_weather_visuals(delta: float) -> void:
 				s.pos.x = map_width
 			elif s.pos.x > map_width:
 				s.pos.x = 0
+	
+	# Atualizar partículas de vento (apenas sobre o labirinto)
+	if weather_manager.is_windy():
+		var bar_height: float = 44.0
+		var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
+		var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
+		var labirinto_bottom = bar_height + map_height
+		for i in range(weather_wind_particles.size()):
+			var w = weather_wind_particles[i]
+			w.pos.x += w.speed * delta
+			# Reposicionar quando sair do labirinto
+			if w.pos.x > map_width + w.length:
+				w.pos.x = -w.length
+				w.pos.y = bar_height + randf() * map_height
+				w.alpha = 0.3 + randf() * 0.4  # Resetar opacidade
+	else:
+		weather_wind_particles.clear()
 
 func _draw_weather_effects() -> void:
 	"""Desenha efeitos visuais do clima (apenas sobre o labirinto)"""
@@ -10572,13 +11456,15 @@ func _draw_weather_effects() -> void:
 		return
 	
 	# Obter limites do labirinto
+	var bar_height: float = 44.0
 	var map_width := float(GameConstants.GRID_COLS * GameConstants.TILE_SIZE)
 	var map_height := float(GameConstants.GRID_ROWS * GameConstants.TILE_SIZE)
 	
 	# Função auxiliar para verificar se uma posição está dentro do labirinto
+	# Nota: posições y são relativas a bar_height, então precisamos verificar bar_height <= y <= bar_height + map_height
 	var is_inside_maze = func(pos: Vector2, margin: float = 0.0) -> bool:
 		return pos.x >= -margin and pos.x <= map_width + margin and \
-			   pos.y >= -margin and pos.y <= map_height + margin
+			   pos.y >= bar_height - margin and pos.y <= bar_height + map_height + margin
 	
 	# Desenhar partículas de chuva (mais visíveis) - apenas dentro do labirinto
 	if weather_manager.is_rainy():
@@ -10632,6 +11518,21 @@ func _draw_weather_effects() -> void:
 			draw_line(s.pos - dir1, s.pos + dir1, snow_color, 1.0)
 			draw_line(s.pos - dir2, s.pos + dir2, snow_color, 1.0)
 			draw_line(s.pos - dir3, s.pos + dir3, snow_color, 1.0)
+	
+	# Desenhar partículas de vento (linhas horizontais) - apenas dentro do labirinto
+	if weather_manager.is_windy():
+		for w in weather_wind_particles:
+			# Verificar se a partícula está dentro do labirinto
+			if not is_inside_maze.call(w.pos, w.length):
+				continue
+			var end_pos = w.pos + Vector2(w.length, 0)
+			# Verificar se o ponto final também está dentro
+			if not is_inside_maze.call(end_pos, w.length):
+				# Clamp o ponto final para dentro do labirinto
+				end_pos.x = clamp(end_pos.x, 0.0, map_width)
+			# Desenhar linha de vento (horizontal, levemente inclinada)
+			var wind_color = Color(0.7, 0.8, 0.9, w.alpha)
+			draw_line(w.pos, end_pos, wind_color, 1.0)
 
 # Função _toggle_music removida - agora o volume é controlado apenas pelo slider
 
@@ -10950,6 +11851,14 @@ func _apply_perk_effects() -> void:
 	var has_perk = effects.has("coin_magnetism") and effects["coin_magnetism"] > 0
 	if skills_manager:
 		skills_manager.set_coin_magnetism_perk(has_perk)
+	
+	# Aplicar bônus de chance de drop de talismãs
+	# (será aplicado quando talismãs forem dropados)
+	# Armazenado em perk_effects para uso posterior
+	
+	# Aplicar redução de escala de dificuldade das waves
+	# (será aplicado no WaveManager quando calcular wave_factor)
+	# Armazenado em perk_effects para uso posterior
 
 func _apply_talisman_bonuses() -> void:
 	"""Aplica bônus permanentes de talismãs equipados (sobre valores já modificados por prestígio e perks)"""
@@ -11031,6 +11940,15 @@ func _apply_range_boost_to_all_towers() -> void:
 			base_range = 400.0
 		sniper["base_range"] = base_range
 		sniper["range"] = base_range * global_tower_range_boost
+	
+	# Aplicar em anti-air towers
+	for anti_air in anti_air_towers:
+		var base_range = anti_air.get("base_range", 250.0)
+		if base_range == 0:
+			base_range = 250.0
+		anti_air["base_range"] = base_range
+		var anti_air_max_range = GameConstants.ANTI_AIR_MAX_RANGE
+		anti_air["range"] = min(base_range * global_tower_range_boost, anti_air_max_range)
 	
 	# Aplicar em boost towers
 	for boost in boost_towers:
@@ -11323,8 +12241,15 @@ func _show_wall_menu(wall_idx: int, _world_pos: Vector2) -> void:
 	wall_menu.set_item_disabled(0, not can_upgrade)
 	wall_menu.set_item_disabled(1, not can_repair)
 	
-	# Mostrar menu na posição do mouse
+	# Mostrar menu na posição do mouse (usar posição fixa para evitar mudanças)
 	var screen_pos = get_viewport().get_mouse_position()
+	# Se o menu já estava aberto, manter a posição anterior
+	if wall_menu.visible and wall_menu.has_meta("last_position"):
+		screen_pos = wall_menu.get_meta("last_position")
+	else:
+		# Guardar nova posição apenas se o menu não estava aberto
+		wall_menu.set_meta("last_position", screen_pos)
+	
 	wall_menu.position = screen_pos
 	wall_menu.popup()
 
@@ -11362,10 +12287,12 @@ func _on_wall_menu_pressed(id: int) -> void:
 				_track_coin_spent(repair_cost)
 				walls[wall_selected_index] = w
 	
-	# Reabrir menu com valores atualizados se necessário
-	keep_wall_menu_open = true
-	var screen_pos = get_viewport().get_mouse_position()
-	call_deferred("_show_wall_menu", wall_selected_index, screen_pos)
+	# Reabrir menu com valores atualizados se necessário (manter mesma posição)
+	if keep_wall_menu_open:
+		keep_wall_menu_open = false  # Resetar flag
+		# Usar a posição guardada no menu ao invés da posição atual do mouse
+		var saved_pos = wall_menu.get_meta("last_position", get_viewport().get_mouse_position())
+		call_deferred("_show_wall_menu", wall_selected_index, Vector2.ZERO)  # world_pos não é usado
 
 func _get_wall_tooltip(w: Dictionary) -> String:
 	var hp = w.get("hp", 0.0)
@@ -11662,13 +12589,19 @@ func _adjust_hud_to_screen_size() -> void:
 	
 	# Ajustar o HUD para ocupar toda a largura
 	var hud = $CanvasLayer/HUD
-	if hud:
-		hud.layout_mode = 1  # Layout com anchors
-		hud.set_anchors_preset(Control.PRESET_FULL_RECT)
-		hud.offset_left = 0.0
-		hud.offset_right = 0.0
-		hud.offset_top = 0.0
-		hud.offset_bottom = 0.0
+	if hud == null:
+		return
+	
+	# Forçar atualização do layout
+	hud.layout_mode = 1  # Layout com anchors
+	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hud.offset_left = 0.0
+	hud.offset_right = 0.0
+	hud.offset_top = 0.0
+	hud.offset_bottom = 0.0
+	# Forçar recalcular tamanho
+	hud.size = screen_size
+	hud.position = Vector2.ZERO
 	
 	# Ajustar BottomBar
 	var bottom_bar = $CanvasLayer/HUD.get_node_or_null("BottomBar")
@@ -11853,8 +12786,9 @@ func _update_bottom_bar() -> void:
 
 func _on_viewport_size_changed() -> void:
 	"""Chamado quando o tamanho da viewport muda (incluindo tela cheia)"""
-	_adjust_hud_to_screen_size()
-	_adjust_shop_and_skills_panels()
+	# Usar call_deferred para garantir que a viewport já atualizou completamente
+	call_deferred("_adjust_hud_to_screen_size")
+	call_deferred("_adjust_shop_and_skills_panels")
 	# Garantir que o label de vida esteja sempre visível após ajustes
 	var tb = $CanvasLayer/HUD/TopBar
 	if tb:
@@ -12157,6 +13091,40 @@ func _calculate_aoe_dps(aoe: Dictionary) -> float:
 		return damage / effective_fire_rate
 	return 0.0
 
+func _calculate_anti_air_dps(anti_air: Dictionary) -> float:
+	"""Calcula o DPS teórico de uma anti-air tower"""
+	var damage = anti_air.get("damage", 3.0)
+	var fire_rate = anti_air.get("fire_rate", 2.5)
+	var missile_count = anti_air.get("missile_count", 3)
+	
+	# Aplicar multiplicadores globais
+	damage *= global_tower_damage_boost
+	
+	# Aplicar boost de boost towers próximos
+	var damage_multiplier = 1.0
+	var rate_multiplier = 1.0
+	for boost in boost_towers:
+		var dist = anti_air.pos.distance_to(boost.pos)
+		if dist <= boost.range:
+			damage_multiplier += boost.damage_boost
+			rate_multiplier += boost.rate_boost
+	
+	# Aplicar skill de boost de dano
+	if skills_manager:
+		damage_multiplier *= skills_manager.get_damage_multiplier()
+	
+	# Aplicar skill de boost de velocidade
+	if skills_manager:
+		rate_multiplier *= skills_manager.get_speed_multiplier()
+	
+	damage *= damage_multiplier
+	var effective_fire_rate = fire_rate / rate_multiplier
+	
+	# DPS = (dano * número de mísseis) / fire_rate
+	if effective_fire_rate > 0:
+		return (damage * missile_count) / effective_fire_rate
+	return 0.0
+
 func _calculate_shock_dps(shock: Dictionary) -> float:
 	"""Calcula o DPS teórico de uma shock tower"""
 	var damage = shock.get("damage", GameConstants.TOWER_BASE_DAMAGE)
@@ -12304,6 +13272,8 @@ func _update_tower_dps(_delta: float) -> void:
 		valid_ids.append(_get_tower_id(aoe, "aoe"))
 	for shock in shock_towers:
 		valid_ids.append(_get_tower_id(shock, "shock"))
+	for anti_air in anti_air_towers:
+		valid_ids.append(_get_tower_id(anti_air, "anti_air"))
 	
 	var ids_to_remove = []
 	for tower_id in tower_dps_data.keys():
@@ -12497,6 +13467,21 @@ func _update_dps_menu() -> void:
 		tower_dps_data[tower_id]["tower_type"] = "shock"
 		tower_dps_data[tower_id]["pos"] = shock.pos
 	
+	for anti_air in anti_air_towers:
+		var tower_id = _get_tower_id(anti_air, "anti_air")
+		if not tower_dps_data.has(tower_id):
+			tower_dps_data[tower_id] = {
+				"dps": 0.0,
+				"damage_dealt": 0.0,
+				"shots": 0,
+				"wave_damage": {},
+				"tower_type": "anti_air",
+				"pos": anti_air.pos
+			}
+		tower_dps_data[tower_id]["dps"] = _calculate_anti_air_dps(anti_air)
+		tower_dps_data[tower_id]["tower_type"] = "anti_air"
+		tower_dps_data[tower_id]["pos"] = anti_air.pos
+	
 	# Atualizar DPS dos quartéis
 	for barracks_item in barracks:
 		var barracks_id = _get_tower_id(barracks_item, "barracks")
@@ -12520,6 +13505,7 @@ func _update_dps_menu() -> void:
 		"sniper": "Sniper",
 		"aoe": "AOE",
 		"shock": "Shock",
+		"anti_air": "Anti-Aérea",
 		"barracks": "Quartel"
 	}
 	
@@ -12552,7 +13538,7 @@ func _update_dps_menu() -> void:
 		grouped_towers[tower_type]["total_wave_damage"] += wave_damage
 	
 	# Criar lista ordenada por tipo (ordem fixa)
-	var type_order = ["tower", "sniper", "aoe", "shock", "barracks"]
+	var type_order = ["tower", "sniper", "aoe", "shock", "anti_air", "barracks"]
 	var sorted_groups = []
 	for tower_type in type_order:
 		if grouped_towers.has(tower_type):

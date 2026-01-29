@@ -173,3 +173,7 @@ func has_visibility_reduction() -> bool:
 func is_snowy() -> bool:
 	"""Retorna true se está nevando"""
 	return current_weather == WeatherType.SNOW
+
+func is_windy() -> bool:
+	"""Retorna true se está ventando"""
+	return current_weather == WeatherType.WIND or current_weather == WeatherType.STORM

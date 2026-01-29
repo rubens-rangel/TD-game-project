@@ -8,8 +8,8 @@ class_name EnemyConstants
 const ENEMY_BASE_SPEED := 38.0
 const ENEMY_MAX_SPEED := 210.0
 const BOSS_SPEED_MULTIPLIER := 0.5
-const ENEMY_BASE_HP := 4
-const BOSS_BASE_HP := 28
+const ENEMY_BASE_HP := 5  # Aumentado de 4 para 5
+const BOSS_BASE_HP := 35  # Aumentado de 28 para 35
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 

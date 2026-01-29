@@ -42,6 +42,7 @@ var aoe_towers: Array
 var sniper_towers: Array
 var boost_towers: Array
 var shock_towers: Array
+var anti_air_towers: Array
 var walls: Array
 var healing_stations: Array
 
@@ -63,6 +64,7 @@ func set_structure_arrays(
 	sniper_towers_arr: Array,
 	boost_towers_arr: Array,
 	shock_towers_arr: Array,
+	anti_air_towers_arr: Array,
 	walls_arr: Array,
 	healing_stations_arr: Array
 ) -> void:
@@ -74,6 +76,7 @@ func set_structure_arrays(
 	sniper_towers = sniper_towers_arr
 	boost_towers = boost_towers_arr
 	shock_towers = shock_towers_arr
+	anti_air_towers = anti_air_towers_arr
 	walls = walls_arr
 	healing_stations = healing_stations_arr
 

@@ -34,7 +34,7 @@ func _init():
 
 func check_tower_combos(towers: Array, slow_towers: Array, aoe_towers: Array, 
 						sniper_towers: Array, shock_towers: Array, boost_towers: Array,
-						barracks: Array, healing_stations: Array, walls: Array) -> void:
+						anti_air_towers: Array, barracks: Array, healing_stations: Array, walls: Array) -> void:
 	"""Verifica e atualiza todos os combos ativos baseado nas torres atuais"""
 	active_combos.clear()
 	

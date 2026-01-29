@@ -87,9 +87,9 @@ func update(delta: float) -> bool:
 	
 	spawn_cd -= delta
 	if spawn_cd <= 0.0:
-		# Boss Rush: spawnar apenas bosses
+		# Boss Rush: spawnar apenas bosses (mínimo 4)
 		if special_wave_type == SpecialWaveType.BOSS_RUSH:
-			if bosses_spawned_this_wave < 4:  # Mais bosses durante Boss Rush
+			if bosses_spawned_this_wave < 4:  # Garantir pelo menos 4 bosses
 				spawn_cd = spawn_rate
 				bosses_spawned_this_wave += 1
 				return true  # spawn boss

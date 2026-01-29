@@ -19,6 +19,7 @@ const AOE_TOWER_COST := 30
 const SNIPER_TOWER_COST := 70
 const BOOST_TOWER_COST := 100
 const SHOCK_TOWER_COST := 48
+const ANTI_AIR_TOWER_COST := 350
 const WALL_COST := 50
 const HEALING_STATION_COST := 50
 const MARKET_COST_EMERALDS := 5  # Custo em esmeraldas para comprar o mercado
@@ -46,6 +47,7 @@ const AOE_TOWER_SIZE_GRID := 3
 const SNIPER_TOWER_SIZE_GRID := 3
 const BOOST_TOWER_SIZE_GRID := 3
 const SHOCK_TOWER_SIZE_GRID := 3
+const ANTI_AIR_TOWER_SIZE_GRID := 3
 const WALL_SIZE_GRID := 1
 const HEALING_STATION_SIZE_GRID := 3
 const MARKET_SIZE_GRID := 3
@@ -59,6 +61,7 @@ const MAX_AOE_TOWERS := 2
 const MAX_SNIPER_TOWERS := 2
 const MAX_BOOST_TOWERS := 1
 const MAX_SHOCK_TOWERS := 4
+const MAX_ANTI_AIR_TOWERS := 2
 const MAX_WALLS := 4
 const MAX_HEALING_STATIONS := 2
 const MAX_MARKETS := 1
@@ -102,6 +105,14 @@ const SLOW_RATE_COST := 15
 # Boost tower upgrades
 const BOOST_DMG_COST := 50
 const BOOST_RATE_COST := 40
+
+# Anti-Air tower upgrades
+const ANTI_AIR_DMG_COST := 20
+const ANTI_AIR_RATE_COST := 20
+const ANTI_AIR_RANGE_COST := 30
+const ANTI_AIR_MISSILE_COUNT_COST := 180
+const ANTI_AIR_EXPLOSION_COST := 40
+const ANTI_AIR_CHAIN_COST := 60
 
 # Waves
 const WAVE_SCALE := 1.035
@@ -213,17 +224,20 @@ const TOWER_MIN_FIRE_RATE := 0.4  # Limite mínimo de fire_rate para torres bás
 const SNIPER_MIN_FIRE_RATE := 1.5  # Limite mínimo de fire_rate para sniper towers (em segundos)
 const AOE_MIN_FIRE_RATE := 1.8  # Limite mínimo de fire_rate para AOE towers (em segundos)
 const SHOCK_MIN_FIRE_RATE := 0.8 # Limite mínimo de fire_rate para shock towers (em segundos)
+const ANTI_AIR_MIN_FIRE_RATE := 0.6  # Limite mínimo de fire_rate para anti-air towers (em segundos)
 const HERO_MIN_FIRE_RATE := 0.1  # Limite mínimo de fire_rate para o herói (em segundos)
 
 # Tower Upgrade Maximums
 const SHOCK_MAX_CHAIN_COUNT := 15  # Máximo de corrente para shock towers
 const AOE_MAX_RADIUS := 250.0  # Máximo de raio AOE (reduzido de ~320 para 250)
+const ANTI_AIR_MAX_RANGE := 400.0  # Máximo de alcance para anti-air towers
 
 # Tower Fire Rate Upgrade Reductions (quanto reduz por upgrade)
 const TOWER_FIRE_RATE_REDUCTION := 0.05  # Redução de fire_rate por upgrade de torre básica
 const SNIPER_FIRE_RATE_REDUCTION := 0.5  # Redução de fire_rate por upgrade de sniper
 const AOE_FIRE_RATE_REDUCTION := 0.3  # Redução de fire_rate por upgrade de AOE
 const SHOCK_FIRE_RATE_REDUCTION := 0.2  # Redução de fire_rate por upgrade de shock
+const ANTI_AIR_FIRE_RATE_REDUCTION := 0.25  # Redução de fire_rate por upgrade de anti-air
 const HERO_FIRE_RATE_REDUCTION := 0.03  # Redução de fire_rate por upgrade do herói
 
 # Base HP
@@ -313,7 +327,8 @@ const BARRACKS_MIN_SPAWN_RATE := 1.0  # Limite mínimo de spawn rate (em segundo
 const BARRACKS_SPAWN_RATE_REDUCTION := 0.5  # Redução de spawn rate por upgrade
 const BARRACKS_INITIAL_HOLD_TIME := 1.0  # Tempo inicial que soldado segura monstro (em segundos)
 const BARRACKS_HOLD_TIME_INCREASE := 0.5  # Aumento de hold time por upgrade
-const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.4  # Dano por segundo do soldado inicial
+const BARRACKS_MAX_HOLD_TIME := 5.0  # Limite máximo de hold time (em segundos)
+const BARRACKS_INITIAL_SOLDIER_DAMAGE := 0.5  # Dano por segundo do soldado inicial (aumentado de 0.4 para 0.5)
 const BARRACKS_INITIAL_PROJECTILE_SPEED := 80.0  # Velocidade inicial do projetil do soldado
 const BARRACKS_PROJECTILE_SPEED_INCREASE := 20.0  # Aumento de velocidade do projetil por upgrade
 const BARRACKS_SOLDIER_DAMAGE_INCREASE := 0.35  # Aumento de dano do soldado por upgrade
@@ -348,8 +363,8 @@ const WEATHER_NIGHT_ENEMY_SPEED_BOOST := 1.10  # Inimigos 10% mais rápidos na n
 const MARKET_ITEM_HEAL_FULL := 40  # Cura completa do herói (2 usos)
 const MARKET_ITEM_TOWER_DAMAGE_BOOST := 5  # +20% dano de todas as torres por 5 waves
 const MARKET_ITEM_HERO_DAMAGE_BOOST := 4  # +30% dano do herói por 5 waves
-const MARKET_ITEM_EXTRA_LIFE := 15  # +1 vida extra para a base
-const MARKET_ITEM_HERO_FIRERATE_UPGRADE := 100  # Aumenta velocidade de tiro do herói (permanente)
-const MARKET_ITEM_HERO_DUAL_CANNON := 100  # Adiciona mais um canhão para o herói (permanente)
+const MARKET_ITEM_EXTRA_LIFE := 20  # +5 HP máximo para a base
+const MARKET_ITEM_HERO_FIRERATE_UPGRADE := 150  # Aumenta velocidade de tiro do herói (permanente)
+const MARKET_ITEM_HERO_DUAL_CANNON := 150  # Adiciona mais um canhão para o herói (permanente)
 
 # Alien Voador Spawn Chance movida para EnemyConstants.gd

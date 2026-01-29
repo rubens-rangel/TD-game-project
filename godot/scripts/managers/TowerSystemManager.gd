@@ -19,6 +19,7 @@ var aoe_towers: Array = []
 var sniper_towers: Array = []
 var boost_towers: Array = []
 var shock_towers: Array = []
+var anti_air_towers: Array = []
 var barracks: Array = []
 
 # Boost towers afetam outras torres
@@ -48,6 +49,7 @@ func set_tower_arrays(
 	sniper_towers_arr: Array,
 	boost_towers_arr: Array,
 	shock_towers_arr: Array,
+	anti_air_towers_arr: Array,
 	barracks_arr: Array
 ) -> void:
 	towers = towers_arr
@@ -56,6 +58,7 @@ func set_tower_arrays(
 	sniper_towers = sniper_towers_arr
 	boost_towers = boost_towers_arr
 	shock_towers = shock_towers_arr
+	anti_air_towers = anti_air_towers_arr
 	barracks = barracks_arr
 
 # Atualiza todas as torres
