@@ -4,18 +4,18 @@ class_name WeatherManager
 const GameConstants = preload("res://scripts/Constants.gd")
 
 enum WeatherType {
-	NONE,           # Sem clima especial
-	FOG,            # Névoa - reduz visibilidade/alcance
-	NIGHT,          # Noite - parte do mapa escuro, reduz visibilidade
-	RAIN,           # Chuva - debuff nas torres (menos dano e alcance)
-	HEAT,           # Calor - buff nos inimigos (mais velocidade e HP)
-	STORM,          # Tempestade - combinação de chuva + vento (debuff forte)
-	WIND,           # Vento - reduz precisão das torres
-	SNOW            # Neve - reduz velocidade de todos
+	NONE,
+	FOG,
+	NIGHT,
+	RAIN,
+	HEAT,
+	STORM,
+	WIND,
+	SNOW
 }
 
 var current_weather: WeatherType = WeatherType.NONE
-var weather_start_wave: int = 0  # Wave em que o clima começou
+var weather_start_wave: int = 0
 var weather_duration: int = GameConstants.WEATHER_DURATION_WAVES
 
 func _init():
@@ -24,25 +24,25 @@ func _init():
 func update_weather(current_wave: int) -> bool:
 	"""Atualiza o clima baseado na wave atual. Retorna true se o clima mudou"""
 	var old_weather = current_weather
-	
-	# Primeiro, verificar se o clima atual expirou
+
+
 	if current_weather != WeatherType.NONE:
 		if current_wave >= weather_start_wave + weather_duration:
-			# Clima expirou
+
 			current_weather = WeatherType.NONE
 			weather_start_wave = 0
-			# Retornar true apenas para indicar mudança (mas não mostrar aviso pois expirou)
+
 			return true
-	
-	# Verificar se precisa criar novo clima (apenas se não há clima ativo e é múltiplo do intervalo)
+
+
 	if current_weather == WeatherType.NONE:
 		if current_wave % GameConstants.WEATHER_CHANGE_INTERVAL == 0 and current_wave > 0:
-			# Criar novo clima
+
 			current_weather = _get_random_weather()
 			weather_start_wave = current_wave
-			return true  # Mudou de NONE para um clima
-	
-	# Se já há clima ativo e não expirou, não fazer nada
+			return true
+
+
 	return false
 
 func _get_random_weather() -> WeatherType:
@@ -108,7 +108,7 @@ func get_tower_damage_multiplier() -> float:
 		WeatherType.RAIN:
 			return 1.0 - GameConstants.WEATHER_RAIN_TOWER_DAMAGE_REDUCTION
 		WeatherType.STORM:
-			return 0.80  # -20% dano
+			return 0.80
 		_:
 			return 1.0
 
@@ -122,7 +122,7 @@ func get_tower_range_multiplier() -> float:
 		WeatherType.RAIN:
 			return 1.0 - GameConstants.WEATHER_RAIN_TOWER_RANGE_REDUCTION
 		WeatherType.STORM:
-			return 0.85  # -15% alcance
+			return 0.85
 		_:
 			return 1.0
 
@@ -134,9 +134,9 @@ func get_enemy_speed_multiplier() -> float:
 		WeatherType.NIGHT:
 			return GameConstants.WEATHER_NIGHT_ENEMY_SPEED_BOOST
 		WeatherType.STORM:
-			return 1.10  # +10% velocidade
+			return 1.10
 		WeatherType.SNOW:
-			return 0.85  # -15% velocidade (neve)
+			return 0.85
 		_:
 			return 1.0
 
@@ -152,9 +152,9 @@ func get_tower_accuracy_multiplier() -> float:
 	"""Retorna multiplicador de precisão das torres (para vento)"""
 	match current_weather:
 		WeatherType.WIND:
-			return 0.85  # -15% precisão
+			return 0.85
 		WeatherType.STORM:
-			return 0.90  # -10% precisão
+			return 0.90
 		_:
 			return 1.0
 
@@ -165,6 +165,9 @@ func is_night() -> bool:
 func is_rainy() -> bool:
 	"""Retorna true se está chovendo"""
 	return current_weather == WeatherType.RAIN or current_weather == WeatherType.STORM
+
+func is_foggy() -> bool:
+	return current_weather == WeatherType.FOG
 
 func has_visibility_reduction() -> bool:
 	"""Retorna true se o clima reduz visibilidade"""

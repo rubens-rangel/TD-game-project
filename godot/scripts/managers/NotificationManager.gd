@@ -1,13 +1,9 @@
 extends RefCounted
 class_name NotificationManager
 
-# Sistema de notificações melhorado para feedback ao jogador
-# Gerencia notificações temporárias na tela
 
-# Estrutura de notificação: {text: String, duration: float, time: float, color: Color, position: Vector2}
 var notifications: Array = []
 
-# Posições de notificação
 enum NotificationPosition {
 	TOP_CENTER,
 	TOP_LEFT,
@@ -31,10 +27,6 @@ func show_notification(text: String, duration: float = 3.0, position: Notificati
 	}
 	notifications.append(notification)
 
-func show_combo_notification(combo_name: String) -> void:
-	"""Notificação especial para combos ativados"""
-	show_notification("⚡ COMBO: %s!" % combo_name, 2.5, NotificationPosition.TOP_CENTER, Color(1.0, 0.8, 0.2))
-
 func show_achievement_notification(achievement_name: String) -> void:
 	"""Notificação especial para achievements"""
 	show_notification("🏆 Conquista: %s" % achievement_name, 4.0, NotificationPosition.TOP_CENTER, Color(1.0, 0.9, 0.3))
@@ -49,26 +41,23 @@ func show_success(text: String) -> void:
 
 func update_notifications(delta: float) -> void:
 	"""Atualiza todas as notificações"""
-	var active_notifications = []
-	
-	for notification in notifications:
+	var i := 0
+	while i < notifications.size():
+		var notification = notifications[i]
 		notification.time += delta
-		
-		# Fade out nos últimos 0.5 segundos
 		var fade_start = notification.duration - 0.5
 		if notification.time > fade_start:
 			var fade_progress = (notification.time - fade_start) / 0.5
 			notification.alpha = 1.0 - fade_progress
-		
-		# Remover se expirou
-		if notification.time < notification.duration:
-			active_notifications.append(notification)
-	
-	notifications = active_notifications
+		if notification.time >= notification.duration:
+			notifications[i] = notifications[notifications.size() - 1]
+			notifications.pop_back()
+		else:
+			i += 1
 
 func get_notifications() -> Array:
 	"""Retorna lista de notificações ativas"""
-	return notifications.duplicate()
+	return notifications
 
 func clear_all() -> void:
 	"""Limpa todas as notificações"""

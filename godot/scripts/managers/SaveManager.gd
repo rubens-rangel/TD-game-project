@@ -15,24 +15,22 @@ const DEFAULT_SHOCK_LEVELS = {"DMG": 0, "RATE": 0, "CHAIN": 0}
 const DEFAULT_ANTI_AIR_LEVELS = {"DMG": 0, "RATE": 0, "RANGE": 0, "MISSILE_COUNT": 0, "EXPLOSION": 0, "CHAIN": 0}
 const DEFAULT_BARRACKS_LEVELS = {"HOLD": 0, "DMG": 0, "SPAWN_RATE": 0, "PROJECTILE_SPEED": 0}
 
-# Obter caminho do arquivo de save para um slot
 static func get_slot_path(slot_name: String) -> String:
 	return "user://save_slot_%s.json" % slot_name
 
-# Salvar o estado completo do jogo em um slot específico
 static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> bool:
 	var save_data = {}
-	
-	# Dados básicos do jogo
+
+
 	save_data["base_hp"] = game_instance.base_hp
 	save_data["coins"] = game_instance.hero["coins"]
 	save_data["wave"] = game_instance.wave_manager.wave
 	save_data["time_to_next_wave"] = game_instance.wave_manager.time_to_next_wave
 	save_data["spawning"] = game_instance.wave_manager.spawning
 	save_data["to_spawn"] = game_instance.wave_manager.to_spawn
-	save_data["game_time"] = game_instance.game_time  # Salvar tempo de jogo
-	
-	# Estado do herói
+	save_data["game_time"] = game_instance.game_time
+
+
 	save_data["hero"] = {
 		"x": game_instance.hero["x"],
 		"y": game_instance.hero["y"],
@@ -45,12 +43,12 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["hero_home"] = {
 		"level": game_instance.hero_home_level
 	}
-	
-	# Upgrades permanentes do Market
+
+
 	save_data["hero_firerate_upgrade"] = game_instance.hero_firerate_upgrade
 	save_data["hero_dual_cannon"] = game_instance.hero_dual_cannon
-	
-	# Torres
+
+
 	save_data["towers"] = _serialize_towers(game_instance.towers)
 	save_data["slow_towers"] = _serialize_slow_towers(game_instance.slow_towers)
 	save_data["aoe_towers"] = _serialize_aoe_towers(game_instance.aoe_towers)
@@ -58,96 +56,90 @@ static func save_game(game_instance: Node2D, slot_name: String = "slot1") -> boo
 	save_data["boost_towers"] = _serialize_boost_towers(game_instance.boost_towers)
 	save_data["shock_towers"] = _serialize_shock_towers(game_instance.shock_towers)
 	save_data["anti_air_towers"] = _serialize_anti_air_towers(game_instance.anti_air_towers)
-	
-	# Outras estruturas
+
+
 	save_data["barracks"] = _serialize_barracks(game_instance.barracks)
 	save_data["mines"] = _serialize_mines(game_instance.mines)
 	save_data["walls"] = _serialize_walls(game_instance.walls)
 	save_data["healing_stations"] = _serialize_healing_stations(game_instance.healing_stations)
 	save_data["markets"] = _serialize_markets(game_instance.markets)
-	
-	# Upgrades globais de minas
+
+
 	save_data["mine_damage_level"] = game_instance.mine_damage_level
 	save_data["mine_radius_level"] = game_instance.mine_radius_level
-	
-	# Itens equipáveis (Talismãs, etc.)
+
+
 	if game_instance.item_manager:
 		save_data["items"] = game_instance.item_manager.serialize()
-	
-	# Timestamp
+
+
 	save_data["timestamp"] = Time.get_unix_time_from_system()
 	save_data["save_time"] = Time.get_datetime_string_from_system()
 	save_data["slot_name"] = slot_name
 	save_data["is_autosave"] = (slot_name == AUTO_SAVE_SLOT)
-	
-	# Salvar arquivo
+
+
 	var file_path = get_slot_path(slot_name)
 	var file = FileAccess.open(file_path, FileAccess.WRITE)
 	if file == null:
 		print("Erro ao salvar jogo: não foi possível criar arquivo em ", file_path)
 		return false
-	
+
 	var json_string = JSON.stringify(save_data)
 	file.store_string(json_string)
 	file.close()
-	
+
 	print("Jogo salvo com sucesso no slot: ", slot_name)
 	return true
 
-# Auto-save (sempre salva no slot autosave)
 static func auto_save(game_instance: Node2D) -> bool:
 	return save_game(game_instance, AUTO_SAVE_SLOT)
 
-# Carregar jogo de um slot específico
 static func load_game(game_instance: Node2D, slot_name: String = "slot1") -> bool:
 	var file_path = get_slot_path(slot_name)
 	var file = FileAccess.open(file_path, FileAccess.READ)
 	if file == null:
 		print("Nenhum save encontrado no slot: ", slot_name)
 		return false
-	
+
 	var json_string = file.get_as_text()
 	file.close()
-	
+
 	var json = JSON.new()
 	var error = json.parse(json_string)
 	if error != OK:
 		print("Erro ao parsear JSON do save: ", error)
 		return false
-	
+
 	var save_data = json.data
 	return _apply_save_data(game_instance, save_data)
 
-# Carregar auto-save (conveniência)
 static func load_autosave(game_instance: Node2D) -> bool:
 	return load_game(game_instance, AUTO_SAVE_SLOT)
 
-# Verificar se existe save em um slot
 static func has_save(slot_name: String = "slot1") -> bool:
 	return FileAccess.file_exists(get_slot_path(slot_name))
 
-# Verificar se existe auto-save
 static func has_autosave() -> bool:
 	return has_save(AUTO_SAVE_SLOT)
 
-# Obter informações do save de um slot (sem carregar)
 static func get_save_info(slot_name: String = "slot1") -> Dictionary:
 	if not has_save(slot_name):
 		return {}
-	
+
 	var file_path = get_slot_path(slot_name)
 	var file = FileAccess.open(file_path, FileAccess.READ)
 	if file == null:
 		return {}
-	
+
 	var json_string = file.get_as_text()
 	file.close()
-	
+
 	var json = JSON.new()
 	var error = json.parse(json_string)
 	if error != OK:
 		return {}
-	
+
 	var save_data = json.data
 	return {
 		"slot_name": slot_name,
@@ -159,57 +151,54 @@ static func get_save_info(slot_name: String = "slot1") -> Dictionary:
 		"is_autosave": save_data.get("is_autosave", false)
 	}
 
-# Listar todos os slots disponíveis
 static func list_available_slots() -> Array:
 	var slots = []
-	
-	# Verificar slot de autosave
+
+
 	if has_autosave():
 		var info = get_save_info(AUTO_SAVE_SLOT)
 		info["slot_name"] = AUTO_SAVE_SLOT
 		slots.append(info)
-	
-	# Verificar slots numerados (1 a MAX_SLOTS)
+
+
 	for i in range(1, MAX_SLOTS + 1):
 		var slot_name = "slot%d" % i
 		if has_save(slot_name):
 			var info = get_save_info(slot_name)
 			info["slot_name"] = slot_name
 			slots.append(info)
-	
-	# Ordenar por timestamp (mais recente primeiro)
+
+
 	slots.sort_custom(func(a, b): return a.get("timestamp", 0) > b.get("timestamp", 0))
-	
+
 	return slots
 
-# Deletar um slot
 static func delete_slot(slot_name: String) -> bool:
 	var file_path = get_slot_path(slot_name)
 	if not FileAccess.file_exists(file_path):
 		return false
-	
+
 	DirAccess.remove_absolute(file_path)
 	print("Slot deletado: ", slot_name)
 	return true
 
-# Aplicar dados do save no jogo
 static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bool:
-	# Dados básicos
+
 	game_instance.base_hp = save_data.get("base_hp", 100)
 	game_instance.hero["coins"] = save_data.get("coins", 0)
-	
-	# Restaurar tempo de jogo
+
+
 	game_instance.game_time = save_data.get("game_time", 0.0)
-	game_instance.game_time_start = Time.get_ticks_msec() / 1000.0 - game_instance.game_time  # Ajustar timestamp para continuar de onde parou
-	
-	# Wave manager
+	game_instance.game_time_start = Time.get_ticks_msec() / 1000.0 - game_instance.game_time
+
+
 	var wave = save_data.get("wave", 1)
 	game_instance.wave_manager.jump_to_wave(wave)
 	game_instance.wave_manager.time_to_next_wave = save_data.get("time_to_next_wave", 10.0)
 	game_instance.wave_manager.spawning = save_data.get("spawning", false)
 	game_instance.wave_manager.to_spawn = save_data.get("to_spawn", 0)
-	
-	# Herói
+
+
 	var hero_data = save_data.get("hero", {})
 	game_instance.hero["x"] = hero_data.get("x", 0.0)
 	game_instance.hero["y"] = hero_data.get("y", 0.0)
@@ -220,16 +209,16 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.hero["levels"] = hero_data.get("levels", {"DMG": 0, "FIRERATE": 0, "PIERCE": 0})
 	var hero_home_data = save_data.get("hero_home", {})
 	game_instance.hero_home_level = hero_home_data.get("level", 1)
-	
-	# Carregar upgrades permanentes do Market
+
+
 	game_instance.hero_firerate_upgrade = save_data.get("hero_firerate_upgrade", false)
 	game_instance.hero_dual_cannon = save_data.get("hero_dual_cannon", false)
-	# Aplicar upgrade de velocidade de tiro se já foi comprado
+
 	if game_instance.hero_firerate_upgrade:
 		game_instance.hero["fire_rate"] = game_instance.hero["fire_rate"] * 0.5
-		game_instance.hero["fire_rate"] = max(GameConstants.HERO_MIN_FIRE_RATE, game_instance.hero["fire_rate"])
-	
-	# Limpar estruturas existentes
+		game_instance.hero["fire_rate"] = max(GameConstants.BONUS_MIN_FIRE_RATE, game_instance.hero["fire_rate"])
+
+
 	game_instance.towers.clear()
 	game_instance.slow_towers.clear()
 	game_instance.aoe_towers.clear()
@@ -243,8 +232,8 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.walls.clear()
 	game_instance.healing_stations.clear()
 	game_instance.markets.clear()
-	
-	# Carregar estruturas
+
+
 	game_instance.towers = _deserialize_towers(save_data.get("towers", []))
 	game_instance.slow_towers = _deserialize_slow_towers(save_data.get("slow_towers", []))
 	game_instance.aoe_towers = _deserialize_aoe_towers(save_data.get("aoe_towers", []))
@@ -257,32 +246,29 @@ static func _apply_save_data(game_instance: Node2D, save_data: Dictionary) -> bo
 	game_instance.walls = _deserialize_walls(save_data.get("walls", []))
 	game_instance.healing_stations = _deserialize_healing_stations(save_data.get("healing_stations", []))
 	game_instance.markets = _deserialize_markets(save_data.get("markets", []))
-	
-	# Carregar upgrades globais de minas
+
+
 	game_instance.mine_damage_level = save_data.get("mine_damage_level", 0)
 	game_instance.mine_radius_level = save_data.get("mine_radius_level", 0)
-	# Atualizar todas as minas carregadas com os valores de upgrade
+
 	if game_instance.has_method("_update_all_mines_stats"):
 		game_instance._update_all_mines_stats()
-	
-	# Atualizar HP máximo das muralhas carregadas baseado nos bônus atuais
-	# (deve ser feito após carregar perks e talismãs, então será feito no Game.gd após load)
-	
-	# Carregar itens equipáveis (Talismãs, etc.)
-	if game_instance.item_manager:
-		var items_data = save_data.get("items", {})
-		if not items_data.is_empty():
-			game_instance.item_manager.deserialize(items_data)
-	
-	# Limpar inimigos e projéteis (não salvamos eles)
+
+
+
+
+
+	if game_instance.item_manager and save_data.has("items"):
+		game_instance.item_manager.deserialize(save_data.get("items", {"equipped_items": [], "inventory": []}))
+
+
 	game_instance.enemies.clear()
 	game_instance.tower_bullets.clear()
 	game_instance.arrows.clear()
-	
+
 	print("Jogo carregado com sucesso! Wave: ", wave)
 	return true
 
-# Funções de serialização para cada tipo de estrutura
 static func _serialize_towers(towers: Array) -> Array:
 	var result = []
 	for t in towers:
@@ -331,6 +317,7 @@ static func _serialize_slow_towers(towers: Array) -> Array:
 			"pos_y": t.pos.y,
 			"range": t.range,
 			"slow_amount": t.slow_amount,
+			"slow_duration": t.get("slow_duration", 1.0),
 			"cooldown": t.cooldown,
 			"fire_rate": t.fire_rate,
 			"levels": t.get("levels", DEFAULT_SLOW_LEVELS).duplicate()
@@ -346,6 +333,7 @@ static func _deserialize_slow_towers(data: Array) -> Array:
 			"pos": Vector2(t.pos_x, t.pos_y),
 			"range": t.range,
 			"slow_amount": t.slow_amount,
+			"slow_duration": t.get("slow_duration", 1.0),
 			"cooldown": t.cooldown,
 			"fire_rate": t.fire_rate,
 			"levels": _merge_levels(t.get("levels", {}), DEFAULT_SLOW_LEVELS)
@@ -598,7 +586,7 @@ static func _serialize_walls(walls: Array) -> Array:
 			"hp": w.hp,
 			"max_hp": w.max_hp
 		}
-		# Incluir upgrades se existirem
+
 		if w.has("upgrades"):
 			wall_data["upgrades"] = w.upgrades
 		result.append(wall_data)
@@ -614,7 +602,7 @@ static func _deserialize_walls(data: Array) -> Array:
 			"hp": w.hp,
 			"max_hp": w.max_hp
 		}
-		# Adicionar upgrades se existirem (compatibilidade com saves antigos)
+
 		if w.has("upgrades"):
 			wall_data["upgrades"] = w.upgrades
 		else:

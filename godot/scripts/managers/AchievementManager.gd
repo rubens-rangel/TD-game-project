@@ -1,23 +1,20 @@
 extends RefCounted
 class_name AchievementManager
 
-# Sistema de Achievements
-# Cada achievement tem: id, name, description, icon, category, progress, max_progress, unlocked, reward_points
+signal achievement_unlocked(achievement_name: String)
 
 const ACHIEVEMENTS_FILE = "user://achievements.json"
 
-# Categorias de achievements
 enum Category {
-	COMBAT,      # Matar inimigos, ondas, etc
-	ECONOMY,     # Moedas, compras, etc
-	DEFENSE,     # Torres, estruturas, etc
-	PROGRESSION, # Ondas, sobrevivência, etc
-	SPECIAL      # Feitos especiais
+	COMBAT,
+	ECONOMY,
+	DEFENSE,
+	PROGRESSION,
+	SPECIAL
 }
 
-# Definir todos os achievements
 static var ALL_ACHIEVEMENTS: Dictionary = {
-	# === COMBAT ===
+
 	"first_kill": {
 		"name": "Primeiro Sangue",
 		"description": "Mate seu primeiro inimigo",
@@ -90,8 +87,8 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 500,
 		"icon": "⚙️"
 	},
-	
-	# === ECONOMY ===
+
+
 	"collect_1000_coins": {
 		"name": "Acumulador",
 		"description": "Colete 1000 moedas",
@@ -156,8 +153,8 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 250,
 		"icon": "🏛️"
 	},
-	
-	# === DEFENSE ===
+
+
 	"build_10_towers": {
 		"name": "Arquiteto",
 		"description": "Construa 10 torres",
@@ -170,7 +167,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Mestre Construtor",
 		"description": "Construa todos os tipos de torres",
 		"category": Category.DEFENSE,
-		"max_progress": 7,  # tower, slow, aoe, sniper, boost, shock, barracks
+		"max_progress": 7,
 		"reward_points": 40,
 		"icon": "🏗️"
 	},
@@ -230,8 +227,8 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"reward_points": 100,
 		"icon": "🎯"
 	},
-	
-	# === PROGRESSION ===
+
+
 	"wave_10": {
 		"name": "Sobrevivente",
 		"description": "Alcance a onda 10",
@@ -324,7 +321,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Iniciante",
 		"description": "Jogue por 5 minutos",
 		"category": Category.PROGRESSION,
-		"max_progress": 300,  # 5 minutos em segundos
+		"max_progress": 300,
 		"reward_points": 15,
 		"icon": "⏱️"
 	},
@@ -332,7 +329,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Persistente",
 		"description": "Jogue por 15 minutos",
 		"category": Category.PROGRESSION,
-		"max_progress": 900,  # 15 minutos em segundos
+		"max_progress": 900,
 		"reward_points": 30,
 		"icon": "⏰"
 	},
@@ -340,7 +337,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Dedicado",
 		"description": "Jogue por 30 minutos",
 		"category": Category.PROGRESSION,
-		"max_progress": 1800,  # 30 minutos em segundos
+		"max_progress": 1800,
 		"reward_points": 50,
 		"icon": "🕐"
 	},
@@ -348,7 +345,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Veterano do Tempo",
 		"description": "Jogue por 1 hora",
 		"category": Category.PROGRESSION,
-		"max_progress": 3600,  # 1 hora em segundos
+		"max_progress": 3600,
 		"reward_points": 100,
 		"icon": "🕑"
 	},
@@ -356,7 +353,7 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Maratonista",
 		"description": "Jogue por 2 horas",
 		"category": Category.PROGRESSION,
-		"max_progress": 7200,  # 2 horas em segundos
+		"max_progress": 7200,
 		"reward_points": 200,
 		"icon": "🕒"
 	},
@@ -364,12 +361,12 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 		"name": "Lenda do Tempo",
 		"description": "Jogue por 5 horas",
 		"category": Category.PROGRESSION,
-		"max_progress": 18000,  # 5 horas em segundos
+		"max_progress": 18000,
 		"reward_points": 500,
 		"icon": "⏳"
 	},
-	
-	# === SPECIAL ===
+
+
 	"first_play": {
 		"name": "Bem-vindo",
 		"description": "Jogue sua primeira partida",
@@ -476,18 +473,15 @@ static var ALL_ACHIEVEMENTS: Dictionary = {
 	}
 }
 
-# Estado dos achievements (progresso e desbloqueios)
 var achievements_state: Dictionary = {}
 var total_points: int = 0
 
-# Throttle para salvamento (evitar salvar muito frequentemente)
 var last_save_time: float = 0.0
-const SAVE_COOLDOWN: float = 5.0  # Salvar no máximo a cada 5 segundos
+const SAVE_COOLDOWN: float = 5.0
 
 func _init():
 	load_achievements()
 
-# Carregar achievements do arquivo
 func load_achievements() -> void:
 	if FileAccess.file_exists(ACHIEVEMENTS_FILE):
 		var file = FileAccess.open(ACHIEVEMENTS_FILE, FileAccess.READ)
@@ -498,11 +492,11 @@ func load_achievements() -> void:
 			if json.parse(json_string) == OK:
 				achievements_state = json.data.get("achievements", {})
 				total_points = json.data.get("total_points", 0)
-				# Garantir que todos os achievements existam no estado
+
 				_initialize_missing_achievements()
 				return
-	
-	# Se não existe arquivo, inicializar tudo
+
+
 	_initialize_all_achievements()
 
 func _initialize_all_achievements() -> void:
@@ -524,22 +518,21 @@ func _initialize_missing_achievements() -> void:
 				"unlocked_at": 0
 			}
 
-# Salvar achievements (com throttle para evitar salvamento excessivo)
 func save_achievements(force: bool = false) -> void:
 	var current_time = Time.get_unix_time_from_system()
-	
-	# Se não for forçado e ainda estiver no cooldown, não salvar
+
+
 	if not force and (current_time - last_save_time) < SAVE_COOLDOWN:
 		return
-	
+
 	last_save_time = current_time
-	
+
 	var save_data = {
 		"achievements": achievements_state,
 		"total_points": total_points,
 		"last_saved": current_time
 	}
-	
+
 	var file = FileAccess.open(ACHIEVEMENTS_FILE, FileAccess.WRITE)
 	if file != null:
 		var json_string = JSON.stringify(save_data)
@@ -547,100 +540,93 @@ func save_achievements(force: bool = false) -> void:
 		file.close()
 		print("Achievements salvos com sucesso!")
 
-# Incrementar progresso de um achievement
 func increment_progress(achievement_id: String, amount: int = 1) -> bool:
 	if not ALL_ACHIEVEMENTS.has(achievement_id):
 		print("Achievement não encontrado: ", achievement_id)
 		return false
-	
+
 	if not achievements_state.has(achievement_id):
 		achievements_state[achievement_id] = {
 			"progress": 0,
 			"unlocked": false,
 			"unlocked_at": 0
 		}
-	
+
 	var state = achievements_state[achievement_id]
 	if state.unlocked:
-		return false  # Já desbloqueado
-	
+		return false
+
 	var achievement = ALL_ACHIEVEMENTS[achievement_id]
 	state.progress = min(state.progress + amount, achievement.max_progress)
-	
-	# Verificar se desbloqueou
+
+
 	if state.progress >= achievement.max_progress and not state.unlocked:
-		state.unlocked = true
-		state.unlocked_at = Time.get_unix_time_from_system()
-		total_points += achievement.reward_points
-		save_achievements(true)  # Forçar salvamento quando desbloquear
-		print("Achievement desbloqueado: ", achievement.name, " (+", achievement.reward_points, " pontos)")
-		return true
-	
-	save_achievements()  # Salvamento normal com throttle
+		return _unlock_achievement(achievement_id, achievement, state)
+
+	save_achievements()
 	return false
 
-# Definir progresso absoluto
 func set_progress(achievement_id: String, value: int) -> bool:
 	if not ALL_ACHIEVEMENTS.has(achievement_id):
 		return false
-	
+
 	if not achievements_state.has(achievement_id):
 		achievements_state[achievement_id] = {
 			"progress": 0,
 			"unlocked": false,
 			"unlocked_at": 0
 		}
-	
+
 	var state = achievements_state[achievement_id]
 	if state.unlocked:
 		return false
-	
+
 	var achievement = ALL_ACHIEVEMENTS[achievement_id]
 	state.progress = min(value, achievement.max_progress)
-	
+
 	if state.progress >= achievement.max_progress and not state.unlocked:
-		state.unlocked = true
-		state.unlocked_at = Time.get_unix_time_from_system()
-		total_points += achievement.reward_points
-		save_achievements(true)  # Forçar salvamento quando desbloquear
-		print("Achievement desbloqueado: ", achievement.name, " (+", achievement.reward_points, " pontos)")
-		return true
-	
-	save_achievements()  # Salvamento normal com throttle
+		return _unlock_achievement(achievement_id, achievement, state)
+
+	save_achievements()
 	return false
 
-# Verificar se achievement está desbloqueado
+func _unlock_achievement(_achievement_id: String, achievement: Dictionary, state: Dictionary) -> bool:
+	state.unlocked = true
+	state.unlocked_at = Time.get_unix_time_from_system()
+	total_points += achievement.reward_points
+	save_achievements(true)
+	print("Achievement desbloqueado: ", achievement.name, " (+", achievement.reward_points, " pontos)")
+	achievement_unlocked.emit(str(achievement.name))
+	return true
+
 func is_unlocked(achievement_id: String) -> bool:
 	if not achievements_state.has(achievement_id):
 		return false
 	return achievements_state[achievement_id].unlocked
 
-# Obter progresso de um achievement
 func get_progress(achievement_id: String) -> int:
 	if not achievements_state.has(achievement_id):
 		return 0
 	return achievements_state[achievement_id].progress
 
-# Obter informações completas de um achievement
 func get_achievement_info(achievement_id: String) -> Dictionary:
 	if not ALL_ACHIEVEMENTS.has(achievement_id):
 		return {}
-	
+
 	var achievement = ALL_ACHIEVEMENTS[achievement_id].duplicate()
 	var state = achievements_state.get(achievement_id, {
 		"progress": 0,
 		"unlocked": false,
 		"unlocked_at": 0
 	})
-	
+
 	achievement["progress"] = state.progress
 	achievement["unlocked"] = state.unlocked
 	achievement["unlocked_at"] = state.unlocked_at
 	achievement["id"] = achievement_id
-	
+
 	return achievement
 
-# Obter todos os achievements de uma categoria
 func get_achievements_by_category(category: Category) -> Array:
 	var result = []
 	for achievement_id in ALL_ACHIEVEMENTS.keys():
@@ -649,21 +635,27 @@ func get_achievements_by_category(category: Category) -> Array:
 			result.append(get_achievement_info(achievement_id))
 	return result
 
-# Obter todos os achievements
 func get_all_achievements() -> Array:
 	var result = []
 	for achievement_id in ALL_ACHIEVEMENTS.keys():
 		result.append(get_achievement_info(achievement_id))
 	return result
 
-# Obter estatísticas gerais
+func add_points(amount: int) -> void:
+	"""Adiciona pontos de melhoria (ex.: recompensa de quests)"""
+	if amount <= 0:
+		return
+	total_points += amount
+	save_achievements(true)
+	print("Pontos de melhoria +%d (total: %d)" % [amount, total_points])
+
 func get_stats() -> Dictionary:
 	var total = ALL_ACHIEVEMENTS.size()
 	var unlocked = 0
 	for achievement_id in achievements_state.keys():
 		if achievements_state[achievement_id].unlocked:
 			unlocked += 1
-	
+
 	return {
 		"total": total,
 		"unlocked": unlocked,
@@ -672,7 +664,6 @@ func get_stats() -> Dictionary:
 		"total_points": total_points
 	}
 
-# Resetar todos os achievements (útil para testes ou reset completo)
 func reset_all_achievements() -> void:
 	achievements_state = {}
 	total_points = 0
@@ -680,12 +671,10 @@ func reset_all_achievements() -> void:
 	save_achievements()
 	print("Todos os achievements foram resetados!")
 
-# Instância singleton (será criada no Game.gd ou como autoload)
 static var instance: AchievementManager = null
 
 static func get_instance() -> AchievementManager:
 	if instance == null:
 		instance = AchievementManager.new()
 	return instance
-
 

@@ -1,28 +1,23 @@
 extends RefCounted
 class_name HeroManager
 
-# Gerencia a lógica do herói e seus upgrades
-# Centraliza todas as operações relacionadas ao herói
 
 var hero: Dictionary
 var hero_home_level: int = 1
 var global_tower_damage_boost: float = 1.0
 var base_hp: int
 
-# Texturas do hero home
 var tex_tent: Texture2D
 var tex_house: Texture2D
 var tex_castle: Texture2D
-var tex_castle2: Texture2D  # Castelo nível 4
+var tex_castle2: Texture2D
 
-# Hero home upgrade costs
 var hero_home_upgrade_costs := {
 	2: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_2,
 	3: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_3,
 	4: GameConstants.HERO_HOME_UPGRADE_COST_LEVEL_4
 }
 
-# Upgrade options disponíveis
 var upgrade_options := [
 	{"label": "Dano", "code": "DMG", "max_level": 30, "description": "Aumenta o dano dos tiros (+1 por nível)"},
 	{"label": "Velocidade", "code": "FIRERATE", "max_level": 20, "description": "Reduz o tempo entre tiros (cadência mais rápida)"},
@@ -38,20 +33,20 @@ func _init(base_hp_ref: int):
 func _initialize_hero() -> void:
 	"""Inicializa o herói com valores padrão"""
 	hero = {
-		"x": 0.0, 
-		"y": 0.0, 
-		"cooldown": 0.0, 
+		"x": 0.0,
+		"y": 0.0,
+		"cooldown": 0.0,
 		"fire_rate": GameConstants.HERO_BASE_FIRE_RATE,
-		"damage": GameConstants.HERO_BASE_DAMAGE, 
-		"pierce": 0, 
+		"damage": GameConstants.HERO_BASE_DAMAGE,
+		"pierce": 0,
 		"range": GameConstants.HERO_RANGE_MAX,
-		"levels": { 
-			"DMG": 0, 
-			"FIRERATE": 0, 
-			"PIERCE": 0, 
-			"CRIT_CHANCE": 0, 
-			"CRIT_DMG": 0 
-		}, 
+		"levels": {
+			"DMG": 0,
+			"FIRERATE": 0,
+			"PIERCE": 0,
+			"CRIT_CHANCE": 0,
+			"CRIT_DMG": 0
+		},
 		"coins": GameConstants.HERO_START_COINS,
 		"crit_chance": 0.0,
 		"crit_multiplier": GameConstants.HERO_CRIT_MULTIPLIER_BASE
@@ -84,12 +79,12 @@ func get_hero_home_upgrade_cost(level: int, current_wave: int = 0) -> int:
 	var base_cost = hero_home_upgrade_costs.get(level, 0)
 	if base_cost <= 0:
 		return 0
-	
-	# Aplicar aumento de 1% por wave
-	# Exemplo: wave 10 = multiplicador 1.10 (10% de aumento)
+
+
+
 	var wave_multiplier = 1.0 + (current_wave * 0.01)
 	var final_cost = base_cost * wave_multiplier
-	
+
 	return int(final_cost)
 
 func get_hero_home_benefits_text(level: int) -> String:
@@ -118,36 +113,36 @@ func apply_hero_home_upgrade(level: int) -> Dictionary:
 		"fire_rate": 0.0,
 		"base_hp": 0
 	}
-	
+
 	match level:
 		2:
-			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres
+			global_tower_damage_boost *= 1.10
 			hero["range"] += 100
 			base_hp += 40
 			changes["global_tower_damage_boost"] = 0.10
 			changes["range"] = 100
 			changes["base_hp"] = 40
 		3:
-			global_tower_damage_boost *= 1.10  # +10% dano global para todas as torres (acumulativo)
+			global_tower_damage_boost *= 1.10
 			hero["pierce"] += 1
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.03)
+			hero["fire_rate"] = max(GameConstants.BONUS_MIN_FIRE_RATE, hero["fire_rate"] - 0.03)
 			base_hp += 60
 			changes["global_tower_damage_boost"] = 0.10
 			changes["pierce"] = 1
 			changes["fire_rate"] = -0.03
 			changes["base_hp"] = 60
 		4:
-			global_tower_damage_boost *= 1.15  # +15% dano global para todas as torres (acumulativo)
-			hero["damage"] *= 1.15  # +15% dano do herói
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.08)
+			global_tower_damage_boost *= 1.15
+			hero["damage"] *= 1.15
+			hero["fire_rate"] = max(GameConstants.BONUS_MIN_FIRE_RATE, hero["fire_rate"] - 0.08)
 			hero["range"] += 150
 			base_hp += 100
 			changes["global_tower_damage_boost"] = 0.15
-			changes["hero_damage"] = 0.15  # +15% dano do herói
+			changes["hero_damage"] = 0.15
 			changes["fire_rate"] = -0.08
 			changes["range"] = 150
 			changes["base_hp"] = 100
-	
+
 	hero_home_level = level
 	return changes
 
@@ -174,6 +169,31 @@ func can_upgrade(code: String) -> bool:
 	var current_level = get_upgrade_level(code)
 	return current_level < option["max_level"]
 
+func get_next_fixed_upgrade() -> Dictionary:
+	"""Primeiro upgrade na ordem fixa que ainda não está no máximo."""
+	for option in upgrade_options:
+		if can_upgrade(option["code"]):
+			return option
+	return {}
+
+func get_upgrade_gain_text(code: String) -> String:
+	"""Texto do ganho após aplicar o upgrade, ex.: Dano +1 (4/30)."""
+	var option = get_upgrade_option(code)
+	if option.is_empty():
+		return ""
+	var current_level = get_upgrade_level(code)
+	var max_level = option.get("max_level", current_level)
+	var label: String = option.get("label", code)
+	var gain := ""
+	match code:
+		"CRIT_CHANCE":
+			gain = "+2%"
+		"CRIT_DMG":
+			gain = "+0.2"
+		_:
+			gain = "+1"
+	return "%s %s (%d/%d)" % [label, gain, current_level, max_level]
+
 func get_upgrade_cost(base_cost: int, code: String) -> int:
 	"""Calcula o custo de um upgrade"""
 	var current_level = get_upgrade_level(code)
@@ -186,22 +206,22 @@ func apply_upgrade(code: String) -> bool:
 	"""
 	if not can_upgrade(code):
 		return false
-	
+
 	var option = get_upgrade_option(code)
 	var current_level = get_upgrade_level(code)
-	
+
 	match code:
 		"DMG":
 			hero["damage"] += 1.0
 		"FIRERATE":
-			hero["fire_rate"] = max(0.1, hero["fire_rate"] - 0.05)
+			hero["fire_rate"] = max(GameConstants.BONUS_MIN_FIRE_RATE, hero["fire_rate"] - 0.05)
 		"PIERCE":
 			hero["pierce"] += 1
 		"CRIT_CHANCE":
 			hero["crit_chance"] = min(0.2, hero["crit_chance"] + 0.02)
 		"CRIT_DMG":
 			hero["crit_multiplier"] += 0.2
-	
+
 	hero["levels"][code] = current_level + 1
 	return true
 
@@ -231,5 +251,4 @@ func set_position(x: float, y: float) -> void:
 func get_position() -> Vector2:
 	"""Retorna a posição do herói"""
 	return Vector2(hero["x"], hero["y"])
-
 

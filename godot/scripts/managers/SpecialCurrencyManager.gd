@@ -1,12 +1,10 @@
 extends RefCounted
 class_name SpecialCurrencyManager
 
-# Gerencia moedas especiais (Esmeraldas e Diamantes)
 
 var emeralds: int = 0
 var diamonds: int = 0
 
-# Estatísticas
 var total_emeralds_earned: int = 0
 var total_diamonds_earned: int = 0
 var total_emeralds_spent: int = 0
@@ -19,7 +17,7 @@ func add_emeralds(amount: int, source: String = "unknown"):
 	"""Adiciona esmeraldas (não persistentes - apenas por sessão)"""
 	emeralds += amount
 	total_emeralds_earned += amount
-	# Esmeraldas não são salvas - apenas por sessão
+
 	print("+%d Esmeraldas (de %s). Total: %d" % [amount, source, emeralds])
 
 func add_diamonds(amount: int, source: String = "unknown"):
@@ -34,7 +32,7 @@ func spend_emeralds(amount: int) -> bool:
 	if emeralds >= amount:
 		emeralds -= amount
 		total_emeralds_spent += amount
-		# Esmeraldas não são salvas - apenas por sessão
+
 		return true
 	return false
 
@@ -70,37 +68,37 @@ func save_currency_data():
 	"""Salva dados de moedas especiais (apenas diamantes são persistentes)"""
 	var config = ConfigFile.new()
 	var config_path = "user://special_currency.cfg"
-	
-	# Carregar dados existentes se houver
+
+
 	config.load(config_path)
-	
-	# Salvar apenas diamantes (esmeraldas não são persistentes - apenas por sessão)
+
+
 	config.set_value("currency", "diamonds", diamonds)
 	config.set_value("stats", "total_emeralds_earned", total_emeralds_earned)
 	config.set_value("stats", "total_diamonds_earned", total_diamonds_earned)
 	config.set_value("stats", "total_emeralds_spent", total_emeralds_spent)
 	config.set_value("stats", "total_diamonds_spent", total_diamonds_spent)
-	
-	# Salvar arquivo
+
+
 	config.save(config_path)
 
 func load_currency_data():
 	"""Carrega dados de moedas especiais (apenas diamantes são persistentes)"""
 	var config = ConfigFile.new()
 	var config_path = "user://special_currency.cfg"
-	
-	# Esmeraldas sempre começam em 0 (não são persistentes - apenas por sessão)
+
+
 	emeralds = 0
-	
+
 	if config.load(config_path) == OK:
-		# Carregar apenas diamantes (esmeraldas não são persistentes)
+
 		diamonds = config.get_value("currency", "diamonds", 0)
 		total_emeralds_earned = config.get_value("stats", "total_emeralds_earned", 0)
 		total_diamonds_earned = config.get_value("stats", "total_diamonds_earned", 0)
 		total_emeralds_spent = config.get_value("stats", "total_emeralds_spent", 0)
 		total_diamonds_spent = config.get_value("stats", "total_diamonds_spent", 0)
 	else:
-		# Valores padrão
+
 		diamonds = 0
 		total_emeralds_earned = 0
 		total_diamonds_earned = 0
@@ -122,7 +120,6 @@ func should_drop_diamond(current_wave: int) -> bool:
 func is_special_boss_wave(wave: int) -> bool:
 	"""Verifica se é uma wave de boss especial (dá esmeralda garantida)"""
 	return wave > 0 and wave % GameConstants.BOSS_EMERALD_REWARD_WAVE == 0
-
 
 
 

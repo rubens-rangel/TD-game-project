@@ -1,12 +1,10 @@
 extends RefCounted
 class_name EquippableItem
 
-# Classe base para itens equipáveis (Talismãs, etc.)
-# Permite criar diferentes tipos de itens equipáveis no futuro
 
 enum ItemType {
 	TALISMAN,
-	# Adicionar mais tipos no futuro: RING, AMULET, etc.
+
 }
 
 enum ItemRarity {
@@ -17,15 +15,13 @@ enum ItemRarity {
 	LEGENDARY
 }
 
-var id: String  # ID único do item
-var name: String  # Nome do item
-var description: String  # Descrição do item
-var item_type: ItemType  # Tipo do item
-var rarity: ItemRarity  # Raridade do item
-var icon_path: String = ""  # Caminho para o ícone (opcional)
+var id: String
+var name: String
+var description: String
+var item_type: ItemType
+var rarity: ItemRarity
+var icon_path: String = ""
 
-# Efeitos do item (Dictionary com diferentes modificadores)
-# Exemplo: {"tower_damage_boost": 0.1, "base_hp_boost": 20, etc.}
 var effects: Dictionary = {}
 
 func _init(p_id: String = "", p_name: String = "", p_description: String = "", p_type: ItemType = ItemType.TALISMAN, p_rarity: ItemRarity = ItemRarity.COMMON):
@@ -36,12 +32,10 @@ func _init(p_id: String = "", p_name: String = "", p_description: String = "", p
 	rarity = p_rarity
 	effects = {}
 
-# Aplica os efeitos do item (deve ser sobrescrito por classes filhas)
 func apply_effects() -> Dictionary:
 	"""Retorna um Dictionary com os efeitos a serem aplicados"""
 	return effects.duplicate()
 
-# Remove os efeitos do item (para quando desequipar)
 func remove_effects() -> Dictionary:
 	"""Retorna um Dictionary com os efeitos a serem removidos (valores negativos)"""
 	var remove_effects_dict = {}
@@ -52,7 +46,6 @@ func remove_effects() -> Dictionary:
 			remove_effects_dict[key] = effects[key]
 	return remove_effects_dict
 
-# Serializa o item para salvamento
 func serialize() -> Dictionary:
 	return {
 		"id": id,
@@ -64,7 +57,6 @@ func serialize() -> Dictionary:
 		"effects": effects
 	}
 
-# Deserializa o item do salvamento
 static func deserialize(data: Dictionary) -> EquippableItem:
 	var item = EquippableItem.new()
 	item.id = data.get("id", "")
@@ -76,22 +68,20 @@ static func deserialize(data: Dictionary) -> EquippableItem:
 	item.effects = data.get("effects", {})
 	return item
 
-# Retorna a cor baseada na raridade
 func get_rarity_color() -> Color:
 	match rarity:
 		ItemRarity.COMMON:
-			return Color(0.7, 0.7, 0.7)  # Cinza
+			return Color(0.7, 0.7, 0.7)
 		ItemRarity.UNCOMMON:
-			return Color(0.2, 0.8, 0.2)  # Verde
+			return Color(0.2, 0.8, 0.2)
 		ItemRarity.RARE:
-			return Color(0.2, 0.4, 0.9)  # Azul
+			return Color(0.2, 0.4, 0.9)
 		ItemRarity.EPIC:
-			return Color(0.7, 0.2, 0.9)  # Roxo
+			return Color(0.7, 0.2, 0.9)
 		ItemRarity.LEGENDARY:
-			return Color(0.9, 0.6, 0.1)  # Laranja/Dourado
+			return Color(0.9, 0.6, 0.1)
 		_:
 			return Color.WHITE
-
 
 
 

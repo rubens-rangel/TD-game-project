@@ -1,59 +1,57 @@
 extends RefCounted
 class_name EnemyConstants
 
-# Constantes relacionadas a inimigos
-# Este arquivo contém todas as configurações de inimigos, bosses e tipos de inimigos
-
-# Enemy stats
 const ENEMY_BASE_SPEED := 38.0
 const ENEMY_MAX_SPEED := 210.0
 const BOSS_SPEED_MULTIPLIER := 0.5
-const ENEMY_BASE_HP := 5  # Aumentado de 4 para 5
-const BOSS_BASE_HP := 35  # Aumentado de 28 para 35
+const ENEMY_BASE_HP := 5
+const BOSS_BASE_HP := 35
 const BOSS_REWARD_MULTIPLIER := 20
 const NORMAL_REWARD := 2
 
-# Tipos de inimigos (padronizado para facilitar adição de novos)
 enum EnemyType {
-	ZOMBIE,         # Zombie normal (waves iniciais)
-	ZOMBIE_GORDO,   # Zombie gordo (waves iniciais, mais HP, menos velocidade)
-	ZOMBIE_CORREDOR, # Zombie corredor (waves iniciais, menos HP, mais velocidade)
-	HUMANOID,       # Humanoid (wave 6+)
-	ROBOT,          # Robot (wave 11+)
-	ALIEN,          # Alien (wave 50+)
-	ALIEN_VOADOR    # Alien voador (wave 51+, ignora labirinto, 30% HP)
+	ZOMBIE,
+	ZOMBIE_GORDO,
+	ZOMBIE_CORREDOR,
+	HUMANOID,
+	ROBOT,
+	ALIEN,
+	ALIEN_VOADOR,
+	MECANOIDE_BIPEDE,
+	MECANOIDE_LAGARTAS,
+	MECANOIDE_DRONE,
+	MECANOIDE_REGENERADOR,
+	MECANOIDE_BOSS
 }
 
-# Configuração de tipos de inimigos
-# Formato: {hp_multiplier: float, speed_multiplier: float, max_speed_multiplier: float, texture_name: String, min_wave: int, max_wave: int}
 static func get_enemy_type_config(type: EnemyType) -> Dictionary:
 	match type:
 		EnemyType.ZOMBIE:
 			return {
 				"hp_multiplier": 1.0,
 				"speed_multiplier": 1.0,
-				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
+				"max_speed_multiplier": 1.0,
 				"texture_name": "enemy_zombie",
 				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
+				"max_wave": 50
 			}
 		EnemyType.ZOMBIE_GORDO:
 			return {
-				"hp_multiplier": 1.5,  # 50% mais HP
-				"speed_multiplier": 0.75,  # 25% menos velocidade
-				"max_speed_multiplier": 1.0,  # Cap de velocidade padrão
+				"hp_multiplier": 1.5,
+				"speed_multiplier": 0.75,
+				"max_speed_multiplier": 1.0,
 				"texture_name": "enemy_zombie_gordo",
 				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
+				"max_wave": 50
 			}
 		EnemyType.ZOMBIE_CORREDOR:
 			return {
-				"hp_multiplier": 0.5,  # 50% menos HP (bem menos vida)
-				"speed_multiplier": 1.4,  # 40% mais rápido
-				"max_speed_multiplier": 1.15,  # Cap de velocidade 15% maior
+				"hp_multiplier": 0.5,
+				"speed_multiplier": 1.4,
+				"max_speed_multiplier": 1.15,
 				"texture_name": "enemy_zombie_corredor",
 				"min_wave": 1,
-				"max_wave": 50  # Aparece até wave 50
+				"max_wave": 50
 			}
 		EnemyType.HUMANOID:
 			return {
@@ -80,17 +78,64 @@ static func get_enemy_type_config(type: EnemyType) -> Dictionary:
 				"max_speed_multiplier": 1.0,
 				"texture_name": "enemy_alien",
 				"min_wave": 50,
-				"max_wave": 9999
+				"max_wave": 100
 			}
 		EnemyType.ALIEN_VOADOR:
 			return {
-				"hp_multiplier": 0.3,  # 30% da vida do alien normal
+				"hp_multiplier": 0.3,
 				"speed_multiplier": 1.0,
 				"max_speed_multiplier": 1.0,
 				"texture_name": "alien_voador",
 				"min_wave": 51,
+				"max_wave": 100,
+				"ignores_path": true
+			}
+		EnemyType.MECANOIDE_BIPEDE:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "mecanoide_bipede1",
+				"min_wave": 101,
+				"max_wave": 9999
+			}
+		EnemyType.MECANOIDE_LAGARTAS:
+			return {
+				"hp_multiplier": 0.8,
+				"speed_multiplier": 1.35,
+				"max_speed_multiplier": 1.15,
+				"texture_name": "mecanoide_lagartas1",
+				"min_wave": 101,
+				"max_wave": 9999
+			}
+		EnemyType.MECANOIDE_DRONE:
+			return {
+				"hp_multiplier": 0.35,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "mecanoide_drone1",
+				"min_wave": 101,
 				"max_wave": 9999,
-				"ignores_path": true  # Flag para ignorar labirinto
+				"ignores_path": true
+			}
+		EnemyType.MECANOIDE_REGENERADOR:
+			return {
+				"hp_multiplier": 1.2,
+				"speed_multiplier": 0.9,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "mecanoide_regenerado1",
+				"min_wave": 101,
+				"max_wave": 9999,
+				"regen_hp_per_second": 0.02
+			}
+		EnemyType.MECANOIDE_BOSS:
+			return {
+				"hp_multiplier": 1.0,
+				"speed_multiplier": 1.0,
+				"max_speed_multiplier": 1.0,
+				"texture_name": "mecanoide_boss1",
+				"min_wave": 101,
+				"max_wave": 9999
 			}
 		_:
 			return {
@@ -102,7 +147,6 @@ static func get_enemy_type_config(type: EnemyType) -> Dictionary:
 				"max_wave": 9999
 			}
 
-# Obter tipos de inimigos disponíveis para uma wave específica
 static func get_available_enemy_types(wave: int) -> Array:
 	var available_types = []
 	for type in EnemyType.values():
@@ -111,5 +155,4 @@ static func get_available_enemy_types(wave: int) -> Array:
 			available_types.append(type)
 	return available_types
 
-# Alien Voador Spawn Chance
-const ALIEN_VOADOR_SPAWN_CHANCE := 0.10  # 10% de chance de spawnar alien voador ao invés de alien normal
+const ALIEN_VOADOR_SPAWN_CHANCE := 0.10

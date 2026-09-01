@@ -1,8 +1,6 @@
 extends RefCounted
 class_name StructureBase
 
-# Classe base para todas as estruturas do jogo
-# Encapsula propriedades comuns e métodos auxiliares
 
 var grid_x: int = 0
 var grid_y: int = 0
@@ -13,7 +11,6 @@ func _init(grid_pos: Vector2i = Vector2i.ZERO, world_pos: Vector2 = Vector2.ZERO
 	grid_y = grid_pos.y
 	pos = world_pos
 
-# Converte para Dictionary (compatibilidade com código existente)
 func to_dict() -> Dictionary:
 	return {
 		"grid_x": grid_x,
@@ -21,7 +18,6 @@ func to_dict() -> Dictionary:
 		"pos": pos
 	}
 
-# Cria a partir de um Dictionary (compatibilidade com código existente)
 static func from_dict(data: Dictionary) -> StructureBase:
 	var structure = StructureBase.new()
 	if data.has("grid_x"):

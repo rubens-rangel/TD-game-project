@@ -1,23 +1,19 @@
 extends RefCounted
 class_name PerkManager
 
-# Sistema de Perks (Melhorias Persistentes)
-# Perks são melhorias que persistem entre sessões e são compradas com pontos de achievements
 
 const PERKS_FILE = "user://perks.json"
 
-# Categorias de perks
 enum Category {
-	STARTING,    # Melhorias no início do jogo
-	ECONOMY,     # Melhorias econômicas
-	COMBAT,      # Melhorias de combate
-	DEFENSE,     # Melhorias de defesa
-	PROGRESSION  # Melhorias de progressão
+	STARTING,
+	ECONOMY,
+	COMBAT,
+	DEFENSE,
+	PROGRESSION
 }
 
-# Definir todos os perks disponíveis
 static var ALL_PERKS: Dictionary = {
-	# === STARTING ===
+
 	"starting_coins_1": {
 		"name": "Moedas Iniciais +50",
 		"description": "Comece cada partida com 50 moedas extras",
@@ -49,8 +45,8 @@ static var ALL_PERKS: Dictionary = {
 		"effect": "starting_hp",
 		"effect_value": 20
 	},
-	
-	# === ECONOMY ===
+
+
 	"coin_drop_chance": {
 		"name": "Sorte do Tesouro",
 		"description": "+2.5% de chance de inimigos droparem moedas por nível",
@@ -59,7 +55,7 @@ static var ALL_PERKS: Dictionary = {
 		"max_level": 4,
 		"icon": "🍀",
 		"effect": "coin_drop_chance",
-		"effect_value": 0.025  # 2.5% por nível (máximo 10% com 4 níveis)
+		"effect_value": 0.025
 	},
 	"coin_value_boost": {
 		"name": "Moedas Valiosas",
@@ -91,8 +87,8 @@ static var ALL_PERKS: Dictionary = {
 		"effect": "coin_magnetism",
 		"effect_value": 1.0
 	},
-	
-	# === COMBAT ===
+
+
 	"hero_damage_boost": {
 		"name": "Herói Forte",
 		"description": "+10% de dano do herói",
@@ -123,8 +119,8 @@ static var ALL_PERKS: Dictionary = {
 		"effect": "tower_damage",
 		"effect_value": 0.05
 	},
-	
-	# === DEFENSE ===
+
+
 	"wall_durability": {
 		"name": "Muros Reforçados",
 		"description": "+20% de HP dos muros",
@@ -145,8 +141,8 @@ static var ALL_PERKS: Dictionary = {
 		"effect": "tower_range",
 		"effect_value": 0.10
 	},
-	
-	# === PROGRESSION ===
+
+
 	"wave_reward_boost": {
 		"name": "Recompensas Generosas",
 		"description": "+15% de moedas ao completar waves",
@@ -226,16 +222,84 @@ static var ALL_PERKS: Dictionary = {
 		"icon": "🔮",
 		"effect": "talisman_drop",
 		"effect_value": 0.50
+	},
+	"hero_range_boost": {
+		"name": "Visão do Herói",
+		"description": "+20 de alcance do herói por nível",
+		"category": Category.COMBAT,
+		"cost": 90,
+		"max_level": 4,
+		"icon": "👁️",
+		"effect": "hero_range",
+		"effect_value": 20
+	},
+	"hero_crit_boost": {
+		"name": "Olho de Falcão",
+		"description": "+2% de chance de crítico do herói",
+		"category": Category.COMBAT,
+		"cost": 110,
+		"max_level": 5,
+		"icon": "🎯",
+		"effect": "hero_crit_chance",
+		"effect_value": 0.02
+	},
+	"mine_damage_boost": {
+		"name": "Demolição",
+		"description": "+15% de dano das minas",
+		"category": Category.DEFENSE,
+		"cost": 85,
+		"max_level": 4,
+		"icon": "💣",
+		"effect": "mine_damage",
+		"effect_value": 0.15
+	},
+	"soldier_power": {
+		"name": "Soldados Veteranos",
+		"description": "+12% de dano dos soldados",
+		"category": Category.COMBAT,
+		"cost": 95,
+		"max_level": 4,
+		"icon": "🪖",
+		"effect": "soldier_damage",
+		"effect_value": 0.12
+	},
+	"tower_fire_rate": {
+		"name": "Cadência Suprema",
+		"description": "+4% de cadência de todas as torres",
+		"category": Category.COMBAT,
+		"cost": 130,
+		"max_level": 3,
+		"icon": "⚡",
+		"effect": "tower_fire_rate",
+		"effect_value": 0.04
+	},
+	"skill_haste": {
+		"name": "Mestre das Habilidades",
+		"description": "Habilidades recarregam 5% mais rápido por nível",
+		"category": Category.PROGRESSION,
+		"cost": 120,
+		"max_level": 4,
+		"icon": "✨",
+		"effect": "skill_cooldown",
+		"effect_value": 0.05
+	},
+	"wall_repair": {
+		"name": "Engenheiro de Muralhas",
+		"description": "Muralhas regeneram 1 HP por segundo por nível",
+		"category": Category.DEFENSE,
+		"cost": 140,
+		"max_level": 3,
+		"icon": "🔧",
+		"effect": "wall_regen",
+		"effect_value": 1.0
 	}
 }
 
-# Estado dos perks (níveis comprados)
 var perks_state: Dictionary = {}
 
 func _init():
 	load_perks()
 
-# Carregar perks do arquivo
 func load_perks() -> void:
 	if FileAccess.file_exists(PERKS_FILE):
 		var file = FileAccess.open(PERKS_FILE, FileAccess.READ)
@@ -247,8 +311,8 @@ func load_perks() -> void:
 				perks_state = json.data.get("perks", {})
 				_initialize_missing_perks()
 				return
-	
-	# Se não existe arquivo, inicializar tudo
+
+
 	_initialize_all_perks()
 
 func _initialize_all_perks() -> void:
@@ -267,13 +331,12 @@ func _initialize_missing_perks() -> void:
 				"purchased_at": 0
 			}
 
-# Salvar perks
 func save_perks() -> void:
 	var save_data = {
 		"perks": perks_state,
 		"last_saved": Time.get_unix_time_from_system()
 	}
-	
+
 	var file = FileAccess.open(PERKS_FILE, FileAccess.WRITE)
 	if file != null:
 		var json_string = JSON.stringify(save_data)
@@ -281,72 +344,67 @@ func save_perks() -> void:
 		file.close()
 		print("Perks salvos com sucesso!")
 
-# Comprar ou melhorar um perk
 func purchase_perk(perk_id: String, achievement_manager: AchievementManager) -> bool:
 	if not ALL_PERKS.has(perk_id):
 		print("Perk não encontrado: ", perk_id)
 		return false
-	
+
 	var perk = ALL_PERKS[perk_id]
 	var state = perks_state.get(perk_id, {"level": 0, "purchased_at": 0})
-	
-	# Verificar se já está no nível máximo
+
+
 	if state.level >= perk.max_level:
 		print("Perk já está no nível máximo!")
 		return false
-	
-	# Verificar requisitos
+
+
 	if perk.has("requires"):
 		var required_perk = perk.requires
 		var required_state = perks_state.get(required_perk, {"level": 0})
 		if required_state.level < ALL_PERKS[required_perk].max_level:
 			print("Requisito não atendido: ", required_perk)
 			return false
-	
-	# Verificar se tem pontos suficientes
+
+
 	var cost = perk.cost
 	if achievement_manager.total_points < cost:
 		print("Pontos insuficientes! Necessário: ", cost, ", Disponível: ", achievement_manager.total_points)
 		return false
-	
-	# Comprar
+
+
 	achievement_manager.total_points -= cost
 	state.level += 1
 	state.purchased_at = Time.get_unix_time_from_system()
 	perks_state[perk_id] = state
-	
+
 	achievement_manager.save_achievements()
 	save_perks()
-	
+
 	print("Perk comprado: ", perk.name, " (Nível ", state.level, "/", perk.max_level, ")")
 	return true
 
-# Obter nível de um perk
 func get_perk_level(perk_id: String) -> int:
 	if not perks_state.has(perk_id):
 		return 0
 	return perks_state[perk_id].level
 
-# Verificar se perk está desbloqueado (nível > 0)
 func is_perk_unlocked(perk_id: String) -> bool:
 	return get_perk_level(perk_id) > 0
 
-# Obter informações completas de um perk
 func get_perk_info(perk_id: String) -> Dictionary:
 	if not ALL_PERKS.has(perk_id):
 		return {}
-	
+
 	var perk = ALL_PERKS[perk_id].duplicate()
 	var state = perks_state.get(perk_id, {"level": 0, "purchased_at": 0})
-	
+
 	perk["level"] = state.level
 	perk["purchased_at"] = state.purchased_at
 	perk["id"] = perk_id
 	perk["is_max_level"] = state.level >= perk.max_level
-	
+
 	return perk
 
-# Obter todos os perks de uma categoria
 func get_perks_by_category(category: Category) -> Array:
 	var result = []
 	for perk_id in ALL_PERKS.keys():
@@ -355,62 +413,58 @@ func get_perks_by_category(category: Category) -> Array:
 			result.append(get_perk_info(perk_id))
 	return result
 
-# Obter todos os perks
 func get_all_perks() -> Array:
 	var result = []
 	for perk_id in ALL_PERKS.keys():
 		result.append(get_perk_info(perk_id))
 	return result
 
-# Aplicar efeitos dos perks no jogo
 func apply_perk_effects(game_instance: Node2D) -> Dictionary:
 	var effects = {}
-	
+
 	for perk_id in perks_state.keys():
 		var state = perks_state[perk_id]
 		if state.level <= 0:
 			continue
-		
+
 		if not ALL_PERKS.has(perk_id):
 			continue
-		
+
 		var perk = ALL_PERKS[perk_id]
 		var effect = perk.effect
 		var effect_value = perk.effect_value * state.level
-		
+
 		if not effects.has(effect):
 			effects[effect] = 0.0
-		
+
 		effects[effect] += effect_value
-	
+
 	return effects
 
-# Resetar todos os perks e devolver pontos gastos
 func reset_all_perks(achievement_manager: AchievementManager) -> int:
-	# Calcular quantos pontos foram gastos em perks
+
 	var total_spent = 0
 	for perk_id in perks_state.keys():
 		var state = perks_state[perk_id]
 		if state.level > 0 and ALL_PERKS.has(perk_id):
 			var perk = ALL_PERKS[perk_id]
-			# Cada nível custa o mesmo valor (perk.cost)
+
 			total_spent += perk.cost * state.level
-	
-	# Devolver pontos gastos
+
+
 	if achievement_manager:
 		achievement_manager.total_points += total_spent
 		achievement_manager.save_achievements()
 		print("Pontos devolvidos: ", total_spent)
-	
-	# Resetar perks
+
+
 	perks_state = {}
 	_initialize_all_perks()
 	save_perks()
 	print("Todos os perks foram resetados! Total de pontos devolvidos: ", total_spent)
-	
+
 	return total_spent
 
-# Instância singleton
 static var instance: PerkManager = null
 
 static func get_instance() -> PerkManager:

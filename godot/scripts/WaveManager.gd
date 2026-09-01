@@ -5,12 +5,12 @@ const GameConstants = preload("res://scripts/Constants.gd")
 
 enum SpecialWaveType {
 	NONE,
-	NIGHT_HORDE,      # Mais inimigos
-	DOUBLE_COINS,     # 2x moedas
-	MAX_SPEED,        # Inimigos rápidos
-	BOSS_RUSH,        # Apenas bosses
-	PERFECT_WAVE,     # Bônus por completar sem perder HP
-	HELL_WAVE         # HP baixo, velocidade alta
+	NIGHT_HORDE,
+	DOUBLE_COINS,
+	MAX_SPEED,
+	BOSS_RUSH,
+	PERFECT_WAVE,
+	HELL_WAVE
 }
 
 signal wave_started(wave_number: int, is_boss_wave: bool, special_wave_type: SpecialWaveType)
@@ -40,8 +40,8 @@ func wave_factor() -> float:
 		base_scale = 1.04
 	else:
 		base_scale = GameConstants.WAVE_SCALE
-	
-	# Aplicar escala progressiva
+
+
 	if wave <= 1:
 		return 1.0
 	elif wave <= 25:
@@ -57,64 +57,73 @@ func wave_factor() -> float:
 func start_next_wave():
 	wave += 1
 	bosses_spawned_this_wave = 0
-	
-	# Determinar se é uma wave especial
+
+
 	special_wave_type = _determine_special_wave_type()
-	
+
 	var is_boss = is_boss_wave()
 	var base: int = 6
 	var plus_each: int = max(0, wave - 1)
 	var bonus_five: int = 3 * int(floor(max(0, wave - 1) / 5))
 	to_spawn = base + plus_each + bonus_five
-	
-	# Aplicar modificadores de wave especial
+
+	# Teto: ~50 na wave 50, 100 na wave 100, crescimento ligeiro após 100
+	var cap := 99999
+	if wave >= 50:
+		cap = 50 + (wave - 50)
+	if wave > 100:
+		cap = 100 + int((wave - 100) * 0.4)
+	to_spawn = mini(to_spawn, cap)
+
 	if special_wave_type == SpecialWaveType.NIGHT_HORDE:
-		to_spawn = int(to_spawn * 2.0)  # 2x mais inimigos
+		to_spawn = int(to_spawn * 2.0)
 	elif special_wave_type == SpecialWaveType.BOSS_RUSH:
-		to_spawn = 0  # Não spawnar inimigos normais, apenas bosses
-		is_boss = true  # Forçar comportamento de boss wave
-	
+		to_spawn = 0
+		is_boss = true
+
 	spawn_rate = max(0.12, 0.5 - wave * 0.02)
+	if wave >= GameConstants.WAVE_SPAWN_MIN_INTERVAL_FROM_WAVE:
+		spawn_rate = max(spawn_rate, GameConstants.WAVE_SPAWN_MIN_INTERVAL_SECONDS)
 	spawn_cd = 0.0
 	spawning = true
-	
+
 	wave_started.emit(wave, is_boss, special_wave_type)
 
 func update(delta: float) -> bool:
-	# retorna true se deve spawnar um inimigo
+
 	if not spawning:
 		return false
-	
+
 	spawn_cd -= delta
 	if spawn_cd <= 0.0:
-		# Boss Rush: spawnar apenas bosses (mínimo 4)
+
 		if special_wave_type == SpecialWaveType.BOSS_RUSH:
-			if bosses_spawned_this_wave < 4:  # Garantir pelo menos 4 bosses
+			if bosses_spawned_this_wave < 4:
 				spawn_cd = spawn_rate
 				bosses_spawned_this_wave += 1
-				return true  # spawn boss
+				return true
 			else:
 				spawning = false
 				time_to_next_wave = intermission
 				return false
-		
+
 		var should_spawn_boss = is_boss_wave() and bosses_spawned_this_wave < 2
 		var has_more_to_spawn = to_spawn > 0 or should_spawn_boss
-		
+
 		if has_more_to_spawn:
 			if should_spawn_boss:
 				spawn_cd = spawn_rate
 				bosses_spawned_this_wave += 1
-				return true  # spawn boss
+				return true
 			elif to_spawn > 0:
 				spawn_cd = spawn_rate
 				to_spawn -= 1
-				return true  # spawn normal
-	
+				return true
+
 	if to_spawn == 0 and not (is_boss_wave() and bosses_spawned_this_wave < 2) and special_wave_type != SpecialWaveType.BOSS_RUSH:
 		spawning = false
 		time_to_next_wave = intermission
-	
+
 	return false
 
 func should_start_wave() -> bool:
@@ -142,10 +151,10 @@ func jump_to_wave(target_wave: int):
 
 func _determine_special_wave_type() -> SpecialWaveType:
 	"""Determina se a wave atual é especial e qual tipo"""
-	# Waves especiais aparecem a cada SPECIAL_WAVE_INTERVAL waves
+
 	if wave % GameConstants.SPECIAL_WAVE_INTERVAL == 0 and wave > 0:
-		# Escolher tipo aleatório de wave especial
-		# Evitar PERFECT_WAVE se já foi recentemente
+
+
 		var available_types = [
 			SpecialWaveType.NIGHT_HORDE,
 			SpecialWaveType.DOUBLE_COINS,
@@ -196,4 +205,3 @@ func get_special_wave_description() -> String:
 			return "Inimigos com 50% menos HP mas 2x velocidade"
 		_:
 			return ""
-
